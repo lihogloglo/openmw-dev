@@ -546,6 +546,7 @@ if (USE_QT)
 endif()
 
 include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
+include_directories(${JOLT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
 find_package(SQLite3 REQUIRED)
 
@@ -604,7 +605,7 @@ if(Boost_VERSION_STRING VERSION_GREATER_EQUAL 1.77.0)
     target_link_libraries(components ${Boost_ATOMIC_LIBRARY})
 endif()
 
-target_link_libraries(components ${BULLET_LIBRARIES})
+target_link_libraries(components ${BULLET_LIBRARIES} ${JOLT_LIBRARIES})
 
 if (WIN32)
     target_link_libraries(components
