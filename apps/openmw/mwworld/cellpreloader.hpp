@@ -19,7 +19,7 @@ namespace osg
 namespace Resource
 {
     class ResourceSystem;
-    class BulletShapeManager;
+    class PhysicsShapeManager;
 }
 
 namespace Terrain
@@ -46,7 +46,7 @@ namespace MWWorld
     class CellPreloader
     {
     public:
-        CellPreloader(Resource::ResourceSystem* resourceSystem, Resource::BulletShapeManager* bulletShapeManager,
+        CellPreloader(Resource::ResourceSystem* resourceSystem, Resource::PhysicsShapeManager* bulletShapeManager,
             Terrain::World* terrain, MWRender::LandManager* landManager);
         ~CellPreloader();
 
@@ -91,7 +91,7 @@ namespace MWWorld
         void clearAllTasks();
 
         Resource::ResourceSystem* mResourceSystem;
-        Resource::BulletShapeManager* mBulletShapeManager;
+        Resource::PhysicsShapeManager* mPhysicsShapeManager;
         Terrain::World* mTerrain;
         MWRender::LandManager* mLandManager;
         osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;

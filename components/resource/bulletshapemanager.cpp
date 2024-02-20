@@ -97,7 +97,7 @@ namespace Resource
         std::unique_ptr<btTriangleMesh> mTriangleMesh;
     };
 
-    BulletShapeManager::BulletShapeManager(
+    PhysicsShapeManager::PhysicsShapeManager(
         const VFS::Manager* vfs, SceneManager* sceneMgr, NifFileManager* nifFileManager, double expiryDelay)
         : ResourceManager(vfs, expiryDelay)
         , mInstanceCache(new MultiObjectCache)
@@ -106,9 +106,9 @@ namespace Resource
     {
     }
 
-    BulletShapeManager::~BulletShapeManager() {}
+    PhysicsShapeManager::~PhysicsShapeManager() {}
 
-    osg::ref_ptr<const BulletShape> BulletShapeManager::getShape(const std::string& name)
+    osg::ref_ptr<const BulletShape> PhysicsShapeManager::getShape(const std::string& name)
     {
         const VFS::Path::Normalized normalized(name);
 
@@ -168,7 +168,7 @@ namespace Resource
         return shape;
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::cacheInstance(const std::string& name)
+    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::cacheInstance(const std::string& name)
     {
         const std::string normalized = VFS::Path::normalizeFilename(name);
 
@@ -178,7 +178,7 @@ namespace Resource
         return instance;
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::getInstance(const std::string& name)
+    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::getInstance(const std::string& name)
     {
         const std::string normalized = VFS::Path::normalizeFilename(name);
 
@@ -189,7 +189,7 @@ namespace Resource
             return createInstance(normalized);
     }
 
-    osg::ref_ptr<BulletShapeInstance> BulletShapeManager::createInstance(const std::string& name)
+    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::createInstance(const std::string& name)
     {
         osg::ref_ptr<const BulletShape> shape = getShape(name);
         if (shape)
@@ -197,21 +197,21 @@ namespace Resource
         return osg::ref_ptr<BulletShapeInstance>();
     }
 
-    void BulletShapeManager::updateCache(double referenceTime)
+    void PhysicsShapeManager::updateCache(double referenceTime)
     {
         ResourceManager::updateCache(referenceTime);
 
         mInstanceCache->removeUnreferencedObjectsInCache();
     }
 
-    void BulletShapeManager::clearCache()
+    void PhysicsShapeManager::clearCache()
     {
         ResourceManager::clearCache();
 
         mInstanceCache->clear();
     }
 
-    void BulletShapeManager::reportStats(unsigned int frameNumber, osg::Stats* stats) const
+    void PhysicsShapeManager::reportStats(unsigned int frameNumber, osg::Stats* stats) const
     {
         Resource::reportStats("Shape", frameNumber, mCache->getStats(), *stats);
         Resource::reportStats("Shape Instance", frameNumber, mInstanceCache->getStats(), *stats);
