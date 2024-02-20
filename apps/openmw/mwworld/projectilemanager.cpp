@@ -538,7 +538,7 @@ namespace MWWorld
                     bow = *invIt;
             }
 
-            const auto hitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+            const auto hitPosition = projectile->getHitPosition();
 
             if (projectile->getHitWater())
                 mRendering->emitWaterRipple(hitPosition);
@@ -568,7 +568,7 @@ namespace MWWorld
             assert(target != caster);
 
             MWMechanics::CastSpell cast(caster, target);
-            cast.mHitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+            cast.mHitPosition = projectile->getHitPosition();
             cast.mId = magicBoltState.mSpellId;
             cast.mSourceName = magicBoltState.mSourceName;
             cast.mItem = magicBoltState.mItem;

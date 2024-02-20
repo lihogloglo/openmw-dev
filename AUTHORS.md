@@ -250,6 +250,7 @@ Programmers
     Yuri Krupenin
     Yury Stepovikov
     zelurker
+    cykboy
 
 Documentation
 -------------

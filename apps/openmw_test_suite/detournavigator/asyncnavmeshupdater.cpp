@@ -7,8 +7,6 @@
 #include <components/detournavigator/serialization.hpp>
 #include <components/loadinglistener/loadinglistener.hpp>
 
-#include <BulletCollision/CollisionShapes/btBoxShape.h>
-
 #include <DetourNavMesh.h>
 
 #include <gtest/gtest.h>
@@ -32,15 +30,15 @@ namespace
     void addObject(const btBoxShape& shape, TileCachedRecastMeshManager& recastMeshManager)
     {
         const ObjectId id(&shape);
-        osg::ref_ptr<Resource::BulletShape> bulletShape(new Resource::BulletShape);
-        bulletShape->mFileName = "test.nif";
-        bulletShape->mFileHash = "test_hash";
+        osg::ref_ptr<Resource::PhysicsShape> physicsShape(new Resource::PhysicsShape);
+        physicsShape->mFileName = "test.nif";
+        physicsShape->mFileHash = "test_hash";
         ObjectTransform objectTransform;
         std::fill(std::begin(objectTransform.mPosition.pos), std::end(objectTransform.mPosition.pos), 0.1f);
         std::fill(std::begin(objectTransform.mPosition.rot), std::end(objectTransform.mPosition.rot), 0.2f);
         objectTransform.mScale = 3.14f;
         const CollisionShape collisionShape(
-            osg::ref_ptr<Resource::BulletShapeInstance>(new Resource::BulletShapeInstance(bulletShape)), shape,
+            osg::ref_ptr<Resource::PhysicsShapeInstance>(new Resource::PhysicsShapeInstance(physicsShape)), shape,
             objectTransform);
         recastMeshManager.addObject(id, collisionShape, btTransform::getIdentity(), AreaType_ground, nullptr);
     }

@@ -4,8 +4,6 @@
 #include <chrono>
 #include <limits>
 
-#include <BulletCollision/CollisionDispatch/btCollisionObject.h>
-
 #include <components/debug/debuglog.hpp>
 #include <components/detournavigator/agentbounds.hpp>
 #include <components/detournavigator/debug.hpp>
@@ -147,31 +145,32 @@ namespace
 
             if (ptr.getClass().isDoor() && !ptr.getCellRef().getTeleport())
             {
-                btVector3 aabbMin;
-                btVector3 aabbMax;
-                object->getShapeInstance()->mCollisionShape->getAabb(btTransform::getIdentity(), aabbMin, aabbMax);
+                JPH::AABox aabbBounds = object->getShapeInstance()->mCollisionShape->GetLocalBounds();
+
+                osg::Vec3f aabbMin = Misc::Convert::toOsg(aabbBounds.mMin);
+                osg::Vec3f aabbMax = Misc::Convert::toOsg(aabbBounds.mMax);
 
                 const auto center = (aabbMax + aabbMin) * 0.5f;
 
                 const auto distanceFromDoor = world.getMaxActivationDistance() * 0.5f;
                 const auto toPoint = aabbMax.x() - aabbMin.x() < aabbMax.y() - aabbMin.y()
-                    ? btVector3(distanceFromDoor, 0, 0)
-                    : btVector3(0, distanceFromDoor, 0);
+                    ? osg::Vec3f(distanceFromDoor, 0, 0)
+                    : osg::Vec3f(0, distanceFromDoor, 0);
 
-                const auto transform = object->getTransform();
-                const btTransform closedDoorTransform(
-                    Misc::Convert::makeBulletQuaternion(ptr.getCellRef().getPosition()), transform.getOrigin());
+                auto transform = object->getTransform();
+                const auto rotation = Misc::Convert::makeQuaternion(ptr.getCellRef().getPosition());
+                transform.setRotate(rotation);
 
-                const auto start = Misc::Convert::toOsg(closedDoorTransform(center + toPoint));
+                const auto start = (center + toPoint) * transform;
                 const auto startPoint = physics.castRay(start, start - osg::Vec3f(0, 0, 1000), { ptr }, {},
-                    MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
-                        | MWPhysics::CollisionType_Water);
+                    MWPhysics::Layers::WORLD | MWPhysics::Layers::HEIGHTMAP
+                        | MWPhysics::Layers::WATER);
                 const auto connectionStart = startPoint.mHit ? startPoint.mHitPos : start;
 
-                const auto end = Misc::Convert::toOsg(closedDoorTransform(center - toPoint));
+                const auto end = (center - toPoint) * transform;
                 const auto endPoint = physics.castRay(end, end - osg::Vec3f(0, 0, 1000), { ptr }, {},
-                    MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap
-                        | MWPhysics::CollisionType_Water);
+                    MWPhysics::Layers::WORLD | MWPhysics::Layers::HEIGHTMAP
+                        | MWPhysics::Layers::WATER);
                 const auto connectionEnd = endPoint.mHit ? endPoint.mHitPos : end;
 
                 navigator.addObject(DetourNavigator::ObjectId(object),
@@ -421,8 +420,6 @@ namespace MWWorld
             if (const auto heightField = mPhysics->getHeightField(cellX, cellY))
             {
                 const osg::Vec2i cellPosition(cellX, cellY);
-                const btVector3& origin = heightField->getCollisionObject()->getWorldTransform().getOrigin();
-                const osg::Vec3f shift(origin.x(), origin.y(), origin.z());
                 const HeightfieldShape shape = [&]() -> HeightfieldShape {
                     if (data == nullptr)
                     {
@@ -791,7 +788,8 @@ namespace MWWorld
         mHalfGridSize = cell.getCell()->isEsm4() ? Constants::ESM4CellGridRadius : Constants::CellGridRadius;
         mCurrentCell = &cell;
 
-        mRendering.enableTerrain(cell.isExterior(), cell.getCell()->getWorldSpace());
+        const bool isExterior = cell.isExterior();
+        mRendering.enableTerrain(isExterior, cell.getCell()->getWorldSpace());
 
         MWWorld::Ptr old = mWorld.getPlayerPtr();
         mWorld.getPlayer().setCell(&cell);
@@ -799,10 +797,17 @@ namespace MWWorld
         MWWorld::Ptr player = mWorld.getPlayerPtr();
         mRendering.updatePlayerPtr(player);
 
-        // The player is loaded before the scene and by default it is grounded, with the scene fully loaded,
-        // we validate and correct this. Only run once, during initial cell load.
         if (old.mCell == &cell)
+        {
+            // We can optimize physics collisions when rapidly changing dataset (such as interior load)
+            if (!isExterior) {
+                mPhysics->optimize();
+            }
+
+            // The player is loaded before the scene and by default it is grounded, with the scene fully loaded,
+            // we validate and correct this. Only run once, during initial cell load.
             mPhysics->traceDown(player, player.getRefData().getPosition().asVec3(), 10.f);
+        }
 
         if (adjustPlayerPos)
         {

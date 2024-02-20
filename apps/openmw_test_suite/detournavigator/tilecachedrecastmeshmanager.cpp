@@ -3,8 +3,6 @@
 #include <components/detournavigator/settingsutils.hpp>
 #include <components/detournavigator/tilecachedrecastmeshmanager.hpp>
 
-#include <BulletCollision/CollisionShapes/btBoxShape.h>
-
 #include <osg/io_utils>
 
 #include <gmock/gmock.h>
@@ -19,8 +17,8 @@ namespace
     {
         RecastSettings mSettings;
         const ObjectTransform mObjectTransform{ ESM::Position{ { 0, 0, 0 }, { 0, 0, 0 } }, 0.0f };
-        const osg::ref_ptr<const Resource::BulletShape> mShape = new Resource::BulletShape;
-        const osg::ref_ptr<const Resource::BulletShapeInstance> mInstance = new Resource::BulletShapeInstance(mShape);
+        const osg::ref_ptr<const Resource::PhysicsShape> mShape = new Resource::PhysicsShape;
+        const osg::ref_ptr<const Resource::PhysicsShapeInstance> mInstance = new Resource::PhysicsShapeInstance(mShape);
 
         DetourNavigatorTileCachedRecastMeshManagerTest()
         {

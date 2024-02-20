@@ -387,7 +387,6 @@ case $VS_VERSION in
 		MYGUI_MSVC_YEAR="2019"
 		LUA_MSVC_YEAR="2019"
 		QT_MSVC_YEAR="2019"
-		BULLET_MSVC_YEAR="2019"
 
 		BOOST_VER="1.80.0"
 		BOOST_VER_URL="1_80_0"
@@ -405,7 +404,6 @@ case $VS_VERSION in
 		MYGUI_MSVC_YEAR="2019"
 		LUA_MSVC_YEAR="2019"
 		QT_MSVC_YEAR="2019"
-		BULLET_MSVC_YEAR="2019"
 
 		BOOST_VER="1.80.0"
 		BOOST_VER_URL="1_80_0"
@@ -567,7 +565,6 @@ if ! [ -z "$USE_CLANG_TIDY" ]; then
   add_cmake_opts "-DCMAKE_CXX_CLANG_TIDY=\"clang-tidy --warnings-as-errors=*\""
 fi
 
-BULLET_VER="2.89"
 FFMPEG_VER="4.2.2"
 ICU_VER="70_1"
 LUAJIT_VER="v2.1.0-beta3-452-g7a0cf5fd"
@@ -607,11 +604,6 @@ if [ -z $SKIP_DOWNLOAD ]; then
 			"https://gitlab.com/OpenMW/openmw-deps/-/raw/main/windows/boost_${BOOST_VER_URL}-msvc-${MSVC_VER}-${BITS}.exe" \
 			"boost-${BOOST_VER}-msvc${MSVC_VER}-win${BITS}.exe"
 	fi
-
-	# Bullet
-	download "Bullet ${BULLET_VER}" \
-		"https://gitlab.com/OpenMW/openmw-deps/-/raw/main/windows/Bullet-${BULLET_VER}-msvc${BULLET_MSVC_YEAR}-win${BITS}-double-mt.7z" \
-		"Bullet-${BULLET_VER}-msvc${BULLET_MSVC_YEAR}-win${BITS}-double-mt.7z"
 
 	# FFmpeg
 	download "FFmpeg ${FFMPEG_VER}" \
@@ -750,21 +742,6 @@ fi
 
 		echo Done.
 	fi
-}
-cd $DEPS
-echo
-printf "Bullet ${BULLET_VER}... "
-{
-	cd $DEPS_INSTALL
-	if [ -d Bullet ]; then
-		printf -- "Exists. (No version checking) "
-	elif [ -z $SKIP_EXTRACT ]; then
-		rm -rf Bullet
-		eval 7z x -y "${DEPS}/Bullet-${BULLET_VER}-msvc${BULLET_MSVC_YEAR}-win${BITS}-double-mt.7z" $STRIP
-		mv "Bullet-${BULLET_VER}-msvc${BULLET_MSVC_YEAR}-win${BITS}-double-mt" Bullet
-	fi
-	add_cmake_opts -DBULLET_ROOT="$(real_pwd)/Bullet"
-	echo Done.
 }
 cd $DEPS
 echo

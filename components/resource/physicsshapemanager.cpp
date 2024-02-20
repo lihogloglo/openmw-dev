@@ -1,4 +1,4 @@
-#include "bulletshapemanager.hpp"
+#include "physicsshapemanager.hpp"
 
 #include <cstring>
 
@@ -7,7 +7,12 @@
 #include <osg/Transform>
 #include <osg/TriangleFunctor>
 
-#include <BulletCollision/CollisionShapes/btTriangleMesh.h>
+#include <Jolt/Jolt.h>
+#include <Jolt/Geometry/Triangle.h>
+#include <Jolt/Physics/Collision/Shape/MeshShape.h>
+#include <Jolt/Physics/Collision/Shape/ScaledShape.h>
+#include <Jolt/Physics/Collision/PhysicsMaterialSimple.h>
+#include <Jolt/Physics/Collision/Shape/StaticCompoundShape.h>
 
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/pathhelpers.hpp>
@@ -15,9 +20,11 @@
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
 
-#include <components/nifbullet/bulletnifloader.hpp>
+#include <components/nifjolt/joltnifloader.hpp>
 
-#include "bulletshape.hpp"
+#include <components/misc/convert.hpp>
+
+#include "physicsshape.hpp"
 #include "multiobjectcache.hpp"
 #include "niffilemanager.hpp"
 #include "objectcache.hpp"
@@ -33,25 +40,38 @@ namespace Resource
         {
         }
 
-        void setTriMesh(btTriangleMesh* triMesh) { mTriMesh = triMesh; }
+        void setTriMesh(JPH::MeshShapeSettings* triMesh) { mTriMesh = triMesh; }
 
         void setMatrix(const osg::Matrixf& matrix) { mMatrix = matrix; }
-
-        inline btVector3 toBullet(const osg::Vec3f& vec) { return btVector3(vec.x(), vec.y(), vec.z()); }
 
         void inline operator()(const osg::Vec3& v1, const osg::Vec3& v2, const osg::Vec3& v3,
             bool _temp = false) // Note: unused temp argument left here for OSG versions less than 3.5.6
         {
+
+            // FIXME: we could look at not using triangle functor and copying verts/indices directly!
             if (mTriMesh)
-                mTriMesh->addTriangle(
-                    toBullet(mMatrix.preMult(v1)), toBullet(mMatrix.preMult(v2)), toBullet(mMatrix.preMult(v3)));
+            {
+                uint32_t sizeC = mTriMesh->mTriangleVertices.size();
+                mTriMesh->mTriangleVertices.push_back(Misc::Convert::toJolt<JPH::Float3>(mMatrix.preMult(v1)));
+                mTriMesh->mTriangleVertices.push_back(Misc::Convert::toJolt<JPH::Float3>(mMatrix.preMult(v2)));
+                mTriMesh->mTriangleVertices.push_back(Misc::Convert::toJolt<JPH::Float3>(mMatrix.preMult(v3)));
+
+                mTriMesh->mIndexedTriangles.push_back(
+                    JPH::IndexedTriangle(
+                        sizeC + 0,
+                        sizeC + 1,
+                        sizeC + 2
+                    )
+                );
+
+            }
         }
 
-        btTriangleMesh* mTriMesh;
+        JPH::MeshShapeSettings* mTriMesh;
         osg::Matrixf mMatrix;
     };
 
-    /// Creates a BulletShape out of a Node hierarchy.
+    /// Creates a PhysicsShape out of a Node hierarchy.
     class NodeToShapeVisitor : public osg::NodeVisitor
     {
     public:
@@ -63,8 +83,9 @@ namespace Resource
 
         void apply(osg::Drawable& drawable) override
         {
+            // NOTE: this assumes OSG-based physics shapes are not animated
             if (!mTriangleMesh)
-                mTriangleMesh.reset(new btTriangleMesh);
+                mTriangleMesh.reset(new JPH::MeshShapeSettings);
 
             osg::Matrixf worldMat = osg::computeLocalToWorld(getNodePath());
             osg::TriangleFunctor<GetTriangleFunctor> functor;
@@ -73,28 +94,48 @@ namespace Resource
             drawable.accept(functor);
         }
 
-        osg::ref_ptr<BulletShape> getShape()
+        osg::ref_ptr<PhysicsShape> getShape()
         {
-            if (!mTriangleMesh || mTriangleMesh->getNumTriangles() == 0)
-                return osg::ref_ptr<BulletShape>();
+            if (!mTriangleMesh || mTriangleMesh->mTriangleVertices.size() == 0)
+                return osg::ref_ptr<PhysicsShape>();
 
-            osg::ref_ptr<BulletShape> shape(new BulletShape);
+            osg::ref_ptr<PhysicsShape> shape(new PhysicsShape);
 
             auto triangleMeshShape = std::make_unique<TriangleMeshShape>(mTriangleMesh.release(), true);
-            btVector3 aabbMin = triangleMeshShape->getLocalAabbMin();
-            btVector3 aabbMax = triangleMeshShape->getLocalAabbMax();
+
+            auto meshInterface = triangleMeshShape.release()->m_meshInterface;
+
+            auto createdRef = meshInterface->Create();
+            if (createdRef.HasError())
+            {
+                // Remove degenerate and duplicate triangles, then try again
+                meshInterface->Sanitize();
+
+                createdRef = meshInterface->Create();
+                if (createdRef.HasError())
+                {
+                    Log(Debug::Error) << "PhysicsShape::getShape mesh error: " << createdRef.GetError();
+                    // assert(false);
+                    return shape;
+                }
+            }
+
+            shape->mCollisionShape = createdRef.Get();
+
+            JPH::AABox bounds = shape->mCollisionShape->GetLocalBounds();
+            osg::Vec3f aabbMin = osg::Vec3f(bounds.mMin.GetX(), bounds.mMin.GetY(), bounds.mMin.GetZ());
+            osg::Vec3f aabbMax = osg::Vec3f(bounds.mMax.GetX(), bounds.mMax.GetY(), bounds.mMax.GetZ());
             shape->mCollisionBox.mExtents[0] = (aabbMax[0] - aabbMin[0]) / 2.0f;
             shape->mCollisionBox.mExtents[1] = (aabbMax[1] - aabbMin[1]) / 2.0f;
             shape->mCollisionBox.mExtents[2] = (aabbMax[2] - aabbMin[2]) / 2.0f;
             shape->mCollisionBox.mCenter = osg::Vec3f(
                 (aabbMax[0] + aabbMin[0]) / 2.0f, (aabbMax[1] + aabbMin[1]) / 2.0f, (aabbMax[2] + aabbMin[2]) / 2.0f);
-            shape->mCollisionShape.reset(triangleMeshShape.release());
 
             return shape;
         }
 
     private:
-        std::unique_ptr<btTriangleMesh> mTriangleMesh;
+        std::unique_ptr<JPH::MeshShapeSettings> mTriangleMesh;
     };
 
     PhysicsShapeManager::PhysicsShapeManager(
@@ -108,25 +149,23 @@ namespace Resource
 
     PhysicsShapeManager::~PhysicsShapeManager() {}
 
-    osg::ref_ptr<const BulletShape> PhysicsShapeManager::getShape(const std::string& name)
+    osg::ref_ptr<const PhysicsShape> PhysicsShapeManager::getShape(const std::string& name)
     {
         const VFS::Path::Normalized normalized(name);
 
-        osg::ref_ptr<BulletShape> shape;
+        osg::ref_ptr<PhysicsShape> shape;
         osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(normalized);
         if (obj)
-            shape = osg::ref_ptr<BulletShape>(static_cast<BulletShape*>(obj.get()));
+            shape = osg::ref_ptr<PhysicsShape>(static_cast<PhysicsShape*>(obj.get()));
         else
         {
             if (Misc::getFileExtension(normalized) == "nif")
             {
-                NifBullet::BulletNifLoader loader;
+                NifJolt::JoltNifLoader loader;
                 shape = loader.load(*mNifFileManager->get(normalized));
             }
             else
             {
-                // TODO: support .bullet shape files
-
                 osg::ref_ptr<const osg::Node> constNode(mSceneManager->getTemplate(normalized));
                 osg::ref_ptr<osg::Node> node(const_cast<osg::Node*>(
                     constNode.get())); // const-trickery required because there is no const version of NodeVisitor
@@ -153,7 +192,7 @@ namespace Resource
                     node->accept(visitor);
                     shape = visitor.getShape();
                     if (!shape)
-                        return osg::ref_ptr<BulletShape>();
+                        return osg::ref_ptr<PhysicsShape>();
                 }
 
                 if (shape != nullptr)
@@ -168,33 +207,33 @@ namespace Resource
         return shape;
     }
 
-    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::cacheInstance(const std::string& name)
+    osg::ref_ptr<PhysicsShapeInstance> PhysicsShapeManager::cacheInstance(const std::string& name)
     {
         const std::string normalized = VFS::Path::normalizeFilename(name);
 
-        osg::ref_ptr<BulletShapeInstance> instance = createInstance(normalized);
+        osg::ref_ptr<PhysicsShapeInstance> instance = createInstance(normalized);
         if (instance)
             mInstanceCache->addEntryToObjectCache(normalized, instance.get());
         return instance;
     }
 
-    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::getInstance(const std::string& name)
+    osg::ref_ptr<PhysicsShapeInstance> PhysicsShapeManager::getInstance(const std::string& name)
     {
         const std::string normalized = VFS::Path::normalizeFilename(name);
 
         osg::ref_ptr<osg::Object> obj = mInstanceCache->takeFromObjectCache(normalized);
         if (obj.get())
-            return static_cast<BulletShapeInstance*>(obj.get());
+            return static_cast<PhysicsShapeInstance*>(obj.get());
         else
             return createInstance(normalized);
     }
 
-    osg::ref_ptr<BulletShapeInstance> PhysicsShapeManager::createInstance(const std::string& name)
+    osg::ref_ptr<PhysicsShapeInstance> PhysicsShapeManager::createInstance(const std::string& name)
     {
-        osg::ref_ptr<const BulletShape> shape = getShape(name);
+        osg::ref_ptr<const PhysicsShape> shape = getShape(name);
         if (shape)
             return makeInstance(std::move(shape));
-        return osg::ref_ptr<BulletShapeInstance>();
+        return osg::ref_ptr<PhysicsShapeInstance>();
     }
 
     void PhysicsShapeManager::updateCache(double referenceTime)

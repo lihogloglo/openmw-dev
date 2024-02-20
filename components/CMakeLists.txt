@@ -115,11 +115,10 @@ add_component_dir (bsa
     bsa_file compressedbsafile ba2gnrlfile ba2dx10file ba2file memorystream
     )
 
-add_component_dir (bullethelpers
+add_component_dir (physicshelpers
     collisionobject
     heightfield
     operators
-    processtrianglecallback
     transformboundingbox
     )
 
@@ -128,8 +127,8 @@ add_component_dir (vfs
     )
 
 add_component_dir (resource
-    scenemanager keyframemanager imagemanager bulletshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem
-    resourcemanager stats animation foreachbulletobject errormarker cachestats bgsmfilemanager
+    scenemanager keyframemanager imagemanager physicsshapemanager bulletshape niffilemanager objectcache multiobjectcache resourcesystem
+    resourcemanager stats animation foreachphysicsobject errormarker cachestats bgsmfilemanager
     )
 
 add_component_dir (shader
@@ -152,8 +151,8 @@ add_component_dir (nifosg
     nifloader controller particle matrixtransform fog
     )
 
-add_component_dir (nifbullet
-    bulletnifloader
+add_component_dir (nifjolt
+    joltnifloader
     )
 
 add_component_dir (to_utf8
@@ -400,6 +399,7 @@ endif()
 
 add_component_dir(detournavigator
     agentbounds
+    heightfieldmeshbuilder
     areatype
     asyncnavmeshupdater
     bounds
@@ -545,7 +545,6 @@ if (USE_QT)
     QT_WRAP_UI(ESM_UI_HDR ${ESM_UI})
 endif()
 
-include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 include_directories(${JOLT_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
 find_package(SQLite3 REQUIRED)
@@ -605,7 +604,7 @@ if(Boost_VERSION_STRING VERSION_GREATER_EQUAL 1.77.0)
     target_link_libraries(components ${Boost_ATOMIC_LIBRARY})
 endif()
 
-target_link_libraries(components ${BULLET_LIBRARIES} ${JOLT_LIBRARIES})
+target_link_libraries(components ${JOLT_LIBRARIES})
 
 if (WIN32)
     target_link_libraries(components

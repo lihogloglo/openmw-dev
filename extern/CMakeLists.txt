@@ -20,59 +20,10 @@ macro(FetchContent_MakeAvailableExcludeFromAll)
     endforeach()
 endmacro()
 
-# TODO: remove bullet!
-if(NOT OPENMW_USE_SYSTEM_BULLET)
-
-    set(BUILD_BULLET3 OFF CACHE BOOL "")
-    set(BUILD_EXTRAS OFF CACHE BOOL "")
-    set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "")
-    set(BUILD_UNIT_TESTS OFF CACHE BOOL "")
-    set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "")
-    set(BUILD_CLSOCKET OFF CACHE BOOL "")
-    set(BUILD_ENET OFF CACHE BOOL "")
-    set(BUILD_CPU_DEMOS OFF CACHE BOOL "")
-    set(BUILD_EGL OFF CACHE BOOL "")
-
-    set(USE_DOUBLE_PRECISION ON CACHE BOOL "")
-    set(BULLET2_MULTITHREADING ON CACHE BOOL "")
-
-    if(BULLET_STATIC)
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    else()
-        set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-    endif()
-
-    if(MSVC)
-        # this setting is badly named - having it off forces the static runtime library,
-        # but having it on does nothing, letting the defaults get used.
-        # OpenMW uses the defaults, and you can't mix and match.
-        set(USE_MSVC_RUNTIME_LIBRARY_DLL ON CACHE BOOL "" FORCE)
-    endif()
-
-    # May 7, 2021
-    include(FetchContent)
-    FetchContent_Declare(bullet
-        URL https://github.com/bulletphysics/bullet3/archive/refs/tags/3.17.tar.gz
-        URL_HASH SHA512=a5105bf5f1dd365a64a350755c7d2c97942f74897a18dcdb3651e6732fd55cc1030a096f5808cf50575281f05e3ac09aa50a48d271a47b94cd61f5167a72b7cc
-        SOURCE_DIR fetched/bullet
-    )
-    FetchContent_MakeAvailableExcludeFromAll(bullet)
-
-    set(BULLET_INCLUDE_DIRS ${bullet_SOURCE_DIR}/src PARENT_SCOPE)
-
-    # The order here is important to work around a bug in Bullet:
-    # https://github.com/bulletphysics/bullet3/issues/3233
-    set(BULLET_LIBRARIES BulletCollision LinearMath PARENT_SCOPE)
-endif()
-
 if(NOT OPENMW_USE_SYSTEM_JOLT)
-    #if(JOLT_STATIC)
-    #    set(BUILD_SHARED_LIBS OFF)
-    #else()
-    #    set(BUILD_SHARED_LIBS ON)
-    #endif()
-
-    # NOTE: COPIED CONFIG FROM CUSTOM ENGINE, NEEDS CLEANUP/DECIDING
+    set(JPH_DEBUG_RENDERER ON CACHE BOOL "")
+    set(JPH_PROFILE_ENABLED ON CACHE BOOL "")
+    add_definitions(-DJPH_DEBUG_RENDERER=1 -DJPH_PROFILE_ENABLED=1)
 
     # When turning this option on, the library will be compiled using doubles for positions. This allows for much bigger worlds.
     set(DOUBLE_PRECISION ON)
@@ -88,43 +39,16 @@ if(NOT OPENMW_USE_SYSTEM_JOLT)
 
     # When turning this on, in Debug and Release mode, the library will emit extra code to ensure that the 4th component of a 3-vector is kept the same as the 3rd component 
     # and will enable floating point exceptions during simulation to detect divisions by zero. 
-    # Note that this currently only works using MSVC. Clang turns Float2 into a SIMD vector sometimes causing floating point exceptions (the option is ignored).
     set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF)
-
-    # For Jolt....
-    # Select X86 processor features to use, by default the library compiles with AVX2, if everything is off it will be SSE2 compatible.
-
-    if (DEFINED EMSCRIPTEN)
-        set(USE_SSE4_1 OFF)
-        set(USE_SSE4_2 OFF)
-        set(USE_AVX OFF)
-        set(USE_AVX2 OFF)
-        set(USE_AVX512 OFF)
-        set(USE_LZCNT OFF)
-        set(USE_TZCNT OFF)
-        set(USE_F16C OFF)
-        set(USE_FMADD OFF)
-    else()
-        set(USE_SSE4_1 ON)
-        set(USE_SSE4_2 ON)
-        set(USE_AVX ON)
-        set(USE_AVX2 ON)
-        set(USE_AVX512 OFF)
-        set(USE_LZCNT ON)
-        set(USE_TZCNT ON)
-        set(USE_F16C ON)
-        set(USE_FMADD ON)
-    endif()
-
 
     include(FetchContent)
     FetchContent_Declare(joltphysics
-        URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v4.0.2.zip
-        URL_HASH SHA512=d1070e3ad85f4ed4703f146c2ce1a673b082b74bce7ac6876ce8b9525d2027574a6aa488f46297c9b5aab0193fa6e03f9d3c4d2798b9767f620f52e2a72ddd71
+        URL https://github.com/jrouwe/JoltPhysics/archive/045a87e23052a6d550619ac0e9e401d96e40e9e9.zip
+        URL_HASH SHA512=ac65393a5941a76e42f2d3ac5ea57af3533b701eb4c6cea39e8a492a39adfccf780cb3c02876863a2b7d0fec1b5dda8aec1a16a6f322e10d34f72ee30485d7c9
         SOURCE_DIR fetched/joltphysics
     )
     FetchContent_MakeAvailableExcludeFromAll(joltphysics)
-    message(STATUS "joltphysics_SOURCE_DIR ${joltphysics_SOURCE_DIR}")
+
     set(JOLT_INCLUDE_DIRS ${joltphysics_SOURCE_DIR}/../ PARENT_SCOPE)
     set(JOLT_LIBRARIES Jolt PARENT_SCOPE)
 endif()

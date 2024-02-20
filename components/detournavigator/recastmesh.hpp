@@ -5,7 +5,7 @@
 #include "objecttransform.hpp"
 #include "version.hpp"
 
-#include <components/resource/bulletshape.hpp>
+#include <components/resource/physicsshape.hpp>
 
 #include <osg/Vec2i>
 #include <osg/Vec3f>
@@ -121,7 +121,7 @@ namespace DetourNavigator
 
     struct MeshSource
     {
-        osg::ref_ptr<const Resource::BulletShape> mShape;
+        osg::ref_ptr<const Resource::PhysicsShape> mShape;
         ObjectTransform mObjectTransform;
         AreaType mAreaType;
     };

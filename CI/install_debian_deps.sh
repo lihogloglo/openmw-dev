@@ -34,7 +34,7 @@ declare -rA GROUPED_DEPS=(
 
     libavcodec-dev libavformat-dev libavutil-dev libswscale-dev libswresample-dev
     libsdl2-dev libqt5opengl5-dev qttools5-dev qttools5-dev-tools libopenal-dev
-    libunshield-dev libtinyxml-dev libbullet-dev liblz4-dev libpng-dev libjpeg-dev
+    libunshield-dev libtinyxml-dev liblz4-dev libpng-dev libjpeg-dev
     libluajit-5.1-dev librecast-dev libsqlite3-dev ca-certificates libicu-dev
     libyaml-cpp-dev libqt5svg5 libqt5svg5-dev
   "
@@ -70,7 +70,6 @@ declare -rA GROUPED_DEPS=(
     libboost-iostreams1.74.0
     libboost-program-options1.74.0
     libboost-system1.74.0
-    libbullet3.24
     libcollada-dom2.5-dp0
     libicu70
     libjpeg8

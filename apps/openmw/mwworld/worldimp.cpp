@@ -9,7 +9,10 @@
 
 #include <MyGUI_TextIterator.h>
 
-#include <LinearMath/btAabbUtil2.h>
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Collision/RayCast.h>
+#include <Jolt/Physics/Collision/Shape/BoxShape.h>
+#include <Jolt/Physics/Collision/CastResult.h>
 
 #include <components/debug/debuglog.hpp>
 
@@ -37,7 +40,7 @@
 
 #include <components/files/collections.hpp>
 
-#include <components/resource/bulletshape.hpp>
+#include <components/resource/physicsshape.hpp>
 #include <components/resource/resourcesystem.hpp>
 
 #include <components/sceneutil/lightmanager.hpp>
@@ -86,7 +89,7 @@
 #include "../mwclass/door.hpp"
 
 #include "../mwphysics/actor.hpp"
-#include "../mwphysics/collisiontype.hpp"
+#include "../mwphysics/joltlayers.hpp"
 #include "../mwphysics/object.hpp"
 #include "../mwphysics/physicssystem.hpp"
 
@@ -1374,7 +1377,7 @@ namespace MWWorld
                 targetPos = pos + (orientation * osg::Vec3f(1, 0, 0)) * distance;
 
             // destination is free
-            if (!mPhysics->castRay(pos, targetPos, MWPhysics::CollisionType_World | MWPhysics::CollisionType_Door).mHit)
+            if (!mPhysics->castRay(pos, targetPos, MWPhysics::Layers::WORLD | MWPhysics::Layers::DOOR).mHit)
                 break;
         }
         targetPos.z() += distance / 2.f; // move up a bit to get out from geometry, will snap down later
@@ -1441,7 +1444,7 @@ namespace MWWorld
 
             if (!mPhysics
                      ->castRay(spawnPoint, osg::Vec3f(pos.x(), pos.y(), pos.z() + 20),
-                         MWPhysics::CollisionType_World | MWPhysics::CollisionType_Door)
+                         MWPhysics::Layers::WORLD | MWPhysics::Layers::DOOR)
                      .mHit)
             {
                 // safe
@@ -1466,11 +1469,6 @@ namespace MWWorld
     void World::queueMovement(const Ptr& ptr, const osg::Vec3f& velocity)
     {
         mPhysics->queueObjectMovement(ptr, velocity);
-    }
-
-    void World::updateAnimatedCollisionShape(const Ptr& ptr)
-    {
-        mPhysics->updateAnimatedCollisionShape(ptr);
     }
 
     void World::doPhysics(float duration, osg::Timer_t frameStart, unsigned int frameNumber, osg::Stats& stats)
@@ -1533,18 +1531,16 @@ namespace MWWorld
 
         bool reached = (targetRot == maxRot && state != MWWorld::DoorState::Idle) || targetRot == minRot;
 
-        /// \todo should use convexSweepTest here
         bool collisionWithActor = false;
         for (auto& [ptr, point, normal] :
-            mPhysics->getCollisionsPoints(door, MWPhysics::CollisionType_Door, MWPhysics::CollisionType_Actor))
+            mPhysics->getCollisionsPoints(door, MWPhysics::Layers::DOOR, MWPhysics::Layers::ACTOR))
         {
-
             if (ptr.getClass().isActor())
             {
                 auto localPoint = objPos.asVec3() - point;
                 osg::Vec3f direction = osg::Quat(diff, osg::Vec3f(0, 0, 1)) * localPoint - localPoint;
                 direction.normalize();
-                mPhysics->reportCollision(Misc::Convert::toBullet(point), Misc::Convert::toBullet(normal));
+                mPhysics->reportCollision(point, normal);
                 if (direction * normal < 0) // door is turning away from actor
                     continue;
 
@@ -1676,8 +1672,6 @@ namespace MWWorld
 
         mPlayer->update();
 
-        mPhysics->debugDraw();
-
         mWorldScene->update(duration);
 
         mRendering->update(duration, paused);
@@ -1697,6 +1691,8 @@ namespace MWWorld
                 MWBase::Environment::get().getWindowManager()->getLoadingScreen());
             mWorldScene->resetCellLoaded();
         }
+
+        mPhysics->debugDraw();
     }
 
     void World::updatePhysics(
@@ -2610,10 +2606,10 @@ namespace MWWorld
         to = from + (to * maxDist);
 
         int collisionTypes
-            = MWPhysics::CollisionType_World | MWPhysics::CollisionType_HeightMap | MWPhysics::CollisionType_Door;
+            = MWPhysics::Layers::WORLD | MWPhysics::Layers::HEIGHTMAP | MWPhysics::Layers::DOOR;
         if (includeWater)
         {
-            collisionTypes |= MWPhysics::CollisionType_Water;
+            collisionTypes |= MWPhysics::Layers::WATER;
         }
         MWPhysics::RayCastingResult result
             = mPhysics->castRay(from, to, { MWWorld::Ptr() }, std::vector<MWWorld::Ptr>(), collisionTypes);
@@ -3069,7 +3065,7 @@ namespace MWWorld
 
         // Check for impact, if yes, handle hit, if not, launch projectile
         MWPhysics::RayCastingResult result = mPhysics->castRay(
-            sourcePos, worldPos, { actor }, targetActors, 0xff, MWPhysics::CollisionType_Projectile);
+            sourcePos, worldPos, { actor }, targetActors, 0xff, MWPhysics::Layers::PROJECTILE);
         if (result.mHit)
             MWMechanics::projectileHit(actor, result.mHitObject, bow, projectile, result.mHitPos, attackStrength);
         else
@@ -3771,17 +3767,18 @@ namespace MWWorld
         if (!object)
             return false;
 
-        btVector3 aabbMin;
-        btVector3 aabbMax;
-        object->getShapeInstance()->mCollisionShape->getAabb(btTransform::getIdentity(), aabbMin, aabbMax);
+        JPH::AABox aabbBounds = object->getShapeInstance()->mCollisionShape->GetLocalBounds();
+        JPH::Vec3 halfExtents = (aabbBounds.mMax - aabbBounds.mMin) / 2.0f;
 
-        const auto toLocal = object->getTransform().inverse();
-        const auto localFrom = toLocal(Misc::Convert::toBullet(position));
-        const auto localTo = toLocal(Misc::Convert::toBullet(destination));
+        osg::Matrixd toLocal = osg::Matrixd::inverse(object->getTransform());
+        const JPH::Vec3 localFrom = Misc::Convert::toJolt<JPH::Vec3>(position * toLocal);
+        const JPH::Vec3 localTo = Misc::Convert::toJolt<JPH::Vec3>(destination * toLocal);
+        const JPH::Vec3 diff = localTo - localFrom;
 
-        btScalar hitDistance = 1;
-        btVector3 hitNormal;
-        return btRayAabb(localFrom, localTo, aabbMin, aabbMax, hitDistance, hitNormal);
+        JPH::BoxShape boundsShape(halfExtents);
+        JPH::RayCast ray(localFrom, diff);
+        JPH::RayCastResult ioHit;
+        return boundsShape.CastRay(ray, {}, ioHit);
     }
 
     bool World::isAreaOccupiedByOtherActor(const osg::Vec3f& position, const float radius,

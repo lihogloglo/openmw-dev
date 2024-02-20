@@ -81,7 +81,7 @@ namespace MWClass
     void Door::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
         MWPhysics::PhysicsSystem& physics) const
     {
-        physics.addObject(ptr, model, rotation, MWPhysics::CollisionType_Door);
+        physics.addObject(ptr, model, rotation, MWPhysics::Layers::DOOR);
     }
 
     bool Door::isDoor() const

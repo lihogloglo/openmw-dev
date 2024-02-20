@@ -82,22 +82,22 @@ namespace MWLua
               });
 
         api["COLLISION_TYPE"]
-            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, MWPhysics::CollisionType>({
-                { "World", MWPhysics::CollisionType_World },
-                { "Door", MWPhysics::CollisionType_Door },
-                { "Actor", MWPhysics::CollisionType_Actor },
-                { "HeightMap", MWPhysics::CollisionType_HeightMap },
-                { "Projectile", MWPhysics::CollisionType_Projectile },
-                { "Water", MWPhysics::CollisionType_Water },
-                { "Default", MWPhysics::CollisionType_Default },
-                { "AnyPhysical", MWPhysics::CollisionType_AnyPhysical },
-                { "Camera", MWPhysics::CollisionType_CameraOnly },
-                { "VisualOnly", MWPhysics::CollisionType_VisualOnly },
+            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, uint16_t>({
+                { "World", MWPhysics::Layers::WORLD },
+                { "Door", MWPhysics::Layers::DOOR },
+                { "Actor", MWPhysics::Layers::ACTOR },
+                { "HeightMap", MWPhysics::Layers::HEIGHTMAP },
+                { "Projectile", MWPhysics::Layers::PROJECTILE },
+                { "Water", MWPhysics::Layers::WATER },
+                { "Default", MWPhysics::CollisionMask_Default },
+                { "AnyPhysical", MWPhysics::CollisionMask_AnyPhysical },
+                { "Camera", MWPhysics::Layers::CAMERA_ONLY },
+                { "VisualOnly", MWPhysics::Layers::VISUAL_ONLY },
             }));
 
         api["castRay"] = [](const osg::Vec3f& from, const osg::Vec3f& to, sol::optional<sol::table> options) {
             std::vector<MWWorld::ConstPtr> ignore;
-            int collisionType = MWPhysics::CollisionType_Default;
+            int collisionType = MWPhysics::CollisionMask_Default;
             float radius = 0;
             if (options)
             {

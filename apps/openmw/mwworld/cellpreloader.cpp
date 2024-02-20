@@ -13,7 +13,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/misc/strings/lower.hpp>
-#include <components/resource/bulletshapemanager.hpp>
+#include <components/resource/physicsshapemanager.hpp>
 #include <components/resource/keyframemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
@@ -71,13 +71,13 @@ namespace MWWorld
     public:
         /// Constructor to be called from the main thread.
         PreloadItem(MWWorld::CellStore* cell, Resource::SceneManager* sceneManager,
-            Resource::PhysicsShapeManager* bulletShapeManager, Resource::KeyframeManager* keyframeManager,
+            Resource::PhysicsShapeManager* physicsShapeManager, Resource::KeyframeManager* keyframeManager,
             Terrain::World* terrain, MWRender::LandManager* landManager, bool preloadInstances)
             : mIsExterior(cell->getCell()->isExterior())
             , mX(cell->getCell()->getGridX())
             , mY(cell->getCell()->getGridY())
             , mSceneManager(sceneManager)
-            , mPhysicsShapeManager(bulletShapeManager)
+            , mPhysicsShapeManager(physicsShapeManager)
             , mKeyframeManager(keyframeManager)
             , mTerrain(terrain)
             , mLandManager(landManager)
@@ -219,9 +219,9 @@ namespace MWWorld
     };
 
     CellPreloader::CellPreloader(Resource::ResourceSystem* resourceSystem,
-        Resource::PhysicsShapeManager* bulletShapeManager, Terrain::World* terrain, MWRender::LandManager* landManager)
+        Resource::PhysicsShapeManager* physicsShapeManager, Terrain::World* terrain, MWRender::LandManager* landManager)
         : mResourceSystem(resourceSystem)
-        , mPhysicsShapeManager(bulletShapeManager)
+        , mPhysicsShapeManager(physicsShapeManager)
         , mTerrain(terrain)
         , mLandManager(landManager)
         , mExpiryDelay(0.0)

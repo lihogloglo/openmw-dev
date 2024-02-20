@@ -11,6 +11,9 @@
 #include <unordered_map>
 #include <variant>
 
+#include <Jolt/Jolt.h>
+#include <Jolt/Physics/Body/BodyID.h>
+
 #include <osg/BoundingBox>
 #include <osg/Quat>
 #include <osg/Timer>
@@ -20,8 +23,17 @@
 
 #include "../mwworld/ptr.hpp"
 
-#include "collisiontype.hpp"
 #include "raycasting.hpp"
+#include "joltlisteners.hpp"
+
+namespace JPH
+{
+    class JobSystem;
+    class TempAllocatorImpl;
+    class PhysicsSystem;
+    class BodyInterface;
+    class BodyLockInterfaceLocking;
+}
 
 namespace osg
 {
@@ -32,7 +44,7 @@ namespace osg
 
 namespace MWRender
 {
-    class DebugDrawer;
+    class JoltDebugDrawer;
 }
 
 namespace Resource
@@ -41,16 +53,9 @@ namespace Resource
     class ResourceSystem;
 }
 
-class btCollisionWorld;
-class btBroadphaseInterface;
-class btDefaultCollisionConfiguration;
-class btCollisionDispatcher;
-class btCollisionObject;
-class btCollisionShape;
-class btVector3;
-
 namespace MWPhysics
 {
+    class MWWater;
     class HeightField;
     class Object;
     class Actor;
@@ -83,12 +88,12 @@ namespace MWPhysics
         ActorFrameData(Actor& actor, bool inert, bool waterCollision, float slowFall, float waterlevel, bool isPlayer);
         osg::Vec3f mPosition;
         osg::Vec3f mInertia;
-        const btCollisionObject* mStandingOn;
         bool mIsOnGround;
         bool mIsOnSlope;
         bool mWalkingOnWater;
         const bool mInert;
-        btCollisionObject* mCollisionObject;
+        JPH::BodyID mStandingOn;
+        JPH::BodyID mPhysicsBody;
         const float mSwimLevel;
         const float mSlowFall;
         osg::Vec2f mRotation;
@@ -104,16 +109,7 @@ namespace MWPhysics
         const bool mWaterCollision;
         const bool mSkipCollisionDetection;
         const bool mIsPlayer;
-    };
-
-    struct ProjectileFrameData
-    {
-        explicit ProjectileFrameData(Projectile& projectile);
-        osg::Vec3f mPosition;
-        osg::Vec3f mMovement;
-        const btCollisionObject* mCaster;
-        const btCollisionObject* mCollisionObject;
-        Projectile* mProjectile;
+        JPH::ObjectLayer mCollisionMask;
     };
 
     struct WorldFrameData
@@ -146,8 +142,7 @@ namespace MWPhysics
     };
 
     using ActorSimulation = SimulationImpl<Actor, ActorFrameData>;
-    using ProjectileSimulation = SimulationImpl<Projectile, ProjectileFrameData>;
-    using Simulation = std::variant<ActorSimulation, ProjectileSimulation>;
+    using Simulation = std::variant<ActorSimulation>;
 
     class PhysicsSystem : public RayCastingInterface
     {
@@ -162,7 +157,7 @@ namespace MWPhysics
         void disableWater();
 
         void addObject(const MWWorld::Ptr& ptr, const std::string& mesh, osg::Quat rotation,
-            int collisionType = CollisionType_World);
+            int collisionType = Layers::WORLD);
         void addActor(const MWWorld::Ptr& ptr, const std::string& mesh);
 
         int addProjectile(
@@ -208,16 +203,17 @@ namespace MWPhysics
         std::vector<ContactPoint> getCollisionsPoints(
             const MWWorld::ConstPtr& ptr, int collisionGroup, int collisionMask) const;
         osg::Vec3f traceDown(const MWWorld::Ptr& ptr, const osg::Vec3f& position, float maxHeight);
+        void optimize();
 
         /// @param ignore Optional, a list of Ptr to ignore in the list of results. targets are actors to filter for,
         /// ignoring all other actors.
         RayCastingResult castRay(const osg::Vec3f& from, const osg::Vec3f& to,
             const std::vector<MWWorld::ConstPtr>& ignore = {}, const std::vector<MWWorld::Ptr>& targets = {},
-            int mask = CollisionType_Default, int group = 0xff) const override;
+            int mask = CollisionMask_Default, int group = 0xff) const override;
         using RayCastingInterface::castRay;
 
         RayCastingResult castSphere(const osg::Vec3f& from, const osg::Vec3f& to, float radius,
-            int mask = CollisionType_Default, int group = 0xff) const override;
+            int mask = CollisionMask_Default, int group = 0xff) const override;
 
         /// Return true if actor1 can see actor2.
         bool getLineOfSight(const MWWorld::ConstPtr& actor1, const MWWorld::ConstPtr& actor2) const override;
@@ -267,13 +263,13 @@ namespace MWPhysics
 
         bool toggleDebugRendering();
 
+        void reportCollision(const osg::Vec3f& position, const osg::Vec3f& normal);
+
         /// Mark the given object as a 'non-solid' object. A non-solid object means that
         /// \a isOnSolidGround will return false for actors standing on that object.
         void markAsNonSolid(const MWWorld::ConstPtr& ptr);
 
         bool isOnSolidGround(const MWWorld::Ptr& actor) const;
-
-        void updateAnimatedCollisionShape(const MWWorld::Ptr& object);
 
         template <class Function>
         void forEachAnimatedObject(Function&& function) const
@@ -285,19 +281,26 @@ namespace MWPhysics
             std::span<const MWWorld::ConstPtr> ignore, std::vector<MWWorld::Ptr>* occupyingActors) const;
 
         void reportStats(unsigned int frameNumber, osg::Stats& stats) const;
-        void reportCollision(const btVector3& position, const btVector3& normal);
+
+        inline const JPH::BodyLockInterfaceLocking& getBodyLockInterface() const;
+
+        const JPH::BodyInterface& getBodyInterface() const;
 
     private:
         void updateWater();
-
+        void updatePtrHolders();
+        
         void prepareSimulation(bool willSimulate, std::vector<Simulation>& simulations);
 
-        std::unique_ptr<btBroadphaseInterface> mBroadphase;
-        std::unique_ptr<btDefaultCollisionConfiguration> mCollisionConfiguration;
-        std::unique_ptr<btCollisionDispatcher> mDispatcher;
-        std::unique_ptr<btCollisionWorld> mCollisionWorld;
-        std::unique_ptr<PhysicsTaskScheduler> mTaskScheduler;
+        JoltContactListener mContactListener;
+        JoltBPLayerInterface mBPLayerInterface;
+        JoltObjectVsBroadPhaseLayerFilter mObjectVsBPLayerFilter;
+        JoltObjectLayerPairFilter mObjectVsObjectLayerFilter;
 
+        JPH::PhysicsSystem mPhysicsSystem;
+        std::unique_ptr<PhysicsTaskScheduler> mTaskScheduler;
+        std::unique_ptr<JPH::TempAllocatorImpl> mMemoryAllocator;
+        std::unique_ptr<JPH::JobSystem> mPhysicsJobSystem;
         std::unique_ptr<Resource::PhysicsShapeManager> mShapeManager;
         Resource::ResourceSystem* mResourceSystem;
 
@@ -320,13 +323,13 @@ namespace MWPhysics
 
         unsigned int mProjectileId;
 
+        float mTimeAccumJolt = 0.0f;
         float mWaterHeight;
         bool mWaterEnabled;
 
-        std::unique_ptr<btCollisionObject> mWaterCollisionObject;
-        std::unique_ptr<btCollisionShape> mWaterCollisionShape;
+        std::unique_ptr<MWWater> mWaterInstance;
 
-        std::unique_ptr<MWRender::DebugDrawer> mDebugDrawer;
+        std::unique_ptr<MWRender::JoltDebugDrawer> mJoltDebugDrawer;
 
         osg::ref_ptr<osg::Group> mParentNode;
 

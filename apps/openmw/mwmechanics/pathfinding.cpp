@@ -244,7 +244,7 @@ namespace MWMechanics
                     converter.toWorld(temp);
                     // Add Z offset since path node can overlap with other objects.
                     // Also ignore doors in raytesting.
-                    const int mask = MWPhysics::CollisionType_World;
+                    const int mask = MWPhysics::Layers::WORLD;
                     bool isPathClear = !MWBase::Environment::get()
                                             .getWorld()
                                             ->getRayCasting()
