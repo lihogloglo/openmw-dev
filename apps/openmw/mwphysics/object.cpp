@@ -186,8 +186,7 @@ namespace MWPhysics
                 nodePathFound = mRecIndexToNodePath.emplace(recIndex, nodePath).first;
             }
 
-            int numSubShapes = compound->GetNumSubShapes();
-            assert(numSubShapes > shapeIndex);
+            assert(compound->GetNumSubShapes() > shapeIndex);
 
             osg::NodePath& nodePath = nodePathFound->second;
             osg::Matrixf matrix = osg::computeLocalToWorld(nodePath);
