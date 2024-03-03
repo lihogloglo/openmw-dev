@@ -107,11 +107,6 @@ namespace MWPhysics
         std::vector<LOSRequest> mLOSCache;
         std::set<std::weak_ptr<PtrHolder>, std::owner_less<std::weak_ptr<PtrHolder>>> mUpdateAabb;
 
-        // TODO: use std::experimental::flex_barrier or std::barrier once it becomes a thing
-        std::unique_ptr<Misc::Barrier> mPreStepBarrier;
-        std::unique_ptr<Misc::Barrier> mPostStepBarrier;
-        std::unique_ptr<Misc::Barrier> mPostSimBarrier;
-
         LockingPolicy mLockingPolicy;
         unsigned mNumThreads;
         int mNumJobs;
@@ -134,6 +129,8 @@ namespace MWPhysics
         osg::Timer_t mTimeBegin;
         osg::Timer_t mTimeEnd;
         osg::Timer_t mFrameStart;
+
+        JPH::JobSystem::Barrier* mSimulationBarrier;
     };
 
 }
