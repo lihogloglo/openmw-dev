@@ -148,10 +148,11 @@ namespace
             // this point is used to determine the infinite fall cutoff from lowest point in the cell
             if (isInterior)
             {
-                btVector3 aabbMin;
-                btVector3 aabbMax;
                 const auto transform = object->getTransform();
-                object->getShapeInstance()->mCollisionShape->getAabb(transform, aabbMin, aabbMax);
+                JPH::AABox aabbBounds = object->getShapeInstance()->mCollisionShape->GetLocalBounds();
+
+                osg::Vec3f aabbMin = Misc::Convert::toOsg(aabbBounds.mMin) * transform;
+
                 lowestPoint = std::min(lowestPoint, static_cast<float>(aabbMin.z()));
             }
 

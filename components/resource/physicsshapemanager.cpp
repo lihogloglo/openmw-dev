@@ -138,7 +138,7 @@ namespace Resource
     osg::ref_ptr<const PhysicsShape> PhysicsShapeManager::getShape(VFS::Path::NormalizedView name)
     {
         if (osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(name))
-            return osg::ref_ptr<BulletShape>(static_cast<BulletShape*>(obj.get()));
+            return osg::ref_ptr<PhysicsShape>(static_cast<PhysicsShape*>(obj.get()));
 
         osg::ref_ptr<PhysicsShape> shape;
 
