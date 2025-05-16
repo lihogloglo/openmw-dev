@@ -70,26 +70,6 @@ namespace MWLua
         return anim;
     }
 
-    const ESM::Static* getStatic(const sol::object& staticOrID)
-    {
-        if (staticOrID.is<ESM::Static>())
-            return staticOrID.as<const ESM::Static*>();
-        else
-        {
-            ESM::RefId id = ESM::RefId::deserializeText(LuaUtil::cast<std::string_view>(staticOrID));
-            return MWBase::Environment::get().getWorld()->getStore().get<ESM::Static>().find(id);
-        }
-    }
-
-    std::string getStaticModelOrThrow(const sol::object& staticOrID)
-    {
-        const ESM::Static* static_ = getStatic(staticOrID);
-        if (!static_)
-            throw std::runtime_error("Invalid static");
-
-        return Misc::ResourceHelpers::correctMeshPath(static_->mModel);
-    }
-
     static AnimationPriorities getPriorityArgument(const sol::table& args)
     {
         auto asPriorityEnum = args.get<sol::optional<Priority>>("priority");
@@ -119,45 +99,48 @@ namespace MWLua
 
     sol::table initAnimationPackage(const Context& context)
     {
-        auto* lua = context.mLua;
+        auto view = context.sol();
         auto mechanics = MWBase::Environment::get().getMechanicsManager();
         auto world = MWBase::Environment::get().getWorld();
 
-        sol::table api(lua->sol(), sol::create);
+        sol::table api(view, sol::create);
 
         api["PRIORITY"]
-            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, MWMechanics::Priority>({
-                { "Default", MWMechanics::Priority::Priority_Default },
-                { "WeaponLowerBody", MWMechanics::Priority::Priority_WeaponLowerBody },
-                { "SneakIdleLowerBody", MWMechanics::Priority::Priority_SneakIdleLowerBody },
-                { "SwimIdle", MWMechanics::Priority::Priority_SwimIdle },
-                { "Jump", MWMechanics::Priority::Priority_Jump },
-                { "Movement", MWMechanics::Priority::Priority_Movement },
-                { "Hit", MWMechanics::Priority::Priority_Hit },
-                { "Weapon", MWMechanics::Priority::Priority_Weapon },
-                { "Block", MWMechanics::Priority::Priority_Block },
-                { "Knockdown", MWMechanics::Priority::Priority_Knockdown },
-                { "Torch", MWMechanics::Priority::Priority_Torch },
-                { "Storm", MWMechanics::Priority::Priority_Storm },
-                { "Death", MWMechanics::Priority::Priority_Death },
-                { "Scripted", MWMechanics::Priority::Priority_Scripted },
+            = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, MWMechanics::Priority>(view,
+                {
+                    { "Default", MWMechanics::Priority::Priority_Default },
+                    { "WeaponLowerBody", MWMechanics::Priority::Priority_WeaponLowerBody },
+                    { "SneakIdleLowerBody", MWMechanics::Priority::Priority_SneakIdleLowerBody },
+                    { "SwimIdle", MWMechanics::Priority::Priority_SwimIdle },
+                    { "Jump", MWMechanics::Priority::Priority_Jump },
+                    { "Movement", MWMechanics::Priority::Priority_Movement },
+                    { "Hit", MWMechanics::Priority::Priority_Hit },
+                    { "Weapon", MWMechanics::Priority::Priority_Weapon },
+                    { "Block", MWMechanics::Priority::Priority_Block },
+                    { "Knockdown", MWMechanics::Priority::Priority_Knockdown },
+                    { "Torch", MWMechanics::Priority::Priority_Torch },
+                    { "Storm", MWMechanics::Priority::Priority_Storm },
+                    { "Death", MWMechanics::Priority::Priority_Death },
+                    { "Scripted", MWMechanics::Priority::Priority_Scripted },
+                }));
+
+        api["BLEND_MASK"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, BlendMask>(view,
+            {
+                { "LowerBody", BlendMask::BlendMask_LowerBody },
+                { "Torso", BlendMask::BlendMask_Torso },
+                { "LeftArm", BlendMask::BlendMask_LeftArm },
+                { "RightArm", BlendMask::BlendMask_RightArm },
+                { "UpperBody", BlendMask::BlendMask_UpperBody },
+                { "All", BlendMask::BlendMask_All },
             }));
 
-        api["BLEND_MASK"] = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, BlendMask>({
-            { "LowerBody", BlendMask::BlendMask_LowerBody },
-            { "Torso", BlendMask::BlendMask_Torso },
-            { "LeftArm", BlendMask::BlendMask_LeftArm },
-            { "RightArm", BlendMask::BlendMask_RightArm },
-            { "UpperBody", BlendMask::BlendMask_UpperBody },
-            { "All", BlendMask::BlendMask_All },
-        }));
-
-        api["BONE_GROUP"] = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, BoneGroup>({
-            { "LowerBody", BoneGroup::BoneGroup_LowerBody },
-            { "Torso", BoneGroup::BoneGroup_Torso },
-            { "LeftArm", BoneGroup::BoneGroup_LeftArm },
-            { "RightArm", BoneGroup::BoneGroup_RightArm },
-        }));
+        api["BONE_GROUP"] = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, BoneGroup>(view,
+            {
+                { "LowerBody", BoneGroup::BoneGroup_LowerBody },
+                { "Torso", BoneGroup::BoneGroup_Torso },
+                { "LeftArm", BoneGroup::BoneGroup_LeftArm },
+                { "RightArm", BoneGroup::BoneGroup_RightArm },
+            }));
 
         api["hasAnimation"] = [world](const sol::object& object) -> bool {
             return world->getAnimation(getPtrOrThrow(ObjectVariant(object))) != nullptr;
@@ -218,6 +201,8 @@ namespace MWLua
             getMutableAnimationOrThrow(ObjectVariant(object))->adjustSpeedMult(groupname, speed);
         };
         api["getActiveGroup"] = [](const sol::object& object, MWRender::BoneGroup boneGroup) -> std::string_view {
+            if (boneGroup < 0 || boneGroup >= BoneGroup::Num_BoneGroups)
+                throw std::runtime_error("Invalid bonegroup: " + std::to_string(boneGroup));
             return getConstAnimationOrThrow(ObjectVariant(object))->getActiveGroup(boneGroup);
         };
 
@@ -232,9 +217,9 @@ namespace MWLua
             [mechanics](const sol::object& object, const std::string& groupname, const sol::table& options) {
                 uint32_t numberOfLoops = options.get_or("loops", std::numeric_limits<uint32_t>::max());
                 float speed = options.get_or("speed", 1.f);
-                std::string startKey = options.get_or<std::string>("startkey", "start");
-                std::string stopKey = options.get_or<std::string>("stopkey", "stop");
-                bool forceLoop = options.get_or("forceloop", false);
+                std::string startKey = options.get_or<std::string>("startKey", "start");
+                std::string stopKey = options.get_or<std::string>("stopKey", "stop");
+                bool forceLoop = options.get_or("forceLoop", false);
 
                 MWWorld::Ptr ptr = getMutablePtrOrThrow(ObjectVariant(object));
                 mechanics->playAnimationGroupLua(ptr, groupname, numberOfLoops, speed, startKey, stopKey, forceLoop);
@@ -245,20 +230,22 @@ namespace MWLua
                     ptr, groupname, std::numeric_limits<int>::max(), 1, "start", "stop", false);
             });
 
-        api["playBlended"] = [](const sol::object& object, std::string_view groupname, const sol::table& options) {
+        api["playBlended"] = [](const sol::object& object, std::string_view groupName, const sol::table& options) {
             uint32_t loops = options.get_or("loops", 0u);
             MWRender::Animation::AnimPriority priority = getPriorityArgument(options);
-            BlendMask blendMask = options.get_or("blendmask", BlendMask::BlendMask_All);
-            bool autoDisable = options.get_or("autodisable", true);
+            BlendMask blendMask = options.get_or("blendMask", BlendMask::BlendMask_All);
+            bool autoDisable = options.get_or("autoDisable", true);
             float speed = options.get_or("speed", 1.0f);
-            std::string start = options.get_or<std::string>("startkey", "start");
-            std::string stop = options.get_or<std::string>("stopkey", "stop");
-            float startpoint = options.get_or("startpoint", 0.0f);
-            bool forceLoop = options.get_or("forceloop", false);
+            std::string start = options.get_or<std::string>("startKey", "start");
+            std::string stop = options.get_or<std::string>("stopKey", "stop");
+            float startPoint = options.get_or("startPoint", 0.0f);
+            bool forceLoop = options.get_or("forceLoop", false);
+
+            const std::string lowerGroup = Misc::StringUtils::lowerCase(groupName);
 
             auto animation = getMutableAnimationOrThrow(ObjectVariant(object));
-            animation->play(groupname, priority, blendMask, autoDisable, speed, start, stop, startpoint, loops,
-                forceLoop || animation->isLoopingAnimation(groupname));
+            animation->play(lowerGroup, priority, blendMask, autoDisable, speed, start, stop, startPoint, loops,
+                forceLoop || animation->isLoopingAnimation(lowerGroup));
         };
 
         api["hasGroup"] = [](const sol::object& object, std::string_view groupname) -> bool {
@@ -272,27 +259,32 @@ namespace MWLua
             return anim->getNode(bonename) != nullptr;
         };
 
-        api["addVfx"] = sol::overload(
-            [context](const sol::object& object, const sol::object& staticOrID) {
+        api["addVfx"] = [context](
+                            const sol::object& object, std::string_view model, sol::optional<sol::table> options) {
+            if (options)
+            {
                 context.mLuaManager->addAction(
-                    [object = ObjectVariant(object), model = getStaticModelOrThrow(staticOrID)] {
+                    [object = ObjectVariant(object), model = std::string(model),
+                        effectId = options->get_or<std::string>("vfxId", ""), loop = options->get_or("loop", false),
+                        boneName = options->get_or<std::string>("boneName", ""),
+                        particleTexture = options->get_or<std::string>("particleTextureOverride", ""),
+                        useAmbientLight = options->get_or("useAmbientLight", true)] {
+                        MWRender::Animation* anim = getMutableAnimationOrThrow(ObjectVariant(object));
+
+                        anim->addEffect(model, effectId, loop, boneName, particleTexture, useAmbientLight);
+                    },
+                    "addVfxAction");
+            }
+            else
+            {
+                context.mLuaManager->addAction(
+                    [object = ObjectVariant(object), model = std::string(model)] {
                         MWRender::Animation* anim = getMutableAnimationOrThrow(object);
                         anim->addEffect(model, "");
                     },
                     "addVfxAction");
-            },
-            [context](const sol::object& object, const sol::object& staticOrID, const sol::table& options) {
-                context.mLuaManager->addAction(
-                    [object = ObjectVariant(object), model = getStaticModelOrThrow(staticOrID),
-                        effectId = options.get_or<std::string>("vfxId", ""), loop = options.get_or("loop", false),
-                        bonename = options.get_or<std::string>("bonename", ""),
-                        particleTexture = options.get_or<std::string>("particleTextureOverride", "")] {
-                        MWRender::Animation* anim = getMutableAnimationOrThrow(ObjectVariant(object));
-
-                        anim->addEffect(model, effectId, loop, bonename, particleTexture);
-                    },
-                    "addVfxAction");
-            });
+            }
+        };
 
         api["removeVfx"] = [context](const sol::object& object, std::string_view effectId) {
             context.mLuaManager->addAction(
@@ -315,32 +307,33 @@ namespace MWLua
         return LuaUtil::makeReadOnly(api);
     }
 
-    sol::table initCoreVfxBindings(const Context& context)
+    sol::table initWorldVfxBindings(const Context& context)
     {
-        sol::state_view& lua = context.mLua->sol();
-        sol::table api(lua, sol::create);
+        sol::table api(context.mLua->unsafeState(), sol::create);
         auto world = MWBase::Environment::get().getWorld();
 
-        api["spawn"] = sol::overload(
-            [world, context](const sol::object& staticOrID, const osg::Vec3f& worldPos) {
-                auto model = getStaticModelOrThrow(staticOrID);
-                context.mLuaManager->addAction(
-                    [world, model = std::move(model), worldPos]() { world->spawnEffect(model, "", worldPos); },
-                    "openmw.vfx.spawn");
-            },
-            [world, context](const sol::object& staticOrID, const osg::Vec3f& worldPos, const sol::table& options) {
-                auto model = getStaticModelOrThrow(staticOrID);
-
-                bool magicVfx = options.get_or("mwMagicVfx", true);
-                std::string texture = options.get_or<std::string>("particleTextureOverride", "");
-                float scale = options.get_or("scale", 1.f);
-
-                context.mLuaManager->addAction(
-                    [world, model = std::move(model), texture = std::move(texture), worldPos, scale, magicVfx]() {
-                        world->spawnEffect(model, texture, worldPos, scale, magicVfx);
-                    },
-                    "openmw.vfx.spawn");
-            });
+        api["spawn"]
+            = [world, context](std::string_view model, const osg::Vec3f& worldPos, sol::optional<sol::table> options) {
+                  if (options)
+                  {
+                      bool magicVfx = options->get_or("mwMagicVfx", true);
+                      std::string texture = options->get_or<std::string>("particleTextureOverride", "");
+                      float scale = options->get_or("scale", 1.f);
+                      bool useAmbientLight = options->get_or("useAmbientLight", true);
+                      context.mLuaManager->addAction(
+                          [world, model = VFS::Path::Normalized(model), texture = std::move(texture), worldPos, scale,
+                              magicVfx, useAmbientLight]() {
+                              world->spawnEffect(model, texture, worldPos, scale, magicVfx, useAmbientLight);
+                          },
+                          "openmw.vfx.spawn");
+                  }
+                  else
+                  {
+                      context.mLuaManager->addAction([world, model = VFS::Path::Normalized(model),
+                                                         worldPos]() { world->spawnEffect(model, "", worldPos, 1.f); },
+                          "openmw.vfx.spawn");
+                  }
+              };
 
         return api;
     }

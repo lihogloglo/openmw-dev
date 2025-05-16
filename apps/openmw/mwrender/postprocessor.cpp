@@ -323,6 +323,8 @@ namespace MWRender
 
             mStateUpdater->setSimulationTime(static_cast<float>(stamp->getSimulationTime()));
             mStateUpdater->setDeltaSimulationTime(static_cast<float>(stamp->getSimulationTime() - mLastSimulationTime));
+            // Use a signed int because 'uint' type is not supported in GLSL 120 without extensions
+            mStateUpdater->setFrameNumber(static_cast<int>(stamp->getFrameNumber()));
             mLastSimulationTime = stamp->getSimulationTime();
 
             for (const auto& dispatchNode : mCanvases[frameId]->getPasses())
@@ -409,10 +411,14 @@ namespace MWRender
 
             mViewer->stopThreading();
 
-            auto& shaderManager = MWBase::Environment::get().getResourceSystem()->getSceneManager()->getShaderManager();
-            auto defines = shaderManager.getGlobalDefines();
-            defines["disableNormals"] = mNormals ? "0" : "1";
-            shaderManager.setGlobalDefines(defines);
+            if (mNormalsSupported)
+            {
+                auto& shaderManager
+                    = MWBase::Environment::get().getResourceSystem()->getSceneManager()->getShaderManager();
+                auto defines = shaderManager.getGlobalDefines();
+                defines["disableNormals"] = mNormals ? "0" : "1";
+                shaderManager.setGlobalDefines(defines);
+            }
 
             mRendering.getLightRoot()->setCollectPPLights(mPassLights);
             mStateUpdater->bindPointLights(mPassLights ? mRendering.getLightRoot()->getPPLightsBuffer() : nullptr);
@@ -497,6 +503,7 @@ namespace MWRender
         if (mSamples > 1)
         {
             fbos[FBO_Multisample] = new osg::FrameBufferObject;
+            fbos[FBO_Intercept] = new osg::FrameBufferObject;
             auto colorRB = createFrameBufferAttachmentFromTemplate(
                 Usage::RENDER_BUFFER, width, height, textures[Tex_Scene], mSamples);
             if (mNormals && mNormalsSupported)
@@ -505,6 +512,8 @@ namespace MWRender
                     Usage::RENDER_BUFFER, width, height, textures[Tex_Normal], mSamples);
                 fbos[FBO_Multisample]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER1, normalRB);
                 fbos[FBO_FirstPerson]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER1, normalRB);
+                fbos[FBO_Intercept]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER1,
+                    Stereo::createMultiviewCompatibleAttachment(textures[Tex_Normal]));
             }
             auto depthRB = createFrameBufferAttachmentFromTemplate(
                 Usage::RENDER_BUFFER, width, height, textures[Tex_Depth], mSamples);
@@ -513,11 +522,8 @@ namespace MWRender
                 osg::FrameBufferObject::BufferComponent::PACKED_DEPTH_STENCIL_BUFFER, depthRB);
             fbos[FBO_FirstPerson]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER0, colorRB);
 
-            fbos[FBO_Intercept] = new osg::FrameBufferObject;
             fbos[FBO_Intercept]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER0,
                 Stereo::createMultiviewCompatibleAttachment(textures[Tex_Scene]));
-            fbos[FBO_Intercept]->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER1,
-                Stereo::createMultiviewCompatibleAttachment(textures[Tex_Normal]));
         }
         else
         {
@@ -646,12 +652,15 @@ namespace MWRender
                     subPass.mRenderTexture = renderTarget.mTarget;
                     subPass.mMipMap = renderTarget.mMipMap;
 
+                    const auto [w, h] = renderTarget.mSize.get(renderWidth(), renderHeight());
+                    subPass.mStateSet->setAttributeAndModes(new osg::Viewport(0, 0, w, h));
+
+                    subPass.mRenderTexture->setTextureSize(w, h);
+                    subPass.mRenderTexture->dirtyTextureObject();
+
                     subPass.mRenderTarget = new osg::FrameBufferObject;
                     subPass.mRenderTarget->setAttachment(osg::FrameBufferObject::BufferComponent::COLOR_BUFFER0,
                         osg::FrameBufferAttachment(subPass.mRenderTexture));
-
-                    const auto [w, h] = renderTarget.mSize.get(renderWidth(), renderHeight());
-                    subPass.mStateSet->setAttributeAndModes(new osg::Viewport(0, 0, w, h));
 
                     if (std::find_if(attachmentsToDirty.cbegin(), attachmentsToDirty.cend(),
                             [renderTarget](const auto& rt) { return renderTarget.mTarget == rt.mTarget; })
@@ -753,14 +762,18 @@ namespace MWRender
             if (Misc::StringUtils::ciEqual(technique->getName(), name))
                 return technique;
 
+        std::string realName = name;
+        auto fileIter = mTechniqueFileMap.find(name);
+        if (fileIter != mTechniqueFileMap.end())
+            realName = fileIter->first;
+
         auto technique = std::make_shared<fx::Technique>(*mVFS, *mRendering.getResourceSystem()->getImageManager(),
-            name, renderWidth(), renderHeight(), mUBO, mNormalsSupported);
+            std::move(realName), renderWidth(), renderHeight(), mUBO, mNormalsSupported);
 
         technique->compile();
 
         if (technique->getStatus() != fx::Technique::Status::File_Not_exists)
-            technique->setLastModificationTime(
-                std::filesystem::last_write_time(mTechniqueFileMap[technique->getName()]));
+            technique->setLastModificationTime(std::filesystem::last_write_time(fileIter->second));
 
         if (loadNextFrame)
         {

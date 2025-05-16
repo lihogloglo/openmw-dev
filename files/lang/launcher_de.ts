@@ -390,6 +390,14 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <source>This archive is enabled in an openmw.cfg other than the user one</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>&amp;Copy Path(s) to Clipboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&amp;Open Path in File Explorer</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>Launcher::GraphicsPage</name>
@@ -448,7 +456,7 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source> Launch OpenMW </source>
+        <source>Launch OpenMW</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -699,6 +707,14 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If enabled - makes transitions between different animations/poses much smoother. Also allows to load animation blending config YAML files that can be bundled with animations in order to customise blending styles.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Smooth Animation Transitions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Makes NPCs and player movement more smooth. Recommended to use with &quot;turn to movement direction&quot; enabled.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation type="unfinished"></translation>
     </message>
@@ -921,10 +937,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting determines whether the amount of the time the player has spent playing will be displayed for each saved game in the Load menu.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>JPG</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1061,21 +1073,9 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum distance at which lights will appear (measured in units).&lt;/p&gt;&lt;p&gt;Set this to 0 to use an unlimited distance.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum number of lights per object.&lt;/p&gt;&lt;p&gt;A low number near default will cause light popping similar to what you would see with legacy lighting.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Fraction of maximum distance at which lights will start to fade.&lt;/p&gt;&lt;p&gt;Set this to a low value for slower transitions or a high value for quicker transitions.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Set the internal handling of light sources.&lt;/p&gt;
-&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object and provides a lighting closest to an original game.&lt;/p&gt;
-&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover and a configurable light fade. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
+&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object. It provides results most similar to Morrowind&apos;s lighting.&lt;/p&gt;
+&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
 &lt;p&gt; &quot;Shaders&quot; carries all of the benefits that &quot;Shaders (compatibility)&quot; does, but uses a modern approach that allows for a higher max lights count with little to no performance penalties on modern hardware.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1085,14 +1085,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     </message>
     <message>
         <source>Shaders (compatibility)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Multipler for bounding sphere of lights.&lt;/p&gt;&lt;p&gt;Higher numbers allows for smooth falloff but require an increase in number of max lights.&lt;/p&gt;&lt;p&gt;Does not effect the illumination or strength of lights.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Minimum ambient interior brightness.&lt;/p&gt;&lt;p&gt;Increase this if you feel interiors are too dark.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1316,23 +1308,7 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Maximum Light Distance</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Max Lights</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Lighting Method</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Bounding Sphere Multiplier</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Minimum Interior Brightness</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1436,6 +1412,10 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting controls the behavior of factoring of Strength attribute into hand-to-hand damage: damage is multiplied by Strength value divided by 40.&lt;/p&gt;&lt;p&gt;Can apply to all actors or only to non-werewolf actors.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Turn to Movement Direction</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1449,10 +1429,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     </message>
     <message>
         <source>Can Zoom on Maps</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Add &quot;Time Played&quot; to Saves</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

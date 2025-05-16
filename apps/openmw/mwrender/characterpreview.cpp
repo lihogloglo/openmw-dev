@@ -260,7 +260,6 @@ namespace MWRender
         // turn off sky blending
         stateset->addUniform(new osg::Uniform("far", 10000000.0f));
         stateset->addUniform(new osg::Uniform("skyBlendingStart", 8000000.0f));
-        stateset->addUniform(new osg::Uniform("sky", 0));
         stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f{ 1, 1 }));
 
         stateset->addUniform(new osg::Uniform("emissiveMult", 1.f));
@@ -533,7 +532,7 @@ namespace MWRender
         : CharacterPreview(
             parent, resourceSystem, MWMechanics::getPlayer(), 512, 512, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
         , mBase(*mCharacter.get<ESM::NPC>()->mBase)
-        , mRef(&mBase)
+        , mRef(ESM::makeBlankCellRef(), &mBase)
         , mPitchRadians(osg::DegreesToRadians(6.f))
     {
         mCharacter = MWWorld::Ptr(&mRef, nullptr);

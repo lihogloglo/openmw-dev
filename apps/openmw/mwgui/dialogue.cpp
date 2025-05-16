@@ -666,7 +666,8 @@ namespace MWGui
         else if (scrollbar)
         {
             mHistory->setSize(MyGUI::IntSize(mHistory->getWidth(), book->getSize().second));
-            size_t range = book->getSize().second - viewHeight;
+            // Scroll range should be >= 2 to enable scrolling and prevent a crash
+            size_t range = std::max(book->getSize().second - viewHeight, size_t(2));
             mScrollBar->setScrollRange(range);
             mScrollBar->setScrollPosition(range - 1);
             mScrollBar->setTrackSize(
@@ -794,18 +795,34 @@ namespace MWGui
         if (!Settings::gui().mColorTopicEnable)
             return;
 
-        const MyGUI::Colour& specialColour = Settings::gui().mColorTopicSpecific;
-        const MyGUI::Colour& oldColour = Settings::gui().mColorTopicExhausted;
-
         for (const std::string& keyword : mKeywords)
         {
             int flag = MWBase::Environment::get().getDialogueManager()->getTopicFlag(ESM::RefId::stringRefId(keyword));
             MyGUI::Button* button = mTopicsList->getItemWidget(keyword);
+            const auto oldCaption = button->getCaption();
+            const MyGUI::IntSize oldSize = button->getSize();
 
+            bool changed = false;
             if (flag & MWBase::DialogueManager::TopicType::Specific)
-                button->getSubWidgetText()->setTextColour(specialColour);
+            {
+                button->changeWidgetSkin("MW_ListLine_Specific");
+                changed = true;
+            }
             else if (flag & MWBase::DialogueManager::TopicType::Exhausted)
-                button->getSubWidgetText()->setTextColour(oldColour);
+            {
+                button->changeWidgetSkin("MW_ListLine_Exhausted");
+                changed = true;
+            }
+
+            if (changed)
+            {
+                button->setCaption(oldCaption);
+                button->setTextAlign(MyGUI::Align::Left);
+                MyGUI::ISubWidgetText* text = button->getSubWidgetText();
+                if (text != nullptr)
+                    text->setWordWrap(true);
+                button->setSize(oldSize);
+            }
         }
     }
 

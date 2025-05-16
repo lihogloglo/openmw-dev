@@ -35,6 +35,7 @@
 #include "../mwmechanics/actorutil.hpp"
 
 #include "classmodel.hpp"
+#include "nameorid.hpp"
 
 namespace MWClass
 {
@@ -81,7 +82,7 @@ namespace MWClass
     void Door::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
         MWPhysics::PhysicsSystem& physics) const
     {
-        physics.addObject(ptr, model, rotation, MWPhysics::Layers::DOOR);
+        physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::Layers::DOOR);
     }
 
     bool Door::isDoor() const
@@ -101,10 +102,7 @@ namespace MWClass
 
     std::string_view Door::getName(const MWWorld::ConstPtr& ptr) const
     {
-        const MWWorld::LiveCellRef<ESM::Door>* ref = ptr.get<ESM::Door>();
-        const std::string& name = ref->mBase->mName;
-
-        return !name.empty() ? name : ref->mBase->mId.getRefIdString();
+        return getNameOrId<ESM::Door>(ptr);
     }
 
     std::unique_ptr<MWWorld::Action> Door::activate(const MWWorld::Ptr& ptr, const MWWorld::Ptr& actor) const

@@ -8,11 +8,13 @@
 
 #include <components/lua/inputactions.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/lua/scripttracker.hpp>
 #include <components/lua/storage.hpp>
 #include <components/lua_ui/resources.hpp>
 #include <components/misc/color.hpp>
 
 #include "../mwbase/luamanager.hpp"
+#include "../mwbase/windowmanager.hpp"
 
 #include "engineevents.hpp"
 #include "globalscripts.hpp"
@@ -106,7 +108,11 @@ namespace MWLua
 
         // Used only in Lua bindings
         void addCustomLocalScript(const MWWorld::Ptr&, int scriptId, std::string_view initData);
-        void addUIMessage(std::string_view message) { mUIMessages.emplace_back(message); }
+        void addUIMessage(
+            std::string_view message, MWGui::ShowInDialogueMode mode = MWGui::ShowInDialogueMode_IfPossible)
+        {
+            mUIMessages.emplace_back(message, mode);
+        }
         void addInGameConsoleMessage(const std::string& msg, const Misc::Color& color)
         {
             mInGameConsoleMessages.push_back({ msg, color });
@@ -145,8 +151,9 @@ namespace MWLua
         template <class Arg>
         std::function<void(Arg)> wrapLuaCallback(const LuaUtil::Callback& c)
         {
-            return
-                [this, c](Arg arg) { this->queueCallback(c, sol::main_object(this->mLua.sol(), sol::in_place, arg)); };
+            return [this, c](Arg arg) {
+                this->queueCallback(c, sol::main_object(this->mLua.unsafeState(), sol::in_place, arg));
+            };
         }
 
         LuaUi::ResourceManager* uiResourceManager() { return &mUiResourceManager; }
@@ -164,6 +171,7 @@ namespace MWLua
         LocalScripts* createLocalScripts(const MWWorld::Ptr& ptr,
             std::optional<LuaUtil::ScriptIdsWithInitializationData> autoStartConf = std::nullopt);
         void reloadAllScriptsImpl();
+        void synchronizedUpdateUnsafe();
 
         bool mInitialized = false;
         bool mGlobalScriptsStarted = false;
@@ -218,15 +226,17 @@ namespace MWLua
         };
         std::vector<DelayedAction> mActionQueue;
         std::optional<DelayedAction> mTeleportPlayerAction;
-        std::vector<std::string> mUIMessages;
+        std::vector<std::pair<std::string, MWGui::ShowInDialogueMode>> mUIMessages;
         std::vector<std::pair<std::string, Misc::Color>> mInGameConsoleMessages;
         std::optional<ObjectId> mDelayedUiModeChangedArg;
 
-        LuaUtil::LuaStorage mGlobalStorage{ mLua.sol() };
-        LuaUtil::LuaStorage mPlayerStorage{ mLua.sol() };
+        LuaUtil::LuaStorage mGlobalStorage;
+        LuaUtil::LuaStorage mPlayerStorage;
 
         LuaUtil::InputAction::Registry mInputActions;
         LuaUtil::InputTrigger::Registry mInputTriggers;
+
+        LuaUtil::ScriptTracker mScriptTracker;
     };
 
 }

@@ -34,6 +34,7 @@
 #include "../mwmechanics/npcstats.hpp"
 
 #include "classmodel.hpp"
+#include "nameorid.hpp"
 
 namespace MWClass
 {
@@ -123,7 +124,7 @@ namespace MWClass
     void Container::insertObjectPhysics(const MWWorld::Ptr& ptr, const std::string& model, const osg::Quat& rotation,
         MWPhysics::PhysicsSystem& physics) const
     {
-        physics.addObject(ptr, model, rotation, MWPhysics::Layers::WORLD);
+        physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::Layers::WORLD);
     }
 
     std::string_view Container::getModel(const MWWorld::ConstPtr& ptr) const
@@ -217,10 +218,7 @@ namespace MWClass
 
     std::string_view Container::getName(const MWWorld::ConstPtr& ptr) const
     {
-        const MWWorld::LiveCellRef<ESM::Container>* ref = ptr.get<ESM::Container>();
-        const std::string& name = ref->mBase->mName;
-
-        return !name.empty() ? name : ref->mBase->mId.getRefIdString();
+        return getNameOrId<ESM::Container>(ptr);
     }
 
     MWWorld::ContainerStore& Container::getContainerStore(const MWWorld::Ptr& ptr) const
@@ -239,7 +237,12 @@ namespace MWClass
     bool Container::hasToolTip(const MWWorld::ConstPtr& ptr) const
     {
         if (const MWWorld::CustomData* data = ptr.getRefData().getCustomData())
-            return !canBeHarvested(ptr) || data->asContainerCustomData().mStore.hasVisibleItems();
+        {
+            if (!canBeHarvested(ptr))
+                return true;
+            const MWWorld::ContainerStore& store = data->asContainerCustomData().mStore;
+            return !store.isResolved() || store.hasVisibleItems();
+        }
         return true;
     }
 

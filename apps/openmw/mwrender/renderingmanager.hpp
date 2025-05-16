@@ -1,22 +1,21 @@
 #ifndef OPENMW_MWRENDER_RENDERINGMANAGER_H
 #define OPENMW_MWRENDER_RENDERINGMANAGER_H
 
-#include <span>
-
-#include <osg/Camera>
-#include <osg/Light>
-#include <osg/ref_ptr>
-
-#include <components/settings/settings.hpp>
-
-#include <osgUtil/IncrementalCompileOperation>
-
 #include "objects.hpp"
 #include "renderinginterface.hpp"
 #include "rendermode.hpp"
 
+#include <components/settings/settings.hpp>
+#include <components/vfs/pathutil.hpp>
+
+#include <osg/Light>
+#include <osg/ref_ptr>
+
+#include <osgUtil/IncrementalCompileOperation>
+
 #include <deque>
 #include <memory>
+#include <span>
 #include <unordered_map>
 
 namespace osg
@@ -136,7 +135,6 @@ namespace MWRender
 
         void setAmbientColour(const osg::Vec4f& colour);
 
-        void skySetDate(int day, int month);
         int skyGetMasserPhase() const;
         int skyGetSecundaPhase() const;
         void skySetMoonColour(bool red);
@@ -168,7 +166,6 @@ namespace MWRender
 
         /// Take a screenshot of w*h onto the given image, not including the GUI.
         void screenshot(osg::Image* image, int w, int h);
-        bool screenshot360(osg::Image* image);
 
         struct RayResult
         {
@@ -188,9 +185,8 @@ namespace MWRender
         RayResult castCameraToViewportRay(
             const float nX, const float nY, float maxDistance, bool ignorePlayer, bool ignoreActors = false);
 
-        /// Get the bounding box of the given object in screen coordinates as (minX, minY, maxX, maxY), with (0,0) being
-        /// the top left corner.
-        osg::Vec4f getScreenBounds(const osg::BoundingBox& worldbb);
+        /// Get normalized screen coordinates of the bounding box's summit, where (0,0) is the top left corner
+        osg::Vec2f getScreenCoords(const osg::BoundingBox& bb);
 
         void setSkyEnabled(bool enabled);
 
@@ -198,8 +194,8 @@ namespace MWRender
 
         SkyManager* getSkyManager();
 
-        void spawnEffect(const std::string& model, std::string_view texture, const osg::Vec3f& worldPosition,
-            float scale = 1.f, bool isMagicVFX = true);
+        void spawnEffect(VFS::Path::NormalizedView model, std::string_view texture, const osg::Vec3f& worldPosition,
+            float scale = 1.f, bool isMagicVFX = true, bool useAmbientLight = true);
 
         /// Clear all savegame-specific data
         void clear();
@@ -283,7 +279,6 @@ namespace MWRender
         void updateTextureFiltering();
         void updateAmbient();
         void setFogColor(const osg::Vec4f& color);
-        void updateThirdPersonViewMode();
 
         struct WorldspaceChunkMgr
         {

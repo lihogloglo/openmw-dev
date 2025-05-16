@@ -1,11 +1,14 @@
 #include "datafilespage.hpp"
 #include "maindialog.hpp"
 
+#include <QClipboard>
 #include <QDebug>
+#include <QDesktopServices>
 #include <QFileDialog>
 #include <QList>
 #include <QMessageBox>
 #include <QPair>
+#include <QProgressDialog>
 #include <QPushButton>
 
 #include <algorithm>
@@ -30,6 +33,7 @@
 #include <components/navmeshtool/protocol.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/bsaarchive.hpp>
+#include <components/vfs/qtconversion.hpp>
 
 #include "utils/profilescombobox.hpp"
 #include "utils/textinputdialog.hpp"
@@ -75,10 +79,27 @@ namespace
         QDir currentDir(path);
         if (!currentDir.entryInfoList(fileFilter, QDir::Files).empty()
             || !currentDir.entryInfoList(dirFilter, QDir::Dirs | QDir::NoDotAndDotDot).empty())
+        {
             dirs.push_back(currentDir.canonicalPath());
+            return;
+        }
 
         for (const auto& subdir : currentDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot))
             contentSubdirs(subdir.canonicalFilePath(), dirs);
+    }
+
+    QList<QPair<int, QListWidgetItem*>> sortedSelectedItems(QListWidget* list, bool reverse = false)
+    {
+        QList<QPair<int, QListWidgetItem*>> sortedItems;
+        for (QListWidgetItem* item : list->selectedItems())
+            sortedItems.append(qMakePair(list->row(item), item));
+
+        if (reverse)
+            std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first > b.first; });
+        else
+            std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first < b.first; });
+
+        return sortedItems;
     }
 }
 
@@ -138,6 +159,7 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     , mGameSettings(gameSettings)
     , mLauncherSettings(launcherSettings)
     , mNavMeshToolInvoker(new Process::ProcessInvoker(this))
+    , mReloadCellsThread(&DataFilesPage::reloadCells, this)
 {
     ui.setupUi(this);
     setObjectName("DataFilesPage");
@@ -161,11 +183,15 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
     connect(mCloneProfileDialog->lineEdit(), &LineEdit::textChanged, this, &DataFilesPage::updateCloneProfileOkButton);
     connect(ui.directoryAddSubdirsButton, &QPushButton::released, this, [this]() { this->addSubdirectories(true); });
     connect(ui.directoryInsertButton, &QPushButton::released, this, [this]() { this->addSubdirectories(false); });
-    connect(ui.directoryUpButton, &QPushButton::released, this, [this]() { this->moveDirectory(-1); });
-    connect(ui.directoryDownButton, &QPushButton::released, this, [this]() { this->moveDirectory(1); });
+    connect(ui.directoryUpButton, &QPushButton::released, this,
+        [this]() { this->moveSources(ui.directoryListWidget, -1); });
+    connect(ui.directoryDownButton, &QPushButton::released, this,
+        [this]() { this->moveSources(ui.directoryListWidget, 1); });
     connect(ui.directoryRemoveButton, &QPushButton::released, this, &DataFilesPage::removeDirectory);
-    connect(ui.archiveUpButton, &QPushButton::released, this, [this]() { this->moveArchives(-1); });
-    connect(ui.archiveDownButton, &QPushButton::released, this, [this]() { this->moveArchives(1); });
+    connect(
+        ui.archiveUpButton, &QPushButton::released, this, [this]() { this->moveSources(ui.archiveListWidget, -1); });
+    connect(
+        ui.archiveDownButton, &QPushButton::released, this, [this]() { this->moveSources(ui.archiveListWidget, 1); });
     connect(ui.directoryListWidget->model(), &QAbstractItemModel::rowsMoved, this, &DataFilesPage::sortDirectories);
     connect(ui.archiveListWidget->model(), &QAbstractItemModel::rowsMoved, this, &DataFilesPage::sortArchives);
 
@@ -178,6 +204,16 @@ Launcher::DataFilesPage::DataFilesPage(const Files::ConfigurationManager& cfg, C
         &DataFilesPage::slotAddonDataChanged);
     // Call manually to indicate all changes to addon data during startup.
     slotAddonDataChanged();
+}
+
+Launcher::DataFilesPage::~DataFilesPage()
+{
+    {
+        const std::lock_guard lock(mReloadCellsMutex);
+        mAbortReloadCells = true;
+        mStartReloadCells.notify_one();
+    }
+    mReloadCellsThread.join();
 }
 
 void Launcher::DataFilesPage::buildView()
@@ -222,6 +258,31 @@ void Launcher::DataFilesPage::buildView()
         &DataFilesPage::navMeshToolFinished);
 
     buildArchiveContextMenu();
+    buildDataFilesContextMenu();
+}
+
+void Launcher::DataFilesPage::slotCopySelectedItemsPaths()
+{
+    QClipboard* clipboard = QApplication::clipboard();
+    QStringList filepaths;
+
+    for (QListWidgetItem* item : ui.directoryListWidget->selectedItems())
+    {
+        QString path = qvariant_cast<Config::SettingValue>(item->data(Qt::UserRole)).originalRepresentation;
+        filepaths.push_back(path);
+    }
+
+    if (!filepaths.isEmpty())
+    {
+        clipboard->setText(filepaths.join("\n"));
+    }
+}
+
+void Launcher::DataFilesPage::slotOpenSelectedItemsPaths()
+{
+    QListWidgetItem* item = ui.directoryListWidget->currentItem();
+    QUrl confFolderUrl = QUrl::fromLocalFile(qvariant_cast<Config::SettingValue>(item->data(Qt::UserRole)).value);
+    QDesktopServices::openUrl(confFolderUrl);
 }
 
 void Launcher::DataFilesPage::buildArchiveContextMenu()
@@ -232,6 +293,18 @@ void Launcher::DataFilesPage::buildArchiveContextMenu()
     mArchiveContextMenu = new QMenu(ui.archiveListWidget);
     mArchiveContextMenu->addAction(tr("&Check Selected"), this, SLOT(slotCheckMultiSelectedItems()));
     mArchiveContextMenu->addAction(tr("&Uncheck Selected"), this, SLOT(slotUncheckMultiSelectedItems()));
+}
+
+void Launcher::DataFilesPage::buildDataFilesContextMenu()
+{
+    connect(ui.directoryListWidget, &QListWidget::customContextMenuRequested, this,
+        &DataFilesPage::slotShowDataFilesContextMenu);
+
+    mDataFilesContextMenu = new QMenu(ui.directoryListWidget);
+    mDataFilesContextMenu->addAction(
+        tr("&Copy Path(s) to Clipboard"), this, &Launcher::DataFilesPage::slotCopySelectedItemsPaths);
+    mDataFilesContextMenu->addAction(
+        tr("&Open Path in File Explorer"), this, &Launcher::DataFilesPage::slotOpenSelectedItemsPaths);
 }
 
 bool Launcher::DataFilesPage::loadSettings()
@@ -279,7 +352,7 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
                               [&](const Config::SettingValue& dir) { return mGameSettings.isUserSetting(dir); }),
             directories.end());
         for (const auto& dir : contentModelDirectories)
-            directories.push_back({ dir });
+            directories.push_back(mGameSettings.processPathSettingValue({ dir }));
     }
 
     mDataLocal = mGameSettings.getDataLocal();
@@ -290,9 +363,17 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
     if (!resourcesVfs.isEmpty())
         directories.insert(0, { resourcesVfs });
 
+    QIcon containsDataIcon(":/images/openmw-plugin.png");
+
+    QProgressDialog progressBar("Adding data directories", {}, 0, directories.count(), this);
+    progressBar.setWindowModality(Qt::WindowModal);
+    progressBar.setValue(0);
+
     std::unordered_set<QString> visitedDirectories;
     for (const Config::SettingValue& currentDir : directories)
     {
+        progressBar.setValue(progressBar.value() + 1);
+
         if (!visitedDirectories.insert(currentDir.value).second)
             continue;
 
@@ -341,7 +422,7 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
         // Add a "data file" icon if the directory contains a content file
         if (mSelector->containsDataFiles(currentDir.value))
         {
-            item->setIcon(QIcon(":/images/openmw-plugin.png"));
+            item->setIcon(containsDataIcon);
 
             tooltip << tr("Contains content file(s)");
         }
@@ -359,7 +440,7 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
 
     QList<Config::SettingValue> selectedArchives = mGameSettings.getArchiveList();
     QStringList contentModelSelectedArchives = mLauncherSettings.getArchiveList(contentModelName);
-    if (contentModelSelectedArchives.isEmpty())
+    if (!contentModelSelectedArchives.isEmpty())
     {
         selectedArchives.erase(std::remove_if(selectedArchives.begin(), selectedArchives.end(),
                                    [&](const Config::SettingValue& dir) { return mGameSettings.isUserSetting(dir); }),
@@ -372,11 +453,14 @@ void Launcher::DataFilesPage::populateFileViews(const QString& contentModelName)
     int row = 0;
     for (const auto& archive : selectedArchives)
     {
-        const auto match = ui.archiveListWidget->findItems(archive.value, Qt::MatchExactly);
+        const auto match = ui.archiveListWidget->findItems(archive.value, Qt::MatchFixedString);
         if (match.isEmpty())
             continue;
         const auto name = match[0]->text();
         const auto oldrow = ui.archiveListWidget->row(match[0]);
+        // entries may be duplicated, e.g. if a content list predated a BSA being added to a non-user config file
+        if (oldrow < row)
+            continue;
         ui.archiveListWidget->takeItem(oldrow);
         ui.archiveListWidget->insertItem(row, name);
         ui.archiveListWidget->item(row)->setCheckState(Qt::Checked);
@@ -685,13 +769,23 @@ void Launcher::DataFilesPage::updateCloneProfileOkButton(const QString& text)
 
 void Launcher::DataFilesPage::addSubdirectories(bool append)
 {
-    int selectedRow = append ? ui.directoryListWidget->count() : ui.directoryListWidget->currentRow();
+    int selectedRow = -1;
+    if (append)
+    {
+        selectedRow = ui.directoryListWidget->count();
+    }
+    else
+    {
+        const QList<QPair<int, QListWidgetItem*>> sortedItems = sortedSelectedItems(ui.directoryListWidget);
+        if (!sortedItems.isEmpty())
+            selectedRow = sortedItems.first().first;
+    }
 
     if (selectedRow == -1)
         return;
 
     QString rootPath = QFileDialog::getExistingDirectory(
-        this, tr("Select Directory"), QDir::homePath(), QFileDialog::ShowDirsOnly | QFileDialog::Option::ReadOnly);
+        this, tr("Select Directory"), {}, QFileDialog::ShowDirsOnly | QFileDialog::Option::ReadOnly);
 
     if (rootPath.isEmpty())
         return;
@@ -711,9 +805,8 @@ void Launcher::DataFilesPage::addSubdirectories(bool append)
         // Automatically add the directory selected by user
         if (!ui.directoryListWidget->findItems(rootPath, Qt::MatchFixedString).isEmpty())
             return;
-        ui.directoryListWidget->addItem(rootPath);
-        auto row = ui.directoryListWidget->count() - 1;
-        auto* item = ui.directoryListWidget->item(row);
+        ui.directoryListWidget->insertItem(selectedRow, rootPath);
+        auto* item = ui.directoryListWidget->item(selectedRow);
         item->setData(Qt::UserRole, QVariant::fromValue(Config::SettingValue{ rootPath }));
         mNewDataDirs.push_back(rootPath);
         refreshDataFilesView();
@@ -785,21 +878,6 @@ void Launcher::DataFilesPage::sortArchives()
     }
 }
 
-void Launcher::DataFilesPage::moveDirectory(int step)
-{
-    int selectedRow = ui.directoryListWidget->currentRow();
-    int newRow = selectedRow + step;
-    if (selectedRow == -1 || newRow < 0 || newRow > ui.directoryListWidget->count() - 1)
-        return;
-
-    if (!(ui.directoryListWidget->item(newRow)->flags() & Qt::ItemIsEnabled))
-        return;
-
-    const auto item = ui.directoryListWidget->takeItem(selectedRow);
-    ui.directoryListWidget->insertItem(newRow, item);
-    ui.directoryListWidget->setCurrentRow(newRow);
-}
-
 void Launcher::DataFilesPage::removeDirectory()
 {
     for (const auto& path : ui.directoryListWidget->selectedItems())
@@ -811,6 +889,12 @@ void Launcher::DataFilesPage::slotShowArchiveContextMenu(const QPoint& pos)
 {
     QPoint globalPos = ui.archiveListWidget->viewport()->mapToGlobal(pos);
     mArchiveContextMenu->exec(globalPos);
+}
+
+void Launcher::DataFilesPage::slotShowDataFilesContextMenu(const QPoint& pos)
+{
+    QPoint globalPos = ui.directoryListWidget->viewport()->mapToGlobal(pos);
+    mDataFilesContextMenu->exec(globalPos);
 }
 
 void Launcher::DataFilesPage::setCheckStateForMultiSelectedItems(bool checked)
@@ -833,44 +917,23 @@ void Launcher::DataFilesPage::slotCheckMultiSelectedItems()
     setCheckStateForMultiSelectedItems(true);
 }
 
-void Launcher::DataFilesPage::moveArchives(int step)
+void Launcher::DataFilesPage::moveSources(QListWidget* sourceList, int step)
 {
-    QList<QListWidgetItem*> selectedItems = ui.archiveListWidget->selectedItems();
-    QList<QPair<int, QListWidgetItem*>> sortedItems;
-
-    for (QListWidgetItem* selectedItem : selectedItems)
+    const QList<QPair<int, QListWidgetItem*>> sortedItems = sortedSelectedItems(sourceList, step > 0);
+    for (const auto& i : sortedItems)
     {
-        int selectedRow = ui.archiveListWidget->row(selectedItem);
-        sortedItems.append(qMakePair(selectedRow, selectedItem));
-    }
-
-    if (step > 0)
-    {
-        std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first > b.first; });
-    }
-    else
-    {
-        std::sort(sortedItems.begin(), sortedItems.end(), [](auto a, auto b) { return a.first < b.first; });
-    }
-
-    for (auto i : sortedItems)
-    {
-        if (!moveArchive(i.second, step))
+        int selectedRow = sourceList->row(i.second);
+        int newRow = selectedRow + step;
+        if (selectedRow == -1 || newRow < 0 || newRow > sourceList->count() - 1)
             break;
+
+        if (!(sourceList->item(newRow)->flags() & Qt::ItemIsEnabled))
+            break;
+
+        const auto item = sourceList->takeItem(selectedRow);
+        sourceList->insertItem(newRow, item);
+        sourceList->setCurrentRow(newRow);
     }
-}
-
-bool Launcher::DataFilesPage::moveArchive(QListWidgetItem* listItem, int step)
-{
-    int selectedRow = ui.archiveListWidget->row(listItem);
-    int newRow = selectedRow + step;
-    if (selectedRow == -1 || newRow < 0 || newRow > ui.archiveListWidget->count() - 1)
-        return false;
-
-    QListWidgetItem* item = ui.archiveListWidget->takeItem(selectedRow);
-    ui.archiveListWidget->insertItem(newRow, item);
-    ui.archiveListWidget->setCurrentRow(newRow);
-    return true;
 }
 
 void Launcher::DataFilesPage::addArchive(const QString& name, Qt::CheckState selected, int row)
@@ -895,9 +958,9 @@ void Launcher::DataFilesPage::addArchivesFromDir(const QString& path)
     QStringList archiveFilter{ "*.bsa", "*.ba2" };
     QDir dir(path);
 
-    std::unordered_set<QString> archives;
+    std::unordered_set<VFS::Path::Normalized, VFS::Path::Hash> archives;
     for (int i = 0; i < ui.archiveListWidget->count(); ++i)
-        archives.insert(ui.archiveListWidget->item(i)->text());
+        archives.insert(VFS::Path::normalizedFromQString(ui.archiveListWidget->item(i)->text()));
 
     for (const auto& fileinfo : dir.entryInfoList(archiveFilter))
     {
@@ -907,7 +970,7 @@ void Launcher::DataFilesPage::addArchivesFromDir(const QString& path)
 
         const auto fileName = fileinfo.fileName();
 
-        if (archives.insert(fileName).second)
+        if (archives.insert(VFS::Path::normalizedFromQString(fileName)).second)
             addArchive(fileName, Qt::Unchecked);
     }
 }
@@ -939,31 +1002,45 @@ bool Launcher::DataFilesPage::showDeleteMessageBox(const QString& text)
 void Launcher::DataFilesPage::slotAddonDataChanged()
 {
     QStringList selectedFiles = selectedFilePaths();
-    if (previousSelectedFiles != selectedFiles)
+    if (mSelectedFiles != selectedFiles)
     {
-        previousSelectedFiles = selectedFiles;
-        // Loading cells for core Morrowind + Expansions takes about 0.2 seconds, which is enough to cause a
-        // barely perceptible UI lag. Splitting into its own thread to alleviate that.
-        std::thread loadCellsThread(&DataFilesPage::reloadCells, this, selectedFiles);
-        loadCellsThread.detach();
+        const std::lock_guard lock(mReloadCellsMutex);
+        mSelectedFiles = std::move(selectedFiles);
+        mReloadCells = true;
+        mStartReloadCells.notify_one();
     }
 }
 
-// Mutex lock to run reloadCells synchronously.
-static std::mutex reloadCellsMutex;
-
-void Launcher::DataFilesPage::reloadCells(QStringList selectedFiles)
+void Launcher::DataFilesPage::reloadCells()
 {
-    // Use a mutex lock so that we can prevent two threads from executing the rest of this code at the same time
-    // Based on https://stackoverflow.com/a/5429695/531762
-    std::unique_lock<std::mutex> lock(reloadCellsMutex);
+    std::unique_lock lock(mReloadCellsMutex);
 
-    // The following code will run only if there is not another thread currently running it
-    CellNameLoader cellNameLoader;
-    QSet<QString> set = cellNameLoader.getCellNames(selectedFiles);
-    QStringList cellNamesList(set.begin(), set.end());
-    std::sort(cellNamesList.begin(), cellNamesList.end());
-    emit signalLoadedCellsChanged(cellNamesList);
+    while (true)
+    {
+        mStartReloadCells.wait(lock);
+
+        if (mAbortReloadCells)
+            return;
+
+        if (!std::exchange(mReloadCells, false))
+            continue;
+
+        QStringList selectedFiles = mSelectedFiles;
+
+        lock.unlock();
+
+        CellNameLoader cellNameLoader;
+        QSet<QString> set = cellNameLoader.getCellNames(selectedFiles);
+        QStringList cellNamesList(set.begin(), set.end());
+        std::sort(cellNamesList.begin(), cellNamesList.end());
+
+        emit signalLoadedCellsChanged(std::move(cellNamesList));
+
+        lock.lock();
+
+        if (mAbortReloadCells)
+            return;
+    }
 }
 
 void Launcher::DataFilesPage::startNavMeshTool()

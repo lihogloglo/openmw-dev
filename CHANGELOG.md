@@ -7,12 +7,14 @@
     Bug #4127: Weapon animation looks choppy
     Bug #4204: Dead slaughterfish doesn't float to water surface after loading saved game
     Bug #4207: RestoreHealth/Fatigue spells have a huge priority even if a success chance is near 0
+    Bug #4289: Script compilation fails if an NPC deleted in a content file is disabled
     Bug #4382: Sound output device does not change when it should
     Bug #4508: Can't stack enchantment buffs from different instances of the same self-cast generic magic apparel
     Bug #4610: Casting a Bound Weapon spell cancels the casting animation by equipping the weapon prematurely
     Bug #4683: Disposition decrease when player commits crime is not implemented properly
+    Bug #4710: Object tooltips don't always stick to the top of the object
     Bug #4742: Actors with wander never stop walking after Loopgroup Walkforward
-    Bug #4743: PlayGroup doesn't play non-looping animations correctly 
+    Bug #4743: PlayGroup doesn't play non-looping animations correctly
     Bug #4754: Stack of ammunition cannot be equipped partially
     Bug #4816: GetWeaponDrawn returns 1 before weapon is attached
     Bug #4822: Non-weapon equipment and body parts can't inherit time from parent animation
@@ -37,6 +39,7 @@
     Bug #6156: 1ft Charm or Sound magic effect vfx doesn't work properly
     Bug #6190: Unintuitive sun specularity time of day dependence
     Bug #6222: global map cell size can crash openmw if set to too high a value
+    Bug #6240: State sharing sometimes prevents the use of the same texture file for different purposes in shaders
     Bug #6313: Followers with high Fight can turn hostile
     Bug #6402: The sound of a thunderstorm does not stop playing after entering the premises
     Bug #6427: Enemy health bar disappears before damaging effect ends
@@ -45,6 +48,7 @@
     Bug #6645: Enemy block sounds align with animation instead of blocked hits
     Bug #6657: Distant terrain tiles become black when using FWIW mod
     Bug #6661: Saved games that have no preview screenshot cause issues or crashes
+    Bug #6665: The kobolds in the skyrim: home of the nords mod are oversized
     Bug #6716: mwscript comparison operator handling is too restrictive
     Bug #6723: "Turn to movement direction" makes the player rotate wildly with COLLADA
     Bug #6754: Beast to Non-beast transformation mod is not working on OpenMW
@@ -66,9 +70,12 @@
     Bug #6992: Crossbow reloading doesn't look the same as in Morrowind
     Bug #6993: Shooting your last round of ammunition causes the attack animation to cancel
     Bug #7009: Falling actors teleport to the ground without receiving any damage on cell loading
+    Bug #7013: Local map rendering in some cells is broken
     Bug #7034: Misc items defined in one content file are not treated as keys if another content file uses them as such
+    Bug #7040: Incorrect rendering order for Rebirth's Stormfang
     Bug #7042: Weapon follow animations that immediately follow the hit animations cause multiple hits
     Bug #7044: Changing a class' services does not affect autocalculated NPCs
+    Bug #7051: Collada animated character models are optimized out of the collision box instance with object paging
     Bug #7053: Running into objects doesn't trigger GetCollidingPC
     Bug #7054: Quests aren't sorted by name
     Bug #7064: NPCs don't report crime if the player is casting offensive spells on them while sneaking
@@ -81,6 +88,8 @@
     Bug #7122: Teleportation to underwater should cancel active water walking effect
     Bug #7131: MyGUI log spam when post processing HUD is open
     Bug #7134: Saves with an invalid last generated RefNum can be loaded
+    Bug #7145: Normals passed to post-processing shaders are broken
+    Bug #7146: Debug draw for normals is wrong
     Bug #7163: Myar Aranath: Wheat breaks the GUI
     Bug #7168: Fix average scene luminance
     Bug #7172: Current music playlist continues playing indefinitely if next playlist is empty
@@ -94,6 +103,8 @@
     Bug #7307: Alchemy "Magic Effect" search string does not match on tool tip for effects related to attributes
     Bug #7309: Sunlight scattering is visible in inappropriate situations
     Bug #7322: Shadows don't cover groundcover depending on the view angle and perspective with compute scene bounds = primitives
+    Bug #7351: Unsupported MSAA level fallback wrecks GL context extension checks
+    Bug #7353: Normal Map Crashes with Starwind Assets in TES3MP and OpenMW
     Bug #7354: Disabling post processing in-game causes a crash
     Bug #7364: Post processing is not reflected in savegame previews
     Bug #7380: NiZBufferProperty issue
@@ -104,14 +115,18 @@
     Bug #7447: OpenMW-CS: Dragging a cell of a different type (from the initial type) into the 3D view crashes OpenMW-CS
     Bug #7450: Evading obstacles does not work for actors missing certain animations
     Bug #7459: Icons get stacked on the cursor when picking up multiple items simultaneously
+    Bug #7469: Reloading lua with a orphaned lua UI element causes crash
     Bug #7472: Crash when enchanting last projectiles
     Bug #7475: Equipping a constant effect item doesn't update the magic menu
     Bug #7502: Data directories dialog (0.48.0) forces adding subdirectory instead of intended directory
     Bug #7505: Distant terrain does not support sample size greater than cell size
+    Bug #7531: Some bitmap font glyph substitutes are erroneous or missing
     Bug #7535: Bookart paths for textures in OpenMW vs vanilla Morrowind
+    Bug #7548: Actors cannot open doors that were teleported from a different cell
     Bug #7553: Faction reaction loading is incorrect
     Bug #7557: Terrain::ChunkManager::createChunk is called twice for the same position, lod on initial loading
     Bug #7573: Drain Fatigue can't bring fatigue below zero by default
+    Bug #7582: Skill specializations are hardcoded in character creation
     Bug #7585: Difference in interior lighting between OpenMW with legacy lighting method enabled and vanilla Morrowind
     Bug #7587: Quick load related crash
     Bug #7603: Scripts menu size is not updated properly
@@ -121,6 +136,7 @@
     Bug #7617: The death prompt asks the player if they wanted to load the character's last created save
     Bug #7619: Long map notes may get cut off
     Bug #7623: Incorrect placement of the script info in the engraved ring of healing tooltip
+    Bug #7627: Сrash at the start
     Bug #7630: Charm can be cast on creatures
     Bug #7631: Cannot trade with/talk to Creeper or Mudcrab Merchant when they're fleeing
     Bug #7633: Groundcover should ignore non-geometry Drawables
@@ -140,12 +156,17 @@
     Bug #7676: Incorrect magic effect order in alchemy
     Bug #7679: Scene luminance value flashes when toggling shaders
     Bug #7685: Corky sometimes doesn't follow Llovyn Andus
+    Bug #7696: Freeze in CompositeMapRenderer::drawImplementation
+    Bug #7707: (OpenCS): New landscape records do not contain appropriate flags
     Bug #7712: Casting doesn't support spells and enchantments with no effects
     Bug #7721: CS: Special Chars Not Allowed in IDs
     Bug #7723: Assaulting vampires and werewolves shouldn't be a crime
     Bug #7724: Guards don't help vs werewolves
+    Bug #7728: Fatal Error at Startup
     Bug #7733: Launcher shows incorrect data paths when there's two plugins with the same name
+    Bug #7737: OSG stats are missing some data on loading screens
     Bug #7742: Governing attribute training limit should use the modified attribute
+    Bug #7744: Player base record cannot have weapons in the inventory
     Bug #7753: Editor: Actors Don't Scale According to Their Race
     Bug #7758: Water walking is not taken into account to compute path cost on the water
     Bug #7761: Rain and ambient loop sounds are mutually exclusive
@@ -155,6 +176,7 @@
     Bug #7770: Sword of the Perithia: Script execution failure
     Bug #7780: Non-ASCII texture paths in NIF files don't work
     Bug #7785: OpenMW-CS initialising Skill and Attribute fields to 0 instead of -1 on non-FortifyStat spells
+    Bug #7787: Crashing when loading a saved game (not always though)
     Bug #7794: Fleeing NPCs name tooltip doesn't appear
     Bug #7796: Absorbed enchantments don't restore magicka
     Bug #7823: Game crashes when launching it.
@@ -166,26 +188,72 @@
     Bug #7872: Region sounds use wrong odds
     Bug #7886: Equip and unequip animations can't share the animation track section
     Bug #7887: Editor: Mismatched reported script data size and actual data size causes a crash during save
+    Bug #7891: Launcher Reverts 8k Shadows to default
+    Bug #7896: Editor: Loading cellrefs incorrectly transforms Refnums, causing load failures
     Bug #7898: Editor: Invalid reference scales are allowed
     Bug #7899: Editor: Doors can't be unlocked
     Bug #7901: Editor: Teleport-related fields shouldn't be editable if a ref does not teleport
     Bug #7908: Key bindings names in the settings menu are layout-specific
+    Bug #7912: Lua: castRenderingRay fails to hit height map
     Bug #7943: Using "addSoulGem" and "dropSoulGem" commands to creatures works only with "Weapon & Shield" flagged ones
+    Bug #7950: Crash in MWPhysics::PhysicsTaskScheduler::removeCollisionObject
+    Bug #7970: Difference of GetPCSleep (?) behavior between vanilla and OpenMW
+    Bug #7980: Paralyzed NPCs' lips move
+    Bug #7993: Cannot load Bloodmoon without Tribunal
+    Bug #7997: Can toggle perspective when paralyzed
+    Bug #8002: Portable light sources held by creatures do not emit lighting
+    Bug #8005: F3 stats bars are sorted not according to their place in the timeline
+    Bug #8018: Potion effects should never explode and always apply on self
+    Bug #8021: Player's scale doesn't reset when starting a new game
+    Bug #8048: Actors can generate negative collision extents and have no collision
+    Bug #8063: menu_background.bik video with audio freezes the game forever
+    Bug #8064: Lua move360 script doesn't respect the enableZoom/disableZoom Camera interface setting
+    Bug #8085: Don't search in scripts or shaders directories for "Select directories you wish to add" menu in launcher
+    Bug #8097: GetEffect doesn't detect 0 magnitude spells
+    Bug #8099: Reaching Lua memory limit leads to a crash
+    Bug #8124: Normal weapon resistance is applied twice for NPCs
+    Bug #8132: Actors without hello responses turn to face the player
+    Bug #8171: Items with more than 100% health can be repaired
+    Bug #8172: Openmw-cs crashes when viewing `Dantooine, Sea`
+    Bug #8187: Intervention effects should use Chebyshev distance to determine the closest marker
+    Bug #8189: The import tab in the launcher doesn't remember the checkbox selection
+    Bug #8191: NiRollController does not work for sheath meshes
+    Bug #8206: Moving away from storm wind origin should make you faster
+    Bug #8207: Using hand-to-hand while sneaking plays the critical hit sound when the target is not getting hurt
+    Bug #8208: The launcher's view distance option's minimum value isn't capped to Vanilla's minimum
+    Bug #8223: Ghosts don't move while spellcasting
+    Bug #8231: AGOP doesn't like NiCollisionSwitch
+    Bug #8237: Non-bipedal creatures should *not* use spellcast equip/unequip animations
+    Bug #8252: Plugin dependencies are not required to be loaded
+    Bug #8295: Post-processing chain is case-sensitive
+    Bug #8299: Crash while smoothing landscape
+    Bug #8364: Crash when clicking scrollbar without handle (divide by zero)
+    Bug #8378: Korean bitmap fonts are unusable
+    Bug #8439: Creatures without models can crash the game
+    Bug #8441: Freeze when using video main menu replacers
+    Bug #8445: Launcher crashes on exit when cell name loading thread is still running
+    Bug #8462: Crashes when resizing the window on macOS
+    Bug #8465: Blue screen w/ antialiasing and post-processing on macOS
+    Feature #1415: Infinite fall failsafe
     Feature #2566: Handle NAM9 records for manual cell references
+    Feature #3501: OpenMW-CS: Instance Editing - Shortcuts for axial locking
     Feature #3537: Shader-based water ripples
     Feature #5173: Support for NiFogProperty
     Feature #5492: Let rain and snow collide with statics
     Feature #5926: Refraction based on water depth
     Feature #5944: Option to use camera as sound listener
+    Feature #6009: Animation blending - smooth animation transitions with modding support
     Feature #6152: Playing music via lua scripts
     Feature #6188: Specular lighting from point light sources
     Feature #6411: Support translations in openmw-launcher
     Feature #6447: Add LOD support to Object Paging
     Feature #6491: Add support for Qt6
+    Feature #6505: UTF-8 support in Lua scripts
     Feature #6556: Lua API for sounds
     Feature #6679: Design a custom Input Action API
     Feature #6726: Lua API for creating new objects
     Feature #6727: Lua API for records of all object types
+    Feature #6823: Animation layering for osgAnimation formats
     Feature #6864: Lua file access API
     Feature #6922: Improve launcher appearance
     Feature #6933: Support high-resolution cursor textures
@@ -195,18 +263,24 @@
     Feature #6995: Localize the "show effect duration" option
     Feature #7058: Implement TestModels (T3D) console command
     Feature #7087: Block resolution change in the Windowed Fullscreen mode
+    Feature #7091: Allow passing `initData` to the :addScript call
     Feature #7125: Remembering console commands between sessions
     Feature #7129: Add support for non-adaptive VSync
     Feature #7130: Ability to set MyGUI logging verbosity
     Feature #7142: MWScript Lua API
     Feature #7148: Optimize string literal lookup in mwscript
+    Feature #7160: Editor: Moving the Response column of Topicinfos in a better place
     Feature #7161: OpenMW-CS: Make adding and filtering TopicInfos easier
+    Feature #7180: Rename water_nm file and move it to the vfs
     Feature #7194: Ori to show texture paths
     Feature #7214: Searching in the in-game console
+    Feature #7245: Expose the argument `cancelOther` of `AiSequence::stack` to Lua
     Feature #7248: Searching in the console with regex and toggleable case-sensitivity
+    Feature #7318: Ability to disable water culling
     Feature #7468: Factions API for Lua
     Feature #7477: NegativeLight Magic Effect flag
     Feature #7499: OpenMW-CS: Generate record filters by drag & dropping cell content to the filters field
+    Feature #7538: Lua API for advancing skills
     Feature #7546: Start the game on Fredas
     Feature #7554: Controller binding for tab for menu navigation
     Feature #7568: Uninterruptable scripted music
@@ -221,15 +295,32 @@
     Feature #7698: Implement sAbsorb, sDamage, sDrain, sFortify and sRestore
     Feature #7709: Improve resolution selection in Launcher
     Feature #7777: Support external Bethesda material files (BGSM/BGEM)
+    Feature #7788: [Lua] Add ignore option to nearby.castRenderingRay
     Feature #7792: Support Timescale Clouds
     Feature #7795: Support MaxNumberRipples INI setting
     Feature #7805: Lua Menu context
     Feature #7860: Lua: Expose NPC AI settings (fight, alarm, flee)
     Feature #7875: Disable MyGUI windows snapping
     Feature #7914: Do not allow to move GUI windows out of screen
+    Feature #7916: Expose all AiWander options to Lua, extend other packages as well
     Feature #7923: Don't show non-existent higher ranks for factions with fewer than 9 ranks
     Feature #7932: Support two-channel normal maps
     Feature #7936: Scalable icons in Qt applications
+    Feature #7953: Allow to change SVG icons colors depending on color scheme
+    Feature #7964: Add Lua read access to MW Dialogue records
+    Feature #7971: Make save's Time Played value display hours instead of days
+    Feature #7985: Support dark mode on Windows
+    Feature #8038: (Lua) Containers should have respawning/organic flags
+    Feature #8067: Support Game Mode on macOS
+    Feature #8078: OpenMW-CS Terrain Equalize Tool
+    Feature #8087: Creature movement flags are not exposed
+    Feature #8092: Lua - Vector swizzling
+    Feature #8109: Expose commitCrime to Lua API
+    Feature #8130: Launcher: Add the ability to open a selected data directory in the file browser
+    Feature #8145: Starter spell flag is not exposed
+    Feature #8286: Launcher: Preserve semantically identical openmw.cfg
+    Feature #8287: Launcher: Special handling for comma in openmw.cfg entries is unintuitive and should be removed
+    Task #5859: User openmw-cs.cfg has comment talking about settings.cfg
     Task #5896: Do not use deprecated MyGUI properties
     Task #6085: Replace boost::filesystem with std::filesystem
     Task #6149: Dehardcode Lua API_REVISION
@@ -238,7 +329,11 @@
     Task #7113: Move from std::atoi to std::from_char
     Task #7117: Replace boost::scoped_array with std::vector
     Task #7151: Do not use std::strerror to get errno error message
+    Task #7182: FFMpeg 5.1.1+ support
     Task #7394: Drop support for --fs-strict
+    Task #7720: Drop 360-degree screenshot support
+    Task #8141: Merge Instance Drop Modes
+    Task #8214: Drop script blacklisting functionality
 
 0.48.0
 ------
@@ -303,6 +398,7 @@
     Bug #6066: Addtopic "return" does not work from within script. No errors thrown
     Bug #6067: ESP loader fails for certain subrecord orders
     Bug #6087: Bound items added directly to the inventory disappear if their corresponding spell effect ends
+    Bug #6097: Level Progress Tooltip Sometimes Not Updated
     Bug #6101: Disarming trapped unlocked owned objects isn't considered a crime
     Bug #6107: Fatigue is incorrectly recalculated when fortify effect is applied or removed
     Bug #6109: Crash when playing a custom made menu_background file
@@ -452,7 +548,6 @@
     Feature #6700: Support windowed fullscreen
     Feature #6706: Save the size of the Options window
     Feature #6721: OpenMW-CS: Add option to open records in new window
-    Feature #6823: Animation layering for osgAnimation formats
     Feature #6867: Add a way to localize hardcoded strings in GUI
     Feature #6888: Add switch for armor degradation fix
     Feature #6925: Allow to use a mouse wheel to rotate a head in the race selection menu

@@ -143,7 +143,7 @@ namespace MWGui
     WindowManager::WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
         Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue, const std::filesystem::path& logpath,
         bool consoleOnlyScripts, Translation::Storage& translationDataStorage, ToUTF8::FromType encoding,
-        const std::string& versionDescription, bool useShaders, Files::ConfigurationManager& cfgMgr)
+        bool exportFonts, const std::string& versionDescription, bool useShaders, Files::ConfigurationManager& cfgMgr)
         : mOldUpdateMask(0)
         , mOldCullMask(0)
         , mStore(nullptr)
@@ -212,7 +212,8 @@ namespace MWGui
         MyGUI::LanguageManager::getInstance().eventRequestTag = MyGUI::newDelegate(this, &WindowManager::onRetrieveTag);
 
         // Load fonts
-        mFontLoader = std::make_unique<Gui::FontLoader>(encoding, resourceSystem->getVFS(), mScalingFactor);
+        mFontLoader
+            = std::make_unique<Gui::FontLoader>(encoding, resourceSystem->getVFS(), mScalingFactor, exportFonts);
 
         // Register own widgets with MyGUI
         MyGUI::FactoryManager::getInstance().registerFactory<MWGui::Widgets::MWSkill>("Widget");
@@ -726,6 +727,9 @@ namespace MWGui
             return;
         }
 
+        if (mGuiModes.empty())
+            return;
+
         GuiModeState& state = mGuiModeStates[mGuiModes.back()];
         for (const auto& window : state.mWindows)
         {
@@ -1035,9 +1039,9 @@ namespace MWGui
         }
     }
 
-    void WindowManager::setFocusObjectScreenCoords(float min_x, float min_y, float max_x, float max_y)
+    void WindowManager::setFocusObjectScreenCoords(float x, float y)
     {
-        mToolTips->setFocusObjectScreenCoords(min_x, min_y, max_x, max_y);
+        mToolTips->setFocusObjectScreenCoords(x, y);
     }
 
     bool WindowManager::toggleFullHelp()
@@ -1094,6 +1098,9 @@ namespace MWGui
         {
             tag = tag.substr(MyGuiPrefix.length());
             size_t comma_pos = tag.find(',');
+            if (comma_pos == std::string_view::npos)
+                throw std::runtime_error("Invalid setting tag (expected comma): " + std::string(tag));
+
             std::string_view settingSection = tag.substr(0, comma_pos);
             std::string_view settingTag = tag.substr(comma_pos + 1, tag.length());
 
@@ -1208,7 +1215,7 @@ namespace MWGui
         // TODO: check if any windows are now off-screen and move them back if so
     }
 
-    bool WindowManager::isWindowVisible()
+    bool WindowManager::isWindowVisible() const
     {
         return mWindowVisible;
     }
@@ -1300,7 +1307,7 @@ namespace MWGui
         return mViewer->getCamera()->getCullMask();
     }
 
-    void WindowManager::popGuiMode()
+    void WindowManager::popGuiMode(bool forceExit)
     {
         if (mDragAndDrop && mDragAndDrop->mIsOnDragAndDrop)
         {
@@ -1310,10 +1317,19 @@ namespace MWGui
         if (!mGuiModes.empty())
         {
             const GuiMode mode = mGuiModes.back();
+            if (forceExit)
+            {
+                GuiModeState& state = mGuiModeStates[mode];
+                for (const auto& window : state.mWindows)
+                    window->exit();
+            }
             mKeyboardNavigation->saveFocus(mode);
-            mGuiModes.pop_back();
-            mGuiModeStates[mode].update(false);
-            MWBase::Environment::get().getLuaManager()->uiModeChanged(MWWorld::Ptr());
+            if (containsMode(mode))
+            {
+                mGuiModes.pop_back();
+                mGuiModeStates[mode].update(false);
+                MWBase::Environment::get().getLuaManager()->uiModeChanged(MWWorld::Ptr());
+            }
         }
 
         if (!mGuiModes.empty())
@@ -2214,9 +2230,10 @@ namespace MWGui
             ResourceImageSetPointerFix* imgSetPointer = resource->castType<ResourceImageSetPointerFix>(false);
             if (!imgSetPointer)
                 continue;
-            auto tex_name = imgSetPointer->getImageSet()->getIndexInfo(0, 0).texture;
 
-            osg::ref_ptr<osg::Image> image = mResourceSystem->getImageManager()->getImage(tex_name);
+            const VFS::Path::Normalized path(imgSetPointer->getImageSet()->getIndexInfo(0, 0).texture);
+
+            osg::ref_ptr<osg::Image> image = mResourceSystem->getImageManager()->getImage(path);
 
             if (image.valid())
             {

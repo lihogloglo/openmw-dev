@@ -54,6 +54,7 @@ namespace Resource
             constexpr std::string_view firstPage[] = {
                 "FrameNumber",
                 "",
+                "Loading",
                 "Compiling",
                 "WorkQueue",
                 "WorkThread",
@@ -75,7 +76,6 @@ namespace Resource
                 "",
                 "",
                 "",
-                "",
             };
 
             static_assert(std::size(firstPage) == itemsPerPage);
@@ -93,6 +93,7 @@ namespace Resource
                 "Terrain Chunk",
                 "Terrain Texture",
                 "Land",
+                "Blending Rules",
             };
 
             constexpr std::string_view cellPreloader[] = {
@@ -119,6 +120,10 @@ namespace Resource
                 "NavMesh CachedTiles",
                 "NavMesh Cache Get",
                 "NavMesh Cache Hit",
+                "NavMesh Recast Tiles",
+                "NavMesh Recast Objects",
+                "NavMesh Recast Heightfields",
+                "NavMesh Recast Water",
             };
 
             std::vector<std::string> statNames;

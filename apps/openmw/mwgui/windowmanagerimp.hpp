@@ -128,7 +128,7 @@ namespace MWGui
         WindowManager(SDL_Window* window, osgViewer::Viewer* viewer, osg::Group* guiRoot,
             Resource::ResourceSystem* resourceSystem, SceneUtil::WorkQueue* workQueue,
             const std::filesystem::path& logpath, bool consoleOnlyScripts, Translation::Storage& translationDataStorage,
-            ToUTF8::FromType encoding, const std::string& versionDescription, bool useShaders,
+            ToUTF8::FromType encoding, bool exportFonts, const std::string& versionDescription, bool useShaders,
             Files::ConfigurationManager& cfgMgr);
         virtual ~WindowManager();
 
@@ -150,7 +150,7 @@ namespace MWGui
 
         void pushGuiMode(GuiMode mode, const MWWorld::Ptr& arg) override;
         void pushGuiMode(GuiMode mode) override;
-        void popGuiMode() override;
+        void popGuiMode(bool forceExit = false) override;
         void removeGuiMode(GuiMode mode) override; ///< can be anywhere in the stack
 
         void goToJail(int days) override;
@@ -204,7 +204,7 @@ namespace MWGui
         void changeCell(const MWWorld::CellStore* cell) override; ///< change the active cell
 
         void setFocusObject(const MWWorld::Ptr& focus) override;
-        void setFocusObjectScreenCoords(float min_x, float min_y, float max_x, float max_y) override;
+        void setFocusObjectScreenCoords(float x, float y) override;
 
         void getMousePosition(int& x, int& y) override;
         void getMousePosition(float& x, float& y) override;
@@ -290,7 +290,7 @@ namespace MWGui
         void windowVisibilityChange(bool visible) override;
         void windowResized(int x, int y) override;
         void windowClosed() override;
-        bool isWindowVisible() override;
+        bool isWindowVisible() const override;
 
         void watchActor(const MWWorld::Ptr& ptr) override;
         MWWorld::Ptr getWatchedActor() const override;
@@ -316,8 +316,6 @@ namespace MWGui
         std::size_t getMessagesCount() const override;
 
         const Translation::Storage& getTranslationDataStorage() const override;
-
-        void onSoulgemDialogButtonPressed(int button);
 
         bool getCursorVisible() override;
 

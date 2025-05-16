@@ -120,7 +120,7 @@ namespace MWBase
 
         virtual void pushGuiMode(MWGui::GuiMode mode, const MWWorld::Ptr& arg) = 0;
         virtual void pushGuiMode(MWGui::GuiMode mode) = 0;
-        virtual void popGuiMode() = 0;
+        virtual void popGuiMode(bool forceExit = false) = 0;
 
         virtual void removeGuiMode(MWGui::GuiMode mode) = 0;
         ///< can be anywhere in the stack
@@ -184,7 +184,7 @@ namespace MWBase
         ///< change the active cell
 
         virtual void setFocusObject(const MWWorld::Ptr& focus) = 0;
-        virtual void setFocusObjectScreenCoords(float min_x, float min_y, float max_x, float max_y) = 0;
+        virtual void setFocusObjectScreenCoords(float x, float y) = 0;
 
         virtual void setCursorVisible(bool visible) = 0;
         virtual void setCursorActive(bool active) = 0;
@@ -363,7 +363,7 @@ namespace MWBase
         void windowVisibilityChange(bool visible) override = 0;
         void windowResized(int x, int y) override = 0;
         void windowClosed() override = 0;
-        virtual bool isWindowVisible() = 0;
+        virtual bool isWindowVisible() const = 0;
 
         virtual void watchActor(const MWWorld::Ptr& ptr) = 0;
         virtual MWWorld::Ptr getWatchedActor() const = 0;

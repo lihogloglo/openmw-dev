@@ -4,9 +4,11 @@
 #include <osg/Timer>
 #include <osg/ref_ptr>
 
+#include <components/debug/debuglog.hpp>
 #include <components/esm3/readerscache.hpp>
 #include <components/misc/rng.hpp>
 #include <components/settings/settings.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include "../mwbase/world.hpp"
 
@@ -134,6 +136,7 @@ namespace MWWorld
         ///< only holds doors that are currently moving. 1 = opening, 2 = closing
 
         uint32_t mRandomSeed{};
+        bool mIdsRebuilt{};
 
         // not implemented
         World(const World&) = delete;
@@ -170,8 +173,6 @@ namespace MWWorld
 
         void fillGlobalVariables();
 
-        void updateSkyDate();
-
         void loadContentFiles(const Files::Collections& fileCollections, const std::vector<std::string>& content,
             ToUTF8::Utf8Encoder* encoder, Loading::Listener* listener);
 
@@ -201,8 +202,8 @@ namespace MWWorld
             Loading::Listener* listener);
 
         // Must be called after `loadData`.
-        void init(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, SceneUtil::WorkQueue* workQueue,
-            SceneUtil::UnrefQueue& unrefQueue);
+        void init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
+            SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue);
 
         virtual ~World();
 
@@ -238,6 +239,8 @@ namespace MWWorld
         MWWorld::ConstPtr getPlayerConstPtr() const override;
 
         MWWorld::ESMStore& getStore() override { return mStore; }
+
+        const MWWorld::ESMStore& getStore() const override { return mStore; }
 
         const std::vector<int>& getESMVersions() const override;
 
@@ -513,7 +516,6 @@ namespace MWWorld
 
         /// \todo this does not belong here
         void screenshot(osg::Image* image, int w, int h) override;
-        bool screenshot360(osg::Image* image) override;
 
         /// Find center of exterior cell above land surface
         /// \return false if exterior with given name not exists, true otherwise
@@ -599,8 +601,9 @@ namespace MWWorld
         /// Spawn a blood effect for \a ptr at \a worldPosition
         void spawnBloodEffect(const MWWorld::Ptr& ptr, const osg::Vec3f& worldPosition) override;
 
-        void spawnEffect(const std::string& model, const std::string& textureOverride, const osg::Vec3f& worldPos,
-            float scale = 1.f, bool isMagicVFX = true) override;
+        void spawnEffect(VFS::Path::NormalizedView model, const std::string& textureOverride,
+            const osg::Vec3f& worldPos, float scale = 1.f, bool isMagicVFX = true,
+            bool useAmbientLight = true) override;
 
         /// @see MWWorld::WeatherManager::isInStorm
         bool isInStorm() const override;

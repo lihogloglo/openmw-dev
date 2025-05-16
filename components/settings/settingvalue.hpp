@@ -6,8 +6,9 @@
 #include "sanitizer.hpp"
 #include "settings.hpp"
 
-#include "components/debug/debuglog.hpp"
-#include "components/detournavigator/collisionshapetype.hpp"
+#include <components/debug/debuglog.hpp>
+#include <components/detournavigator/collisionshapetype.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include <osg/io_utils>
 
@@ -44,7 +45,7 @@ namespace Settings
         HrtfMode,
         WindowMode,
         VSyncMode,
-        ScreenshotSettings,
+        NormalizedPath,
     };
 
     template <class T>
@@ -177,9 +178,9 @@ namespace Settings
     }
 
     template <>
-    inline constexpr SettingValueType getSettingValueType<ScreenshotSettings>()
+    inline constexpr SettingValueType getSettingValueType<VFS::Path::Normalized>()
     {
-        return SettingValueType::ScreenshotSettings;
+        return SettingValueType::NormalizedPath;
     }
 
     inline constexpr std::string_view getSettingValueTypeName(SettingValueType type)
@@ -228,8 +229,8 @@ namespace Settings
                 return "window mode";
             case SettingValueType::VSyncMode:
                 return "vsync mode";
-            case SettingValueType::ScreenshotSettings:
-                return "screenshot settings";
+            case SettingValueType::NormalizedPath:
+                return "normalized path";
         }
         return "unsupported";
     }
@@ -396,17 +397,6 @@ namespace Settings
                             stream << "," << v;
                     }
                     return stream;
-                }
-                else if constexpr (std::is_same_v<T, ScreenshotSettings>)
-                {
-                    stream << "ScreenshotSettings{ .mType = " << static_cast<int>(value.mValue.mType);
-                    if (value.mValue.mWidth.has_value())
-                        stream << ", .mWidth = " << *value.mValue.mWidth;
-                    if (value.mValue.mHeight.has_value())
-                        stream << ", .mHeight = " << *value.mValue.mHeight;
-                    if (value.mValue.mCubeSize.has_value())
-                        stream << ", .mCubeSize = " << *value.mValue.mCubeSize;
-                    return stream << " }";
                 }
                 else
                     return stream << value.mValue;

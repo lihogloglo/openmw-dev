@@ -119,7 +119,7 @@ namespace MWMechanics
             std::string_view startKey, std::string_view stopKey, bool forceLoop);
         void enableLuaAnimations(const MWWorld::Ptr& ptr, bool enable);
         void skipAnimation(const MWWorld::Ptr& ptr) const;
-        bool checkAnimationPlaying(const MWWorld::Ptr& ptr, const std::string& groupName) const;
+        bool checkAnimationPlaying(const MWWorld::Ptr& ptr, std::string_view groupName) const;
         bool checkScriptedAnimationPlaying(const MWWorld::Ptr& ptr) const;
         void persistAnimationStates() const;
         void clearAnimationQueue(const MWWorld::Ptr& ptr, bool clearScripted);
@@ -161,8 +161,6 @@ namespace MWMechanics
         bool isCastingSpell(const MWWorld::Ptr& ptr) const;
         bool isReadyToBlock(const MWWorld::Ptr& ptr) const;
         bool isAttackingOrSpell(const MWWorld::Ptr& ptr) const;
-
-        bool playerHasHostiles() const;
 
         int getGreetingTimer(const MWWorld::Ptr& ptr) const;
         float getAngleToPlayer(const MWWorld::Ptr& ptr) const;

@@ -403,6 +403,12 @@ namespace MWMechanics
             resetCurrentIdleState();
         }
 
+        if (!mPtr.getClass().isNpc() && mUpperBodyState > UpperBodyState::WeaponEquipped)
+        {
+            recovery = false;
+            stats.setHitRecovery(false);
+        }
+
         if (mHitState != CharState_None)
         {
             if (!mAnimation->isPlaying(mCurrentHit))
@@ -1098,10 +1104,10 @@ namespace MWMechanics
                 attackType = ESM::Weapon::AT_Thrust;
             // We want to avoid hit keys that come out of nowhere (e.g. in the follow animation)
             // and processing multiple hit keys for a single attack
-            if (mAttackStrength != -1.f)
+            if (mReadyToHit)
             {
                 charClass.hit(mPtr, mAttackStrength, attackType, mAttackVictim, mAttackHitPos, mAttackSuccess);
-                mAttackStrength = -1.f;
+                mReadyToHit = false;
             }
         }
         else if (isRandomAttackAnimation(groupname) && action == "start")
@@ -1147,10 +1153,10 @@ namespace MWMechanics
         else if (action == "shoot release")
         {
             // See notes for melee release above
-            if (mAttackStrength != -1.f)
+            if (mReadyToHit)
             {
                 mAnimation->releaseArrow(mAttackStrength);
-                mAttackStrength = -1.f;
+                mReadyToHit = false;
             }
         }
         else if (action == "shoot follow attach")
@@ -1240,7 +1246,7 @@ namespace MWMechanics
 
     void CharacterController::prepareHit()
     {
-        if (mAttackStrength != -1.f)
+        if (mReadyToHit)
             return;
 
         auto& prng = MWBase::Environment::get().getWorld()->getPrng();
@@ -1255,6 +1261,8 @@ namespace MWMechanics
                 mAttackStrength = 0.f;
             playSwishSound();
         }
+
+        mReadyToHit = true;
     }
 
     bool CharacterController::updateWeaponState()
@@ -1341,10 +1349,14 @@ namespace MWMechanics
             }
         }
 
-        // For biped actors, blend weapon animations with lower body animations with higher priority
-        MWRender::Animation::AnimPriority priorityWeapon(Priority_Weapon);
+        MWRender::Animation::AnimPriority priorityWeapon(Priority_Default);
         if (cls.isBipedal(mPtr))
+        {
+            // For bipeds, blend weapon animations with lower body animations with higher priority
+            // For non-bipeds, movement takes priority
+            priorityWeapon = Priority_Weapon;
             priorityWeapon[MWRender::BoneGroup_LowerBody] = Priority_WeaponLowerBody;
+        }
 
         bool forcestateupdate = false;
 
@@ -1366,7 +1378,7 @@ namespace MWMechanics
         if (!isKnockedOut() && !isKnockedDown() && !isRecovery())
         {
             std::string weapgroup;
-            if ((!isWerewolf || mWeaponType != ESM::Weapon::Spell) && weaptype != mWeaponType
+            if (((!isWerewolf && cls.isBipedal(mPtr)) || mWeaponType != ESM::Weapon::Spell) && weaptype != mWeaponType
                 && mUpperBodyState <= UpperBodyState::AttackWindUp && mUpperBodyState != UpperBodyState::Unequipping
                 && !isStillWeapon)
             {
@@ -1387,6 +1399,7 @@ namespace MWMechanics
                     else if (mWeaponType == ESM::Weapon::HandToHand)
                         mAnimation->showCarriedLeft(false);
 
+                    mAnimation->disable(weapgroup);
                     playBlendedAnimation(
                         weapgroup, priorityWeapon, unequipMask, false, 1.0f, "unequip start", "unequip stop", 0.0f, 0);
                     mUpperBodyState = UpperBodyState::Unequipping;
@@ -1441,8 +1454,11 @@ namespace MWMechanics
                                     "equip start", "equip stop", 0.0f, 0);
                             }
 
-                            playBlendedAnimation(
-                                weapgroup, priorityWeapon, equipMask, true, 1.0f, "equip start", "equip stop", 0.0f, 0);
+                            if (weaptype != ESM::Weapon::Spell || cls.isBipedal(mPtr))
+                            {
+                                playBlendedAnimation(weapgroup, priorityWeapon, equipMask, true, 1.0f, "equip start",
+                                    "equip stop", 0.0f, 0);
+                            }
                             mUpperBodyState = UpperBodyState::Equipping;
 
                             // If we do not have the "equip attach" key, show weapon manually.
@@ -1506,6 +1522,7 @@ namespace MWMechanics
                 && (mHitState == CharState_None || mHitState == CharState_Block))
             {
                 mAttackStrength = -1.f;
+                mReadyToHit = false;
 
                 // Randomize attacks for non-bipedal creatures
                 if (!cls.isBipedal(mPtr)
@@ -1590,13 +1607,16 @@ namespace MWMechanics
                                 const ESM::Static* castStatic
                                     = world->getStore().get<ESM::Static>().find(ESM::RefId::stringRefId("VFX_Hands"));
 
+                                const VFS::Path::Normalized castStaticModel
+                                    = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(castStatic->mModel));
+
                                 if (mAnimation->getNode("Bip01 L Hand"))
-                                    mAnimation->addEffect(Misc::ResourceHelpers::correctMeshPath(castStatic->mModel),
-                                        "", false, "Bip01 L Hand", effect->mParticle);
+                                    mAnimation->addEffect(
+                                        castStaticModel.value(), "", false, "Bip01 L Hand", effect->mParticle);
 
                                 if (mAnimation->getNode("Bip01 R Hand"))
-                                    mAnimation->addEffect(Misc::ResourceHelpers::correctMeshPath(castStatic->mModel),
-                                        "", false, "Bip01 R Hand", effect->mParticle);
+                                    mAnimation->addEffect(
+                                        castStaticModel.value(), "", false, "Bip01 R Hand", effect->mParticle);
                             }
                             // first effect used for casting animation
                             const ESM::ENAMstruct& firstEffect = effects->front().mData;
@@ -1646,6 +1666,10 @@ namespace MWMechanics
                     std::string startKey = "start";
                     std::string stopKey = "stop";
 
+                    MWBase::LuaManager::ActorControls* actorControls
+                        = MWBase::Environment::get().getLuaManager()->getActorControls(mPtr);
+                    const bool aiInactive
+                        = actorControls->mDisableAI || !MWBase::Environment::get().getMechanicsManager()->isAIActive();
                     if (mWeaponType != ESM::Weapon::PickProbe && !isRandomAttackAnimation(mCurrentWeapon))
                     {
                         if (weapclass == ESM::WeaponType::Ranged || weapclass == ESM::WeaponType::Thrown)
@@ -1669,6 +1693,13 @@ namespace MWMechanics
                                 mAttackType = getMovementBasedAttackType();
                             }
                         }
+                        else if (aiInactive)
+                        {
+                            mAttackType = getDesiredAttackType();
+                            if (mAttackType == "")
+                                mAttackType = getRandomAttackType();
+                        }
+
                         // else if (mPtr != getPlayer()) use mAttackType set by AiCombat
                         startKey = mAttackType + ' ' + startKey;
                         stopKey = mAttackType + " max attack";
@@ -1778,16 +1809,11 @@ namespace MWMechanics
                     stop = strength + ' ' + stop;
                 }
 
-                // Reset attack strength to make extra sure hits that come out of nowhere aren't processed
-                mAttackStrength = -1.f;
+                mReadyToHit = false;
 
                 if (animPlaying)
                     mAnimation->disable(mCurrentWeapon);
-                MWRender::Animation::AnimPriority priorityFollow(priorityWeapon);
-                // Follow animations have lower priority than movement for non-biped creatures, logic be damned
-                if (!cls.isBipedal(mPtr))
-                    priorityFollow = Priority_Default;
-                playBlendedAnimation(mCurrentWeapon, priorityFollow, MWRender::BlendMask_All, false, weapSpeed,
+                playBlendedAnimation(mCurrentWeapon, priorityWeapon, MWRender::BlendMask_All, false, weapSpeed,
                     mAttackType + ' ' + start, mAttackType + ' ' + stop, 0.0f, 0);
                 mUpperBodyState = UpperBodyState::AttackEnd;
 
@@ -2036,7 +2062,8 @@ namespace MWMechanics
             float effectiveRotation = rot.z();
             bool canMove = cls.getMaxSpeed(mPtr) > 0;
             const bool turnToMovementDirection = Settings::game().mTurnToMovementDirection;
-            if (!turnToMovementDirection || isFirstPersonPlayer)
+            const bool isBiped = mPtr.getClass().isBipedal(mPtr);
+            if (!isBiped || !turnToMovementDirection || isFirstPersonPlayer)
             {
                 movementSettings.mIsStrafing = std::abs(vec.x()) > std::abs(vec.y()) * 2;
                 stats.setSideMovementAngle(0);
@@ -2280,7 +2307,7 @@ namespace MWMechanics
 
                     // It seems only bipedal actors use turning animations.
                     // Also do not use turning animations in the first-person view and when sneaking.
-                    if (!sneak && !isFirstPersonPlayer && mPtr.getClass().isBipedal(mPtr))
+                    if (!sneak && !isFirstPersonPlayer && isBiped)
                     {
                         if (effectiveRotation > rotationThreshold)
                             movestate = inwater ? CharState_SwimTurnRight : CharState_TurnRight;
@@ -2290,7 +2317,7 @@ namespace MWMechanics
                 }
             }
 
-            if (turnToMovementDirection && !isFirstPersonPlayer
+            if (turnToMovementDirection && !isFirstPersonPlayer && isBiped
                 && (movestate == CharState_SwimRunForward || movestate == CharState_SwimWalkForward
                     || movestate == CharState_SwimRunBack || movestate == CharState_SwimWalkBack))
             {
@@ -2324,7 +2351,7 @@ namespace MWMechanics
             }
             else
             {
-                if (mPtr.getClass().isBipedal(mPtr))
+                if (isBiped)
                 {
                     if (mTurnAnimationThreshold > 0)
                         mTurnAnimationThreshold -= duration;
@@ -2463,7 +2490,7 @@ namespace MWMechanics
                 movement = osg::Vec3f();
             }
 
-            if (mFloatToSurface)
+            if (mFloatToSurface && world->isSwimming(mPtr))
             {
                 if (cls.getCreatureStats(mPtr).isDead()
                     || (!godmode
@@ -2994,6 +3021,11 @@ namespace MWMechanics
     bool CharacterController::getAttackingOrSpell() const
     {
         return mPtr.getClass().getCreatureStats(mPtr).getAttackingOrSpell();
+    }
+
+    std::string_view CharacterController::getDesiredAttackType() const
+    {
+        return mPtr.getClass().getCreatureStats(mPtr).getAttackType();
     }
 
     void CharacterController::setActive(int active) const

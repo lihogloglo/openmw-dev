@@ -3,6 +3,7 @@
 #include <stdexcept>
 
 #include <apps/opencs/model/world/columnbase.hpp>
+#include <apps/opencs/model/world/disabletag.hpp>
 #include <apps/opencs/model/world/record.hpp>
 #include <apps/opencs/model/world/refiddata.hpp>
 #include <apps/opencs/model/world/universalid.hpp>
@@ -194,6 +195,26 @@ void CSMWorld::IngredEffectRefIdAdapter::setNestedData(
     {
         case 0:
             ingredient.mData.mEffectID[subRowIndex] = value.toInt();
+            switch (ingredient.mData.mEffectID[subRowIndex])
+            {
+                case ESM::MagicEffect::DrainSkill:
+                case ESM::MagicEffect::DamageSkill:
+                case ESM::MagicEffect::RestoreSkill:
+                case ESM::MagicEffect::FortifySkill:
+                case ESM::MagicEffect::AbsorbSkill:
+                    ingredient.mData.mAttributes[subRowIndex] = -1;
+                    break;
+                case ESM::MagicEffect::DrainAttribute:
+                case ESM::MagicEffect::DamageAttribute:
+                case ESM::MagicEffect::RestoreAttribute:
+                case ESM::MagicEffect::FortifyAttribute:
+                case ESM::MagicEffect::AbsorbAttribute:
+                    ingredient.mData.mSkills[subRowIndex] = -1;
+                    break;
+                default:
+                    ingredient.mData.mSkills[subRowIndex] = -1;
+                    ingredient.mData.mAttributes[subRowIndex] = -1;
+            }
             break;
         case 1:
             ingredient.mData.mSkills[subRowIndex] = value.toInt();
@@ -1097,11 +1118,11 @@ QVariant CSMWorld::NpcMiscRefIdAdapter::getNestedData(
             case 0:
                 return static_cast<int>(record.get().mNpdt.mLevel);
             case 1:
-                return QVariant(QVariant::UserType);
+                return CSMWorld::DisableTag::getVariant();
             case 2:
-                return QVariant(QVariant::UserType);
+                return CSMWorld::DisableTag::getVariant();
             case 3:
-                return QVariant(QVariant::UserType);
+                return CSMWorld::DisableTag::getVariant();
             case 4:
                 return static_cast<int>(record.get().mNpdt.mDisposition);
             case 5:
@@ -1266,7 +1287,7 @@ QVariant CSMWorld::CreatureAttributesRefIdAdapter::getNestedData(
 
     if (subColIndex == 0)
         return subRowIndex;
-    else if (subColIndex == 1 && subRowIndex > 0 && subRowIndex < ESM::Attribute::Length)
+    else if (subColIndex == 1 && subRowIndex >= 0 && subRowIndex < ESM::Attribute::Length)
         return creature.mData.mAttributes[subRowIndex];
     return QVariant(); // throw an exception here?
 }
@@ -1277,7 +1298,7 @@ void CSMWorld::CreatureAttributesRefIdAdapter::setNestedData(
     Record<ESM::Creature>& record
         = static_cast<Record<ESM::Creature>&>(data.getRecord(RefIdData::LocalIndex(row, UniversalId::Type_Creature)));
 
-    if (subColIndex == 1 && subRowIndex > 0 && subRowIndex < ESM::Attribute::Length)
+    if (subColIndex == 1 && subRowIndex >= 0 && subRowIndex < ESM::Attribute::Length)
     {
         ESM::Creature creature = record.get();
         creature.mData.mAttributes[subRowIndex] = value.toInt();

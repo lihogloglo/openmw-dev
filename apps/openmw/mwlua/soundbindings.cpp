@@ -100,7 +100,7 @@ namespace MWLua
 {
     sol::table initAmbientPackage(const Context& context)
     {
-        sol::state_view& lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
         if (lua["openmw_ambient"] != sol::nil)
             return lua["openmw_ambient"];
 
@@ -141,7 +141,7 @@ namespace MWLua
         api["streamMusic"] = [](std::string_view fileName, const sol::optional<sol::table>& options) {
             auto args = getStreamMusicArgs(options);
             MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
-            sndMgr->streamMusic(VFS::Path::Normalized(fileName), MWSound::MusicType::Scripted, args.mFade);
+            sndMgr->streamMusic(VFS::Path::Normalized(fileName), MWSound::MusicType::Normal, args.mFade);
         };
 
         api["say"]
@@ -157,7 +157,13 @@ namespace MWLua
 
         api["isMusicPlaying"] = []() { return MWBase::Environment::get().getSoundManager()->isMusicPlaying(); };
 
-        api["stopMusic"] = []() { MWBase::Environment::get().getSoundManager()->stopMusic(); };
+        api["stopMusic"] = []() {
+            MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
+            if (sndMgr->getMusicType() == MWSound::MusicType::MWScript)
+                return;
+
+            sndMgr->stopMusic();
+        };
 
         lua["openmw_ambient"] = LuaUtil::makeReadOnly(api);
         return lua["openmw_ambient"];
@@ -165,7 +171,7 @@ namespace MWLua
 
     sol::table initCoreSoundBindings(const Context& context)
     {
-        sol::state_view& lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
         sol::table api(lua, sol::create);
 
         api["isEnabled"] = []() { return MWBase::Environment::get().getSoundManager()->isEnabled(); };

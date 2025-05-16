@@ -23,6 +23,7 @@
 
 #include <components/esm3/loadpgrd.hpp>
 #include <components/misc/constants.hpp>
+#include <components/misc/scalableicon.hpp>
 
 #include <osg/Camera>
 #include <osg/Vec3f>
@@ -85,8 +86,8 @@ bool CSVRender::PagedWorldspaceWidget::adjustCells()
                 {
                     modified = true;
 
-                    auto cell = std::make_unique<Cell>(
-                        mDocument.getData(), mRootNode, iter->first.getId(mWorldspace), deleted);
+                    auto cell
+                        = std::make_unique<Cell>(mDocument, mRootNode, iter->first.getId(mWorldspace), deleted, true);
 
                     delete iter->second;
                     iter->second = cell.release();
@@ -169,8 +170,8 @@ void CSVRender::PagedWorldspaceWidget::addEditModeSelectorButtons(CSVWidget::Sce
     /// \todo replace EditMode with suitable subclasses
     tool->addButton(new TerrainShapeMode(this, mRootNode, tool), "terrain-shape");
     tool->addButton(new TerrainTextureMode(this, mRootNode, tool), "terrain-texture");
-    const QIcon vertexIcon = QIcon(":scenetoolbar/editing-terrain-vertex-paint");
-    const QIcon movementIcon = QIcon(":scenetoolbar/editing-terrain-movement");
+    const QIcon vertexIcon = Misc::ScalableIcon::load(":scenetoolbar/editing-terrain-vertex-paint");
+    const QIcon movementIcon = Misc::ScalableIcon::load(":scenetoolbar/editing-terrain-movement");
     tool->addButton(new EditMode(this, vertexIcon, Mask_Reference, "Terrain vertex paint editing"), "terrain-vertex");
     tool->addButton(new EditMode(this, movementIcon, Mask_Reference, "Terrain movement"), "terrain-move");
 }
@@ -464,7 +465,7 @@ void CSVRender::PagedWorldspaceWidget::addCellToScene(const CSMWorld::CellCoordi
 
     bool deleted = index == -1 || cells.getRecord(index).mState == CSMWorld::RecordBase::State_Deleted;
 
-    auto cell = std::make_unique<Cell>(mDocument.getData(), mRootNode, coordinates.getId(mWorldspace), deleted);
+    auto cell = std::make_unique<Cell>(mDocument, mRootNode, coordinates.getId(mWorldspace), deleted, true);
     EditMode* editMode = getEditMode();
     cell->setSubMode(editMode->getSubMode(), editMode->getInteractionMask());
 

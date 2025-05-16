@@ -10,6 +10,7 @@
 #include <components/debug/debuglog.hpp>
 #include <components/loadinglistener/loadinglistener.hpp>
 #include <components/misc/strings/conversion.hpp>
+#include <components/misc/strings/format.hpp>
 #include <components/misc/thread.hpp>
 
 #include <DetourNavMesh.h>
@@ -74,6 +75,36 @@ namespace DetourNavigator
         {
             return job.mGeneratedNavMeshData != nullptr;
         }
+
+        std::string makeRevision(const Version& version)
+        {
+            return Misc::StringUtils::format(".%zu.%zu", version.mGeneration, version.mRevision);
+        }
+
+        void writeDebugRecastMesh(
+            const Settings& settings, const TilePosition& tilePosition, const RecastMesh& recastMesh)
+        {
+            if (!settings.mEnableWriteRecastMeshToFile)
+                return;
+            std::string revision;
+            if (settings.mEnableRecastMeshFileNameRevision)
+                revision = makeRevision(recastMesh.getVersion());
+            writeToFile(recastMesh,
+                Misc::StringUtils::format(
+                    "%s%d.%d.", settings.mRecastMeshPathPrefix, tilePosition.x(), tilePosition.y()),
+                revision, settings.mRecast);
+        }
+
+        void writeDebugNavMesh(
+            const Settings& settings, const GuardedNavMeshCacheItem& navMeshCacheItem, const Version& version)
+        {
+            if (!settings.mEnableWriteNavMeshToFile)
+                return;
+            std::string revision;
+            if (settings.mEnableNavMeshFileNameRevision)
+                revision = makeRevision(version);
+            writeToFile(navMeshCacheItem.lockConst()->getImpl(), settings.mNavMeshPathPrefix, revision);
+        }
     }
 
     std::ostream& operator<<(std::ostream& stream, JobStatus value)
@@ -91,7 +122,7 @@ namespace DetourNavigator
     }
 
     Job::Job(const AgentBounds& agentBounds, std::weak_ptr<GuardedNavMeshCacheItem> navMeshCacheItem,
-        std::string_view worldspace, const TilePosition& changedTile, ChangeType changeType,
+        ESM::RefId worldspace, const TilePosition& changedTile, ChangeType changeType,
         std::chrono::steady_clock::time_point processTime)
         : mId(getNextJobId())
         , mAgentBounds(agentBounds)
@@ -261,8 +292,7 @@ namespace DetourNavigator
     }
 
     void AsyncNavMeshUpdater::post(const AgentBounds& agentBounds, const SharedNavMeshCacheItem& navMeshCacheItem,
-        const TilePosition& playerTile, std::string_view worldspace,
-        const std::map<TilePosition, ChangeType>& changedTiles)
+        const TilePosition& playerTile, ESM::RefId worldspace, const std::map<TilePosition, ChangeType>& changedTiles)
     {
         bool playerTileChanged = false;
         {
@@ -423,9 +453,9 @@ namespace DetourNavigator
         Misc::setCurrentThreadIdlePriority();
         while (!mShouldStop)
         {
-            try
+            if (JobIt job = getNextJob(); job != mJobs.end())
             {
-                if (JobIt job = getNextJob(); job != mJobs.end())
+                try
                 {
                     const JobStatus status = processJob(*job);
                     Log(Debug::Debug) << "Processed job " << job->mId << " with status=" << status
@@ -450,12 +480,20 @@ namespace DetourNavigator
                         }
                     }
                 }
-                else
-                    cleanupLastUpdates();
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Warning) << "Failed to process navmesh job " << job->mId
+                                        << " for worldspace=" << job->mWorldspace << " agent=" << job->mAgentBounds
+                                        << " changedTile=(" << job->mChangedTile << ")"
+                                        << " changeType=" << job->mChangeType
+                                        << " by thread=" << std::this_thread::get_id() << ": " << e.what();
+                    unlockTile(job->mId, job->mAgentBounds, job->mChangedTile);
+                    removeJob(job);
+                }
             }
-            catch (const std::exception& e)
+            else
             {
-                Log(Debug::Error) << "AsyncNavMeshUpdater::process exception: " << e.what();
+                cleanupLastUpdates();
             }
         }
         Log(Debug::Debug) << "Stop navigator jobs processing by thread=" << std::this_thread::get_id();
@@ -463,7 +501,8 @@ namespace DetourNavigator
 
     JobStatus AsyncNavMeshUpdater::processJob(Job& job)
     {
-        Log(Debug::Debug) << "Processing job " << job.mId << " for agent=(" << job.mAgentBounds << ")"
+        Log(Debug::Debug) << "Processing job " << job.mId << "  for worldspace=" << job.mWorldspace
+                          << " agent=" << job.mAgentBounds << ""
                           << " changedTile=(" << job.mChangedTile << ")"
                           << " changeType=" << job.mChangeType << " by thread=" << std::this_thread::get_id();
 
@@ -511,6 +550,15 @@ namespace DetourNavigator
             Log(Debug::Debug) << "Empty bounds for job " << job.mId;
             navMeshCacheItem.lock()->markAsEmpty(job.mChangedTile);
             return JobStatus::Done;
+        }
+
+        try
+        {
+            writeDebugRecastMesh(mSettings, job.mChangedTile, *recastMesh);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to write debug recast mesh: " << e.what();
         }
 
         NavMeshTilesCache::Value cachedNavMeshData
@@ -634,12 +682,19 @@ namespace DetourNavigator
             mPresentTiles.insert(std::make_tuple(job.mAgentBounds, job.mChangedTile));
         }
 
-        writeDebugFiles(job, &recastMesh);
+        try
+        {
+            writeDebugNavMesh(mSettings, navMeshCacheItem, navMeshVersion);
+        }
+        catch (const std::exception& e)
+        {
+            Log(Debug::Warning) << "Failed to write debug navmesh: " << e.what();
+        }
 
         return isSuccess(status) ? JobStatus::Done : JobStatus::Fail;
     }
 
-    JobIt AsyncNavMeshUpdater::getNextJob()
+    JobIt AsyncNavMeshUpdater::getNextJob() noexcept
     {
         std::unique_lock<std::mutex> lock(mMutex);
 
@@ -689,31 +744,6 @@ namespace DetourNavigator
         return job;
     }
 
-    void AsyncNavMeshUpdater::writeDebugFiles(const Job& job, const RecastMesh* recastMesh) const
-    {
-        std::string revision;
-        std::string recastMeshRevision;
-        std::string navMeshRevision;
-        if ((mSettings.get().mEnableWriteNavMeshToFile || mSettings.get().mEnableWriteRecastMeshToFile)
-            && (mSettings.get().mEnableRecastMeshFileNameRevision || mSettings.get().mEnableNavMeshFileNameRevision))
-        {
-            revision = "."
-                + std::to_string((std::chrono::steady_clock::now() - std::chrono::steady_clock::time_point()).count());
-            if (mSettings.get().mEnableRecastMeshFileNameRevision)
-                recastMeshRevision = revision;
-            if (mSettings.get().mEnableNavMeshFileNameRevision)
-                navMeshRevision = std::move(revision);
-        }
-        if (recastMesh && mSettings.get().mEnableWriteRecastMeshToFile)
-            writeToFile(*recastMesh,
-                mSettings.get().mRecastMeshPathPrefix + std::to_string(job.mChangedTile.x()) + "_"
-                    + std::to_string(job.mChangedTile.y()) + "_",
-                recastMeshRevision, mSettings.get().mRecast);
-        if (mSettings.get().mEnableWriteNavMeshToFile)
-            if (const auto shared = job.mNavMeshCacheItem.lock())
-                writeToFile(shared->lockConst()->getImpl(), mSettings.get().mNavMeshPathPrefix, navMeshRevision);
-    }
-
     bool AsyncNavMeshUpdater::lockTile(
         std::size_t jobId, const AgentBounds& agentBounds, const TilePosition& changedTile)
     {
@@ -739,7 +769,7 @@ namespace DetourNavigator
         return mJobs.size();
     }
 
-    void AsyncNavMeshUpdater::cleanupLastUpdates()
+    void AsyncNavMeshUpdater::cleanupLastUpdates() noexcept
     {
         const auto now = std::chrono::steady_clock::now();
 

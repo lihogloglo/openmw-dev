@@ -4,6 +4,7 @@
 #include <MyGUI_RenderManager.h>
 #include <MyGUI_TextBox.h>
 
+#include <components/misc/frameratelimiter.hpp>
 #include <components/settings/values.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
@@ -24,6 +25,71 @@
 
 namespace MWGui
 {
+    void MenuVideo::run()
+    {
+        Misc::FrameRateLimiter frameRateLimiter
+            = Misc::makeFrameRateLimiter(MWBase::Environment::get().getFrameRateLimit());
+        const MWBase::WindowManager& windowManager = *MWBase::Environment::get().getWindowManager();
+        bool paused = false;
+        while (mRunning)
+        {
+            if (windowManager.isWindowVisible())
+            {
+                if (paused)
+                {
+                    mVideo->resume();
+                    paused = false;
+                }
+                // If finished playing, start again
+                if (!mVideo->update())
+                    mVideo->playVideo("video\\menu_background.bik");
+            }
+            else if (!paused)
+            {
+                paused = true;
+                mVideo->pause();
+            }
+            frameRateLimiter.limit();
+        }
+    }
+
+    MenuVideo::MenuVideo(const VFS::Manager* vfs)
+        : mRunning(true)
+    {
+        // Use black background to correct aspect ratio
+        mVideoBackground = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
+            "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, "MainMenuBackground");
+        mVideoBackground->setImageTexture("black");
+
+        mVideo = mVideoBackground->createWidget<VideoWidget>(
+            "ImageBox", 0, 0, 1, 1, MyGUI::Align::Stretch, "MainMenuBackground");
+        mVideo->setVFS(vfs);
+
+        mVideo->playVideo("video\\menu_background.bik");
+        mThread = std::thread([this] { run(); });
+    }
+
+    void MenuVideo::resize(int screenWidth, int screenHeight)
+    {
+        const bool stretch = Settings::gui().mStretchMenuBackground;
+        mVideoBackground->setSize(screenWidth, screenHeight);
+        mVideo->autoResize(stretch);
+        mVideo->setVisible(true);
+    }
+
+    MenuVideo::~MenuVideo()
+    {
+        mRunning = false;
+        mThread.join();
+        try
+        {
+            MyGUI::Gui::getInstance().destroyWidget(mVideoBackground);
+        }
+        catch (const MyGUI::Exception& e)
+        {
+            Log(Debug::Error) << "Error in the destructor: " << e.what();
+        }
+    }
 
     MainMenu::MainMenu(int w, int h, const VFS::Manager* vfs, const std::string& versionDescription)
         : WindowBase("openmw_mainmenu.layout")
@@ -32,8 +98,6 @@ namespace MWGui
         , mVFS(vfs)
         , mButtonBox(nullptr)
         , mBackground(nullptr)
-        , mVideoBackground(nullptr)
-        , mVideo(nullptr)
     {
         getWidget(mVersionText, "VersionText");
         mVersionText->setCaption(versionDescription);
@@ -51,6 +115,8 @@ namespace MWGui
         mHeight = h;
 
         updateMenu();
+        if (mVideo)
+            mVideo->resize(w, h);
     }
 
     void MainMenu::setVisible(bool visible)
@@ -100,10 +166,6 @@ namespace MWGui
         {
             winMgr->removeGuiMode(GM_MainMenu);
         }
-        else if (name == "options")
-        {
-            winMgr->toggleSettingsWindow();
-        }
         else if (name == "credits")
             winMgr->playVideo("mw_credits.bik", true);
         else if (name == "exitgame")
@@ -132,16 +194,17 @@ namespace MWGui
                 dialog->eventCancelClicked.clear();
             }
         }
-
-        else
+        else if (name == "loadgame" || name == "savegame")
         {
             if (!mSaveGameDialog)
                 mSaveGameDialog = std::make_unique<SaveGameDialog>();
-            if (name == "loadgame")
-                mSaveGameDialog->setLoadOrSave(true);
-            else if (name == "savegame")
-                mSaveGameDialog->setLoadOrSave(false);
+            mSaveGameDialog->setLoadOrSave(name == "loadgame");
             mSaveGameDialog->setVisible(true);
+        }
+
+        if (winMgr->isSettingsWindowVisible() || name == "options")
+        {
+            winMgr->toggleSettingsWindow();
         }
     }
 
@@ -149,9 +212,7 @@ namespace MWGui
     {
         if (mVideo && !show)
         {
-            MyGUI::Gui::getInstance().destroyWidget(mVideoBackground);
-            mVideoBackground = nullptr;
-            mVideo = nullptr;
+            mVideo.reset();
         }
         if (mBackground && !show)
         {
@@ -167,27 +228,12 @@ namespace MWGui
         if (mHasAnimatedMenu)
         {
             if (!mVideo)
-            {
-                // Use black background to correct aspect ratio
-                mVideoBackground = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
-                    "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, "MainMenuBackground");
-                mVideoBackground->setImageTexture("black");
+                mVideo.emplace(mVFS);
 
-                mVideo = mVideoBackground->createWidget<VideoWidget>(
-                    "ImageBox", 0, 0, 1, 1, MyGUI::Align::Stretch, "MainMenuBackground");
-                mVideo->setVFS(mVFS);
-
-                mVideo->playVideo("video\\menu_background.bik");
-            }
-
-            MyGUI::IntSize viewSize = MyGUI::RenderManager::getInstance().getViewSize();
+            const auto& viewSize = MyGUI::RenderManager::getInstance().getViewSize();
             int screenWidth = viewSize.width;
             int screenHeight = viewSize.height;
-            mVideoBackground->setSize(screenWidth, screenHeight);
-
-            mVideo->autoResize(stretch);
-
-            mVideo->setVisible(true);
+            mVideo->resize(screenWidth, screenHeight);
         }
         else
         {
@@ -198,18 +244,6 @@ namespace MWGui
                 mBackground->setBackgroundImage("textures\\menu_morrowind.dds", true, stretch);
             }
             mBackground->setVisible(true);
-        }
-    }
-
-    void MainMenu::onFrame(float dt)
-    {
-        if (mVideo)
-        {
-            if (!mVideo->update())
-            {
-                // If finished playing, start again
-                mVideo->playVideo("video\\menu_background.bik");
-            }
         }
     }
 

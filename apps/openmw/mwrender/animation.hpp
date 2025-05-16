@@ -2,6 +2,7 @@
 #define GAME_RENDER_ANIMATION_H
 
 #include "animationpriority.hpp"
+#include "animblendcontroller.hpp"
 #include "blendmask.hpp"
 #include "bonegroup.hpp"
 
@@ -9,12 +10,16 @@
 #include "../mwworld/ptr.hpp"
 
 #include <components/misc/strings/algorithm.hpp>
+#include <components/sceneutil/animblendrules.hpp>
 #include <components/sceneutil/controller.hpp>
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/textkeymap.hpp>
 #include <components/sceneutil/util.hpp>
+#include <components/vfs/pathutil.hpp>
 
+#include <map>
 #include <span>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -46,6 +51,8 @@ namespace MWRender
     class ResetAccumRootCallback;
     class RotateController;
     class TransparencyUpdater;
+
+    using ActiveControllersVector = std::vector<std::pair<osg::ref_ptr<osg::Node>, osg::ref_ptr<osg::Callback>>>;
 
     class EffectAnimationTime : public SceneUtil::ControllerSource
     {
@@ -142,45 +149,31 @@ namespace MWRender
         struct AnimState
         {
             std::shared_ptr<AnimSource> mSource;
-            float mStartTime;
-            float mLoopStartTime;
-            float mLoopStopTime;
-            float mStopTime;
+            float mStartTime = 0;
+            float mLoopStartTime = 0;
+            float mLoopStopTime = 0;
+            float mStopTime = 0;
 
-            typedef std::shared_ptr<float> TimePtr;
-            TimePtr mTime;
-            float mSpeedMult;
+            std::shared_ptr<float> mTime = std::make_shared<float>(0);
+            float mSpeedMult = 1;
 
-            bool mPlaying;
-            bool mLoopingEnabled;
-            uint32_t mLoopCount;
+            bool mPlaying = false;
+            bool mLoopingEnabled = true;
+            uint32_t mLoopCount = 0;
 
-            AnimPriority mPriority;
-            int mBlendMask;
-            bool mAutoDisable;
+            AnimPriority mPriority{ 0 };
+            int mBlendMask = 0;
+            bool mAutoDisable = true;
 
-            AnimState()
-                : mStartTime(0.0f)
-                , mLoopStartTime(0.0f)
-                , mLoopStopTime(0.0f)
-                , mStopTime(0.0f)
-                , mTime(new float)
-                , mSpeedMult(1.0f)
-                , mPlaying(false)
-                , mLoopingEnabled(true)
-                , mLoopCount(0)
-                , mPriority(0)
-                , mBlendMask(0)
-                , mAutoDisable(true)
-            {
-            }
-            ~AnimState() = default;
+            std::string mGroupname;
+            std::string mStartKey;
 
             float getTime() const { return *mTime; }
             void setTime(float time) { *mTime = time; }
-
+            bool blendMaskContains(size_t blendMask) const { return (mBlendMask & (1 << blendMask)); }
             bool shouldLoop() const { return getTime() >= mLoopStopTime && mLoopingEnabled && mLoopCount > 0; }
         };
+
         typedef std::map<std::string, AnimState, std::less<>> AnimStateMap;
         AnimStateMap mStates;
 
@@ -206,7 +199,11 @@ namespace MWRender
 
         // Keep track of controllers that we added to our scene graph.
         // We may need to rebuild these controllers when the active animation groups / sources change.
-        std::vector<std::pair<osg::ref_ptr<osg::Node>, osg::ref_ptr<osg::Callback>>> mActiveControllers;
+        ActiveControllersVector mActiveControllers;
+
+        // Keep track of the animation controllers for easy access
+        std::map<osg::ref_ptr<osg::Node>, osg::ref_ptr<NifAnimBlendController>> mAnimBlendControllers;
+        std::map<osg::ref_ptr<osg::Node>, osg::ref_ptr<BoneAnimBlendController>> mBoneAnimBlendControllers;
 
         std::shared_ptr<AnimationTime> mAnimationTimePtr[sNumBlendMasks];
 
@@ -250,7 +247,9 @@ namespace MWRender
 
         const NodeMap& getNodeMap() const;
 
-        /* Sets the appropriate animations on the bone groups based on priority.
+        /* Sets the appropriate animations on the bone groups based on priority by finding
+         * the highest priority AnimationStates and linking the appropriate controllers stored
+         * in the AnimationState to the corresponding nodes.
          */
         void resetActiveGroups();
 
@@ -283,7 +282,7 @@ namespace MWRender
          */
         void setObjectRoot(const std::string& model, bool forceskeleton, bool baseonly, bool isCreature);
 
-        void loadAllAnimationsInFolder(const std::string& model, const std::string& baseModel);
+        void loadAdditionalAnimations(VFS::Path::NormalizedView model, const std::string& baseModel);
 
         /** Adds the keyframe controllers in the specified model as a new animation source.
          * @note Later added animation sources have the highest priority when it comes to finding a particular
@@ -292,7 +291,7 @@ namespace MWRender
          * @param baseModel The filename of the mObjectRoot, only used for error messages.
          */
         void addAnimSource(std::string_view model, const std::string& baseModel);
-        void addSingleAnimSource(const std::string& model, const std::string& baseModel);
+        std::shared_ptr<AnimSource> addSingleAnimSource(const std::string& model, const std::string& baseModel);
 
         /** Adds an additional light to the given node using the specified ESM record. */
         void addExtraLight(osg::ref_ptr<osg::Group> parent, const SceneUtil::LightCommon& light);
@@ -307,6 +306,13 @@ namespace MWRender
         virtual void addControllers();
 
         void removeFromSceneImpl();
+
+        template <typename ControllerType>
+        inline osg::Callback* handleBlendTransform(const osg::ref_ptr<osg::Node>& node,
+            osg::ref_ptr<SceneUtil::KeyframeController> keyframeController,
+            std::map<osg::ref_ptr<osg::Node>, osg::ref_ptr<ControllerType>>& blendControllers,
+            const AnimBlendStateData& stateData, const osg::ref_ptr<const SceneUtil::AnimBlendRules>& blendRules,
+            const AnimState& active);
 
     public:
         Animation(
@@ -336,10 +342,13 @@ namespace MWRender
          *              you need to remove it manually using removeEffect when the effect should end.
          * @param bonename Bone to attach to, or empty string to use the scene node instead
          * @param texture override the texture specified in the model's materials - if empty, do not override
+         * @param useAmbientLight attach white ambient light to the root VFX node of the scenegraph (Morrowind
+         * default)
          * @note Will not add an effect twice.
          */
         void addEffect(std::string_view model, std::string_view effectId, bool loop = false,
-            std::string_view bonename = {}, std::string_view texture = {});
+            std::string_view bonename = {}, std::string_view texture = {}, bool useAmbientLight = true);
+
         void removeEffect(std::string_view effectId);
         void removeEffects();
         std::vector<std::string_view> getLoopingEffects() const;
@@ -360,6 +369,7 @@ namespace MWRender
         void setAccumulation(const osg::Vec3f& accum);
 
         /** Plays an animation.
+         * Creates or updates AnimationStates to represent and manage animation playback.
          * \param groupname Name of the animation group to play.
          * \param priority Priority of the animation. The animation will play on
          *                 bone groups that don't have another animation set of a
@@ -508,6 +518,5 @@ namespace MWRender
     private:
         double mStartingTime;
     };
-
 }
 #endif

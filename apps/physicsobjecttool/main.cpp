@@ -57,8 +57,6 @@ namespace
 
     bpo::options_description makeOptionsDescription()
     {
-        using Fallback::FallbackMap;
-
         bpo::options_description result;
         auto addOption = result.add_options();
         addOption("help", "print help message");
@@ -91,7 +89,8 @@ namespace
             "\n\twin1251 - Cyrillic alphabet such as Russian, Bulgarian, Serbian Cyrillic and other languages\n"
             "\n\twin1252 - Western European (Latin) alphabet, used by default");
 
-        addOption("fallback", bpo::value<FallbackMap>()->default_value(FallbackMap(), "")->multitoken()->composing(),
+        addOption("fallback",
+            bpo::value<Fallback::FallbackMap>()->default_value(Fallback::FallbackMap(), "")->multitoken()->composing(),
             "fallback values");
 
         Files::ConfigurationManager::addCommonOptions(result);
@@ -129,14 +128,14 @@ namespace
 
         if (variables.find("help") != variables.end())
         {
-            getRawStdout() << desc << std::endl;
+            Debug::getRawStdout() << desc << std::endl;
             return 0;
         }
 
         Files::ConfigurationManager config;
         config.readConfiguration(variables, desc);
 
-        setupLogging(config.getLogPath(), applicationName);
+        Debug::setupLogging(config.getLogPath(), applicationName);
 
         const std::string encoding(variables["encoding"].as<std::string>());
         Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
@@ -210,5 +209,5 @@ namespace
 
 int main(int argc, char* argv[])
 {
-    return wrapApplication(runPhysicsObjectTool, argc, argv, applicationName);
+    return Debug::wrapApplication(runPhysicsObjectTool, argc, argv, applicationName);
 }

@@ -151,7 +151,9 @@ void CSVRender::Object::update()
         }
         else if (!model.empty())
         {
-            std::string path = "meshes\\" + model;
+            constexpr VFS::Path::NormalizedView meshes("meshes");
+            VFS::Path::Normalized path(meshes);
+            path /= model;
             mResourceSystem->getSceneManager()->getInstance(path, mBaseNode);
         }
         else
@@ -713,7 +715,7 @@ void CSVRender::Object::setScale(float scale)
 {
     mOverrideFlags |= Override_Scale;
 
-    mScaleOverride = scale;
+    mScaleOverride = std::clamp(scale, 0.5f, 2.0f);
 
     adjustTransform();
 }

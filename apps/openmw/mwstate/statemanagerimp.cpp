@@ -178,7 +178,7 @@ void MWState::StateManager::newGame(bool bypass)
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
 
         mState = State_Running;
-        MWBase::Environment::get().getLuaManager()->newGameStarted();
+        MWBase::Environment::get().getLuaManager()->gameLoaded();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);
         MWBase::Environment::get().getWindowManager()->fadeScreenIn(1);
@@ -540,6 +540,7 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
                 case ESM::REC_ENAB:
                 case ESM::REC_LEVC:
                 case ESM::REC_LEVI:
+                case ESM::REC_LIGH:
                 case ESM::REC_CREA:
                 case ESM::REC_CONT:
                 case ESM::REC_RAND:
@@ -605,6 +606,7 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
         MWBase::Environment::get().getWorld()->renderPlayer();
         MWBase::Environment::get().getWindowManager()->updatePlayer();
         MWBase::Environment::get().getMechanicsManager()->playerLoaded();
+        MWBase::Environment::get().getWorld()->toggleVanityMode(false);
 
         if (firstPersonCam != MWBase::Environment::get().getWorld()->isFirstPerson())
             MWBase::Environment::get().getWorld()->togglePOV();
@@ -624,7 +626,7 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
             Log(Debug::Warning) << "Player character's cell no longer exists, changing to the default cell";
             ESM::ExteriorCellLocation cellIndex(0, 0, ESM::Cell::sDefaultWorldspaceId);
             MWWorld::CellStore& cell = MWBase::Environment::get().getWorldModel()->getExterior(cellIndex);
-            osg::Vec2 posFromIndex = ESM::indexToPosition(cellIndex, false);
+            const osg::Vec2f posFromIndex = ESM::indexToPosition(cellIndex, false);
             ESM::Position pos;
             pos.pos[0] = posFromIndex.x();
             pos.pos[1] = posFromIndex.y();
@@ -704,10 +706,10 @@ void MWState::StateManager::quickLoad()
 void MWState::StateManager::deleteGame(const MWState::Character* character, const MWState::Slot* slot)
 {
     const std::filesystem::path savePath = slot->mPath;
-    mCharacterManager.deleteSlot(character, slot);
+    mCharacterManager.deleteSlot(slot, character);
     if (mLastSavegame == savePath)
     {
-        if (character->begin() != character->end())
+        if (character != nullptr)
             mLastSavegame = character->begin()->mPath;
         else
             mLastSavegame.clear();
@@ -755,12 +757,14 @@ void MWState::StateManager::update(float duration)
 
     if (mNewGameRequest)
     {
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_MainMenu);
         newGame();
         mNewGameRequest = false;
     }
 
     if (mLoadRequest)
     {
+        MWBase::Environment::get().getWindowManager()->removeGuiMode(MWGui::GM_MainMenu);
         loadGame(*mLoadRequest);
         mLoadRequest = std::nullopt;
     }

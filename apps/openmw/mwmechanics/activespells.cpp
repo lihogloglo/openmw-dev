@@ -52,6 +52,8 @@ namespace
     {
         for (const auto& enam : list.mList)
         {
+            if (enam.mData.mRange != ESM::RT_Self)
+                continue;
             ESM::ActiveEffect effect;
             effect.mEffectId = enam.mData.mEffectID;
             effect.mArg = MWMechanics::EffectKey(enam.mData).mArg;
@@ -287,8 +289,9 @@ namespace MWMechanics
                     const ESM::RefId& enchantmentId = slot->getClass().getEnchantment(*slot);
                     if (enchantmentId.empty())
                         continue;
-                    const ESM::Enchantment* enchantment = world->getStore().get<ESM::Enchantment>().find(enchantmentId);
-                    if (enchantment->mData.mType != ESM::Enchantment::ConstantEffect)
+                    const ESM::Enchantment* enchantment
+                        = world->getStore().get<ESM::Enchantment>().search(enchantmentId);
+                    if (enchantment == nullptr || enchantment->mData.mType != ESM::Enchantment::ConstantEffect)
                         continue;
                     if (std::find_if(mSpells.begin(), mSpells.end(),
                             [&](const ActiveSpellParams& params) {
@@ -365,8 +368,12 @@ namespace MWMechanics
                     ESM::RefId::stringRefId("VFX_Reflect"));
                 MWRender::Animation* animation = MWBase::Environment::get().getWorld()->getAnimation(ptr);
                 if (animation && !reflectStatic->mModel.empty())
-                    animation->addEffect(Misc::ResourceHelpers::correctMeshPath(reflectStatic->mModel),
-                        ESM::MagicEffect::indexToName(ESM::MagicEffect::Reflect), false);
+                {
+                    const VFS::Path::Normalized reflectStaticModel
+                        = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(reflectStatic->mModel));
+                    animation->addEffect(
+                        reflectStaticModel, ESM::MagicEffect::indexToName(ESM::MagicEffect::Reflect), false);
+                }
                 caster.getClass().getCreatureStats(caster).getActiveSpells().addSpell(*reflected);
             }
             if (removedSpell)

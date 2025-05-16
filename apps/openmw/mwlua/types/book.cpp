@@ -1,12 +1,14 @@
 #include "types.hpp"
 
-#include <components/misc/strings/algorithm.hpp>
-#include <components/misc/strings/lower.hpp>
+#include "modelproperty.hpp"
 
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadskil.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/lua/util.hpp>
 #include <components/misc/resourcehelpers.hpp>
+#include <components/misc/strings/algorithm.hpp>
+#include <components/misc/strings/lower.hpp>
 #include <components/resource/resourcesystem.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
@@ -81,9 +83,10 @@ namespace MWLua
 {
     void addBookBindings(sol::table book, const Context& context)
     {
+        sol::state_view lua = context.sol();
         // types.book.SKILL is deprecated (core.SKILL should be used instead)
         // TODO: Remove book.SKILL after branching 0.49
-        sol::table skill(context.mLua->sol(), sol::create);
+        sol::table skill(lua, sol::create);
         book["SKILL"] = LuaUtil::makeStrictReadOnly(skill);
         book["createRecordDraft"] = tableToBook;
         for (int id = 0; id < ESM::Skill::Length; ++id)
@@ -96,22 +99,21 @@ namespace MWLua
 
         addRecordFunctionBinding<ESM::Book>(book, context);
 
-        sol::usertype<ESM::Book> record = context.mLua->sol().new_usertype<ESM::Book>("ESM3_Book");
+        sol::usertype<ESM::Book> record = lua.new_usertype<ESM::Book>("ESM3_Book");
         record[sol::meta_function::to_string]
             = [](const ESM::Book& rec) { return "ESM3_Book[" + rec.mId.toDebugString() + "]"; };
         record["id"]
             = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mId.serializeText(); });
         record["name"] = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mName; });
-        record["model"] = sol::readonly_property(
-            [](const ESM::Book& rec) -> std::string { return Misc::ResourceHelpers::correctMeshPath(rec.mModel); });
-        record["mwscript"]
-            = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mScript.serializeText(); });
+        addModelProperty(record);
+        record["mwscript"] = sol::readonly_property(
+            [](const ESM::Book& rec) -> sol::optional<std::string> { return LuaUtil::serializeRefId(rec.mScript); });
         record["icon"] = sol::readonly_property([vfs](const ESM::Book& rec) -> std::string {
             return Misc::ResourceHelpers::correctIconPath(rec.mIcon, vfs);
         });
         record["text"] = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mText; });
-        record["enchant"]
-            = sol::readonly_property([](const ESM::Book& rec) -> std::string { return rec.mEnchant.serializeText(); });
+        record["enchant"] = sol::readonly_property(
+            [](const ESM::Book& rec) -> sol::optional<std::string> { return LuaUtil::serializeRefId(rec.mEnchant); });
         record["isScroll"] = sol::readonly_property([](const ESM::Book& rec) -> bool { return rec.mData.mIsScroll; });
         record["value"] = sol::readonly_property([](const ESM::Book& rec) -> int { return rec.mData.mValue; });
         record["weight"] = sol::readonly_property([](const ESM::Book& rec) -> float { return rec.mData.mWeight; });
@@ -119,9 +121,7 @@ namespace MWLua
             = sol::readonly_property([](const ESM::Book& rec) -> float { return rec.mData.mEnchant * 0.1f; });
         record["skill"] = sol::readonly_property([](const ESM::Book& rec) -> sol::optional<std::string> {
             ESM::RefId skill = ESM::Skill::indexToRefId(rec.mData.mSkillId);
-            if (!skill.empty())
-                return skill.serializeText();
-            return sol::nullopt;
+            return LuaUtil::serializeRefId(skill);
         });
     }
 }

@@ -59,7 +59,7 @@ list(APPEND COMPONENT_FILES "${OpenMW_BINARY_DIR}/${OSG_PLUGIN_CHECKER_CPP_FILE}
 
 add_component_dir (lua
     luastate scriptscontainer asyncpackage utilpackage serialization configuration l10n storage utf8
-    shapes/box inputactions yamlloader
+    shapes/box inputactions yamlloader scripttracker luastateptr
     )
 
 add_component_dir (l10n
@@ -103,7 +103,6 @@ add_component_dir (settings
     settingvalue
     shadermanager
     values
-    screenshotsettings
     windowmode
     )
 
@@ -127,7 +126,7 @@ add_component_dir (vfs
     )
 
 add_component_dir (resource
-    scenemanager keyframemanager imagemanager physicsshapemanager physicsshape niffilemanager objectcache multiobjectcache resourcesystem
+    scenemanager keyframemanager imagemanager animblendrulesmanager physicsshapemanager physicsshape niffilemanager objectcache multiobjectcache resourcesystem
     resourcemanager stats animation foreachphysicsobject errormarker cachestats bgsmfilemanager
     )
 
@@ -138,7 +137,7 @@ add_component_dir (shader
 add_component_dir (sceneutil
     clone attach visitor util statesetupdater controller skeleton riggeometry morphgeometry lightcontroller
     lightmanager lightutil positionattitudetransform workqueue pathgridutil waterutil writescene serialize optimizer
-    detourdebugdraw navmesh agentpath shadow mwshadowtechnique recastmesh shadowsbin osgacontroller rtt
+    detourdebugdraw navmesh agentpath animblendrules shadow mwshadowtechnique recastmesh shadowsbin osgacontroller rtt
     screencapture depth color riggeometryosgaextension extradata unrefqueue lightcommon lightingmethod clearcolor
     cullsafeboundsvisitor keyframe nodecallback textkeymap glextensions
     )
@@ -168,6 +167,9 @@ add_component_dir(esm attr common defs esmcommon records util luascripts format 
     indexrefid
     serializerefid
     esm3exteriorcellrefid
+    quaternion
+    vector3
+    exteriorcelllocation
     )
 
 add_component_dir(fx pass technique lexer lexer_types parse_constants widgets stateupdater)
@@ -185,6 +187,7 @@ add_component_dir (esm3
     weatherstate quickkeys fogstate spellstate activespells creaturelevliststate doorstate projectilestate debugprofile
     aisequence magiceffects custommarkerstate stolenitems transport animationstate controlsstate mappings readerscache
     infoorder timestamp formatversion landrecorddata selectiongroup dialoguecondition
+    refnum
     )
 
 add_component_dir (esmterrain
@@ -509,8 +512,10 @@ else ()
         )
 endif()
 
-set (ESM_UI ${CMAKE_CURRENT_SOURCE_DIR}/contentselector/contentselector.ui
-    )
+add_component_dir(testing
+    expecterror
+    util
+)
 
 if (USE_QT)
     add_component_qt_dir (contentselector
@@ -534,7 +539,7 @@ if (USE_QT)
         )
 
     add_component_qt_dir (misc
-        helpviewer utf8qtextstream hash
+        helpviewer utf8qtextstream hash scalableicon
         )
 
     add_component_qt_dir (files
@@ -542,7 +547,14 @@ if (USE_QT)
         qtconfigpath
         )
 
-    QT_WRAP_UI(ESM_UI_HDR ${ESM_UI})
+    add_component_qt_dir (platform
+        application
+        )
+
+    add_component_qt_dir (vfs
+        qtconversion
+        )
+
 endif()
 
 find_package(SQLite3 REQUIRED)
@@ -575,9 +587,9 @@ target_link_libraries(components
     ${OSG_LIBRARIES}
     ${OPENTHREADS_LIBRARIES}
 
-    ${Boost_SYSTEM_LIBRARY}
-    ${Boost_PROGRAM_OPTIONS_LIBRARY}
-    ${Boost_IOSTREAMS_LIBRARY}
+    Boost::system
+    Boost::program_options
+    Boost::iostreams
 
     SDL2::SDL2
     ${OPENGL_gl_LIBRARY}
@@ -603,18 +615,8 @@ else()
     target_link_libraries(components yaml-cpp)
 endif()
 
-if(Boost_VERSION_STRING VERSION_GREATER_EQUAL 1.77.0)
-    target_link_libraries(components ${Boost_ATOMIC_LIBRARY})
-endif()
-
-if (WIN32)
-    target_link_libraries(components
-    ${Boost_LOCALE_LIBRARY}
-    ${Boost_ZLIB_LIBRARY})
-endif()
-
 if (USE_QT)
-    add_library(components_qt STATIC ${COMPONENT_QT_FILES} ${ESM_UI_HDR})
+    add_library(components_qt STATIC ${COMPONENT_QT_FILES})
     target_link_libraries(components_qt components Qt::Widgets Qt::Core)
 
     if (BUILD_LAUNCHER OR BUILD_WIZARD)
@@ -687,6 +689,8 @@ endif(OSG_STATIC)
 
 if(USE_QT)
     set_property(TARGET components_qt PROPERTY AUTOMOC ON)
+    set_property(TARGET components_qt PROPERTY AUTOUIC ON)
+    set_property(TARGET components_qt PROPERTY AUTOUIC_SEARCH_PATHS contentselector)
 endif(USE_QT)
 
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)

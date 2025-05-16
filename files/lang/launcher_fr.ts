@@ -390,6 +390,14 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <source>This archive is enabled in an openmw.cfg other than the user one</source>
         <translation>Cette archive est activée dans un fichier openmw.cfg qui n&apos;est pas celui de l&apos;utilisateur.</translation>
     </message>
+    <message>
+        <source>&amp;Copy Path(s) to Clipboard</source>
+        <translation>&amp;Copier l&apos;emplacement dans le presse papier</translation>
+    </message>
+    <message>
+        <source>&amp;Open Path in File Explorer</source>
+        <translation>&amp;Ouvrir l&apos;emplacement dans l&apos;explorateur de fichiers</translation>
+    </message>
 </context>
 <context>
     <name>Launcher::GraphicsPage</name>
@@ -448,7 +456,7 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>Fermer</translation>
     </message>
     <message>
-        <source> Launch OpenMW </source>
+        <source>Launch OpenMW</source>
         <translation>Lancer OpenMW</translation>
     </message>
     <message>
@@ -699,6 +707,14 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Anime l&apos;utilisation d&apos;objet magique, de façon similaire à l&apos;utilisation des sorts.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If enabled - makes transitions between different animations/poses much smoother. Also allows to load animation blending config YAML files that can be bundled with animations in order to customise blending styles.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Lorsque cette option est désactivée, le moteur de jeu n&apos;effectue aucune transition entre les différentes poses/animations.&lt;/p&gt;&lt;p&gt;Lorsque cette option est activée, le moteur de jeu adoucit la transition entre les différentes poses/animations.&lt;/p&gt;&lt;p&gt;Cette option prend en charge les fichiers de configuration YAML pour les transitions entre animations, ceux-ci peuvent être inclus avec les lots d&apos;animations afin de configurer le type de transition entre les diverses animations fournies.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
+        <source>Smooth Animation Transitions</source>
+        <translation>Adoucir la transition entre animations</translation>
+    </message>
+    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Makes NPCs and player movement more smooth. Recommended to use with &quot;turn to movement direction&quot; enabled.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Cette option rend les mouvements des PNJ et du joueur plus souple. Recommandé si l&apos;option &quot;Se tourner en direction du mouvement&quot; est activée.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
@@ -921,10 +937,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>Sauvegardes</translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting determines whether the amount of the time the player has spent playing will be displayed for each saved game in the Load menu.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Cette option affiche le temps de jeu de chaque sauvegarde dans leur menu de sélection.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
         <source>JPG</source>
         <translation>JPG</translation>
     </message>
@@ -1061,25 +1073,13 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;L&apos;effet réfléchi des sorts d&apos;absorption n&apos;est pas appliqué, comme dans le moteur original.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum distance at which lights will appear (measured in units).&lt;/p&gt;&lt;p&gt;Set this to 0 to use an unlimited distance.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Distance maximale d&apos;affichage des sources lumineuses (en unité de distance).&lt;/p&gt;&lt;p&gt;Mettez cette valeur à 0 pour une distance d&apos;affichage infinie.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum number of lights per object.&lt;/p&gt;&lt;p&gt;A low number near default will cause light popping similar to what you would see with legacy lighting.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Nombre maximum de sources lumineuses par objet.&lt;/p&gt;&lt;p&gt;Une valeur faible mène à des apparitions tardives des sources lumineuses similaires à celles obtenues avec la méthode d&apos;éclairage traditionnelle.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Fraction of maximum distance at which lights will start to fade.&lt;/p&gt;&lt;p&gt;Set this to a low value for slower transitions or a high value for quicker transitions.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Fraction de la distance maximale d&apos;une source à partir de laquelle l&apos;intensité lumineuse commence à décroître.&lt;/p&gt;&lt;p&gt;Sélectionnez une valeur basse pour une transition douce ou une valeur plus élevée pour une transition plus abrupte.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Set the internal handling of light sources.&lt;/p&gt;
-&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object and provides a lighting closest to an original game.&lt;/p&gt;
-&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover and a configurable light fade. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
+&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object. It provides results most similar to Morrowind&apos;s lighting.&lt;/p&gt;
+&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
 &lt;p&gt; &quot;Shaders&quot; carries all of the benefits that &quot;Shaders (compatibility)&quot; does, but uses a modern approach that allows for a higher max lights count with little to no performance penalties on modern hardware.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Définit la gestion des sources lumineuses :&lt;/p&gt;
 &lt;p&gt;&quot;Traditionnelle&quot; Chaque objet est éclairé par 8 sources lumineuses. Cet méthode est la plus proche du jeu original.&lt;/p&gt;
-&lt;p&gt;&quot;Shaders (mode de compatibilité)&quot; supprime la limite des 8 sources lumineuses. Cette méthode permet d&apos;éclairer la végétation au sol, mais aussi de configurer à quel distance une source lumineuse s&apos;estompe. Ce choix est recommandé pour les ordinateurs plus anciens avec un nombre de sources lumineuses proche de 8.&lt;/p&gt;
+&lt;p&gt;&quot;Shaders (mode de compatibilité)&quot; supprime la limite des 8 sources lumineuses. Cette méthode permet d&apos;éclairer la végétation au sol. Ce choix est recommandé pour les ordinateurs plus anciens avec un nombre de sources lumineuses proche de 8.&lt;/p&gt;
 &lt;p&gt;&quot;Shaders&quot; offre tous les bénéfices apportés par &quot;Shaders (mode de compatibilité)&quot;, mais utilise une approche moderne. Celle-ci permet, sur du matériel moderne, d&apos;augmenter le nombre de sources lumineuses par objet sans perte de performance.&quot;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
@@ -1089,14 +1089,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     <message>
         <source>Shaders (compatibility)</source>
         <translation>Shaders (mode de compatibilité)</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Multipler for bounding sphere of lights.&lt;/p&gt;&lt;p&gt;Higher numbers allows for smooth falloff but require an increase in number of max lights.&lt;/p&gt;&lt;p&gt;Does not effect the illumination or strength of lights.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;body&gt;&lt;p&gt;Multiplicateur pour le rayon de la sphère incluant les sources lumineuses.&lt;/p&gt;&lt;p&gt;Un multiplicateur plus élevé permet une extinction plus douce, mais applique un plus grand nombre de sources lumineuses sur chaque objet.&lt;/p&gt;&lt;p&gt;Ce paramètre ne modifie ni l&apos;intensité ni la luminance des lumières.&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Minimum ambient interior brightness.&lt;/p&gt;&lt;p&gt;Increase this if you feel interiors are too dark.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Luminosité ambiante minimale en intérieur.&lt;/p&gt;&lt;p&gt;Augmentez cette valeur si les intérieurs vous semblent trop sombres.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>In third-person view, use the camera as the sound listener instead of the player character.</source>
@@ -1319,24 +1311,8 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>Ombre des terrains</translation>
     </message>
     <message>
-        <source>Maximum Light Distance</source>
-        <translation>Portée maximale des sources lumineuse</translation>
-    </message>
-    <message>
-        <source>Max Lights</source>
-        <translation>Nombre maximum de sources lumineuses</translation>
-    </message>
-    <message>
         <source>Lighting Method</source>
         <translation>Méthode d&apos;illumination</translation>
-    </message>
-    <message>
-        <source>Bounding Sphere Multiplier</source>
-        <translation>Multiplicateur de portée des sphères lumineuses</translation>
-    </message>
-    <message>
-        <source>Minimum Interior Brightness</source>
-        <translation>Luminosité intérieure minimale</translation>
     </message>
     <message>
         <source>Audio Device</source>
@@ -1439,6 +1415,10 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
         <translation>Multiplicateur de force pour le combat à mains nues</translation>
     </message>
     <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting controls the behavior of factoring of Strength attribute into hand-to-hand damage: damage is multiplied by Strength value divided by 40.&lt;/p&gt;&lt;p&gt;Can apply to all actors or only to non-werewolf actors.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Ce paramètre contrôle le comportement de l&apos;attribut Force pour les dommages en combat à main nue: les dommages sont multipliés par la Force puis divisés par 40.&lt;/p&gt;&lt;p&gt;Il peut s&apos;appliquer à tous les acteurs, ou uniquement aux acteurs non-loups-garous.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
         <source>Turn to Movement Direction</source>
         <translation>Se tourner en direction du mouvement</translation>
     </message>
@@ -1453,10 +1433,6 @@ to default Morrowind fonts. Check this box if you still prefer original fonts ov
     <message>
         <source>Can Zoom on Maps</source>
         <translation>Permettre le zoom sur la carte</translation>
-    </message>
-    <message>
-        <source>Add &quot;Time Played&quot; to Saves</source>
-        <translation>Ajoute le temps de jeu aux sauvegardes</translation>
     </message>
     <message>
         <source>Notify on Saved Screenshot</source>

@@ -3,6 +3,7 @@
 
 #include "typedaipackage.hpp"
 
+#include <string_view>
 #include <vector>
 
 #include "aitemporarybase.hpp"
@@ -113,6 +114,14 @@ namespace MWMechanics
 
         bool isStationary() const { return mDistance == 0; }
 
+        std::optional<int> getDistance() const override { return mDistance; }
+
+        std::optional<float> getDuration() const override { return static_cast<float>(mDuration); }
+
+        const std::vector<unsigned char>& getIdle() const { return mIdle; }
+
+        static std::string_view getIdleGroupName(size_t index) { return sIdleSelectToGroupName[index]; }
+
     private:
         void stopWalking(const MWWorld::Ptr& actor);
 
@@ -173,9 +182,7 @@ namespace MWMechanics
             const ESM::Pathgrid::Point& start, const ESM::Pathgrid::Point& end, AiWanderStorage& storage);
 
         /// lookup table for converting idleSelect value to groupName
-        static const std::string sIdleSelectToGroupName[GroupIndex_MaxIdle - GroupIndex_MinIdle + 1];
-
-        static int OffsetToPreventOvercrowding();
+        static const std::string_view sIdleSelectToGroupName[GroupIndex_MaxIdle - GroupIndex_MinIdle + 1];
     };
 }
 

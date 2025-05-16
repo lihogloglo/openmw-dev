@@ -15,28 +15,31 @@
 
 #include <components/resource/imagemanager.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/texturetype.hpp>
+#include <components/vfs/pathutil.hpp>
 
 namespace SceneUtil
 {
     namespace
     {
-        std::array<std::string, 32> generateGlowTextureNames()
+        std::array<VFS::Path::Normalized, 32> generateGlowTextureNames()
         {
-            std::array<std::string, 32> result;
+            constexpr VFS::Path::NormalizedView prefix("textures/magicitem");
+            std::array<VFS::Path::Normalized, 32> result;
             for (std::size_t i = 0; i < result.size(); ++i)
             {
                 std::stringstream stream;
-                stream << "textures/magicitem/caust";
+                stream << "caust";
                 stream << std::setw(2);
                 stream << std::setfill('0');
                 stream << i;
                 stream << ".dds";
-                result[i] = std::move(stream).str();
+                result[i] = prefix / VFS::Path::Normalized(std::move(stream).str());
             }
             return result;
         }
 
-        const std::array<std::string, 32> glowTextureNames = generateGlowTextureNames();
+        const std::array<VFS::Path::Normalized, 32> glowTextureNames = generateGlowTextureNames();
 
         struct FindLowestUnusedTexUnitVisitor : public osg::NodeVisitor
         {
@@ -218,11 +221,10 @@ namespace SceneUtil
         const osg::Vec4f& glowColor, float glowDuration)
     {
         std::vector<osg::ref_ptr<osg::Texture2D>> textures;
-        for (const std::string& name : glowTextureNames)
+        for (const VFS::Path::Normalized& name : glowTextureNames)
         {
             osg::ref_ptr<osg::Image> image = resourceSystem->getImageManager()->getImage(name);
             osg::ref_ptr<osg::Texture2D> tex(new osg::Texture2D(image));
-            tex->setName("envMap");
             tex->setWrap(osg::Texture::WRAP_S, osg::Texture2D::REPEAT);
             tex->setWrap(osg::Texture::WRAP_T, osg::Texture2D::REPEAT);
             resourceSystem->getSceneManager()->applyFilterSettings(tex);
@@ -247,6 +249,7 @@ namespace SceneUtil
             node->setStateSet(writableStateSet);
         }
         writableStateSet->setTextureAttributeAndModes(texUnit, textures.front(), osg::StateAttribute::ON);
+        writableStateSet->setTextureAttributeAndModes(texUnit, new TextureType("envMap"), osg::StateAttribute::ON);
         writableStateSet->addUniform(new osg::Uniform("envMapColor", glowColor));
         resourceSystem->getSceneManager()->recreateShaders(std::move(node));
 
@@ -407,4 +410,12 @@ namespace SceneUtil
         return osg::Image::computePixelFormat(format);
     }
 
+    const std::string& getTextureType(const osg::StateSet& stateset, const osg::Texture& texture, unsigned int texUnit)
+    {
+        const osg::StateAttribute* type = stateset.getTextureAttribute(texUnit, SceneUtil::TextureType::AttributeType);
+        if (type)
+            return static_cast<const SceneUtil::TextureType*>(type)->getName();
+
+        return texture.getName();
+    }
 }

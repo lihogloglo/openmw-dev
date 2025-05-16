@@ -442,6 +442,9 @@ namespace MWGui
 
     void InventoryWindow::updateArmorRating()
     {
+        if (mPtr.isEmpty())
+            return;
+
         mArmorRating->setCaptionWithReplacing(
             "#{sArmor}: " + MyGUI::utility::toString(static_cast<int>(mPtr.getClass().getArmorRating(mPtr))));
         if (mArmorRating->getTextSize().width > mArmorRating->getSize().width)
@@ -749,8 +752,7 @@ namespace MWGui
 
         // Player must not be paralyzed, knocked down, or dead to pick up an item.
         const MWMechanics::NpcStats& playerStats = player.getClass().getNpcStats(player);
-        bool godmode = MWBase::Environment::get().getWorld()->getGodModeState();
-        if ((!godmode && playerStats.isParalyzed()) || playerStats.getKnockedDown() || playerStats.isDead())
+        if (playerStats.isParalyzed() || playerStats.getKnockedDown() || playerStats.isDead())
             return;
 
         MWBase::Environment::get().getMechanicsManager()->itemTaken(player, object, MWWorld::Ptr(), count);
@@ -789,8 +791,7 @@ namespace MWGui
             return;
 
         const MWMechanics::CreatureStats& stats = player.getClass().getCreatureStats(player);
-        bool godmode = MWBase::Environment::get().getWorld()->getGodModeState();
-        if ((!godmode && stats.isParalyzed()) || stats.getKnockedDown() || stats.isDead() || stats.getHitRecovery())
+        if (stats.isParalyzed() || stats.getKnockedDown() || stats.isDead() || stats.getHitRecovery())
             return;
 
         ItemModel::ModelIndex selected = -1;

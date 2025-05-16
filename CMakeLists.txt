@@ -39,11 +39,12 @@ option(BUILD_ESMTOOL            "Build ESM inspector" ON)
 option(BUILD_NIFTEST            "Build nif file tester" ON)
 option(BUILD_DOCS               "Build documentation." OFF )
 option(BUILD_WITH_CODE_COVERAGE "Enable code coverage with gconv" OFF)
-option(BUILD_UNITTESTS          "Enable Unittests with Google C++ Unittest" OFF)
+option(BUILD_COMPONENTS_TESTS   "Build components library tests" OFF)
 option(BUILD_BENCHMARKS         "Build benchmarks with Google Benchmark" OFF)
 option(BUILD_NAVMESHTOOL        "Build navmesh tool" ON)
 option(BUILD_PHYSICSOBJECTTOOL   "Build Physics object tool" ON)
 option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
+option(BUILD_OPENMW_TESTS       "Build OpenMW tests" OFF)
 option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MSVC (alternative to ccache)" ON)
 
 set(OpenGL_GL_PREFERENCE LEGACY)  # Use LEGACY as we use GL2; GLNVD is for GL3 and up.
@@ -81,8 +82,8 @@ message(STATUS "Configuring OpenMW...")
 set(OPENMW_VERSION_MAJOR 0)
 set(OPENMW_VERSION_MINOR 49)
 set(OPENMW_VERSION_RELEASE 0)
-set(OPENMW_LUA_API_REVISION 60)
-set(OPENMW_POSTPROCESSING_API_REVISION 1)
+set(OPENMW_LUA_API_REVISION 73)
+set(OPENMW_POSTPROCESSING_API_REVISION 2)
 
 set(OPENMW_VERSION_COMMITHASH "")
 set(OPENMW_VERSION_TAGHASH "")
@@ -123,7 +124,6 @@ include(WholeArchive)
 
 configure_file ("${OpenMW_SOURCE_DIR}/docs/mainpage.hpp.cmake" "${OpenMW_BINARY_DIR}/docs/mainpage.hpp")
 
-option(BOOST_STATIC "Link static build of Boost into the binaries" FALSE)
 option(QT_STATIC "Link static build of Qt into the binaries" FALSE)
 
 set(_jolt_static_default ON)
@@ -149,7 +149,7 @@ option(MYGUI_STATIC "Link static build of Mygui into the binaries" ${_mygui_stat
 option(OPENMW_USE_SYSTEM_RECASTNAVIGATION "Use system provided recastnavigation library" OFF)
 if(OPENMW_USE_SYSTEM_RECASTNAVIGATION)
     set(_recastnavigation_static_default OFF)
-    find_package(RecastNavigation REQUIRED)
+    find_package(RecastNavigation REQUIRED CONFIG)
 else()
     set(_recastnavigation_static_default ON)
 endif()
@@ -162,13 +162,6 @@ option(OPENMW_USE_SYSTEM_GOOGLETEST "Use system Google Test library." OFF)
 
 option(OPENMW_UNITY_BUILD "Use fewer compilation units to speed up compile time" FALSE)
 option(OPENMW_LTO_BUILD "Build OpenMW with Link-Time Optimization (Needs ~2GB of RAM)" OFF)
-
-# what is necessary to build documentation
-IF( BUILD_DOCS )
-    # Builds the documentation.
-    FIND_PACKAGE( Sphinx REQUIRED )
-    FIND_PACKAGE( Doxygen REQUIRED )
-ENDIF()
 
 # OS X deployment
 option(OPENMW_OSX_DEPLOYMENT OFF)
@@ -238,7 +231,16 @@ if(MSVC)
 endif()
 
 # Dependencies
-find_package(OpenGL REQUIRED)
+if (APPLE)
+    # Force CMake to use the installed version of OpenGL on macOS
+    set(_SAVE_CMAKE_FIND_FRAMEWORK ${CMAKE_FIND_FRAMEWORK})
+    set(CMAKE_FIND_FRAMEWORK ONLY)
+    find_package(OpenGL REQUIRED)
+    set(CMAKE_FIND_FRAMEWORK ${_SAVE_CMAKE_FIND_FRAMEWORK})
+    unset(_SAVE_CMAKE_FIND_FRAMEWORK)
+else()
+    find_package(OpenGL REQUIRED)
+endif()
 
 find_package(LZ4 REQUIRED)
 
@@ -301,7 +303,7 @@ if (OPENMW_USE_SYSTEM_YAML_CPP)
     find_package(yaml-cpp REQUIRED)
 endif()
 
-if ((BUILD_UNITTESTS OR BUILD_OPENCS_TESTS) AND OPENMW_USE_SYSTEM_GOOGLETEST)
+if ((BUILD_COMPONENTS_TESTS OR BUILD_OPENCS_TESTS OR BUILD_OPENMW_TESTS) AND OPENMW_USE_SYSTEM_GOOGLETEST)
     find_package(GTest 1.10 REQUIRED)
     find_package(GMock 1.10 REQUIRED)
 endif()
@@ -318,8 +320,8 @@ find_package(FFmpeg REQUIRED COMPONENTS AVCODEC AVFORMAT AVUTIL SWSCALE SWRESAMP
 if(FFmpeg_FOUND)
     SET(FFVER_OK TRUE)
 
-    # Can not detect FFmpeg version on Windows for now
-    if (NOT WIN32)
+    # Can not detect FFmpeg version on Windows or Android for now
+    if (NOT WIN32 AND NOT ANDROID)
         if(FFmpeg_AVFORMAT_VERSION VERSION_LESS "57.56.100")
             message(STATUS "libavformat is too old! (${FFmpeg_AVFORMAT_VERSION}, wanted 57.56.100)")
             set(FFVER_OK FALSE)
@@ -371,11 +373,6 @@ endif()
 
 # Platform specific
 if (WIN32)
-    if(NOT MINGW)
-    set(Boost_USE_STATIC_LIBS   ON)
-    add_definitions(-DBOOST_ALL_NO_LIB)
-    endif(NOT MINGW)
-
     # Suppress WinMain(), provided by SDL
     add_definitions(-DSDL_MAIN_HANDLED)
 
@@ -426,28 +423,13 @@ if(HAVE_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
 set(BOOST_COMPONENTS iostreams program_options system)
-if(WIN32)
-    set(BOOST_COMPONENTS ${BOOST_COMPONENTS} locale)
-    if(MSVC)
-        # boost-zlib is not present (nor needed) in vcpkg version of boost.
-        # there, it is part of boost-iostreams instead.
-        set(BOOST_OPTIONAL_COMPONENTS zlib)
-    endif(MSVC)
-endif(WIN32)
 
-IF(BOOST_STATIC)
-    set(Boost_USE_STATIC_LIBS   ON)
-endif()
-
-set(Boost_NO_BOOST_CMAKE ON)
-set(Boost_NO_WARN_NEW_VERSIONS ON)  # ignore warnings about new releases of boost
-
-find_package(Boost 1.6.2 REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
+find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
 if(OPENMW_USE_SYSTEM_MYGUI)
     find_package(MyGUI 3.4.3 REQUIRED)
 endif()
-find_package(SDL2 2.0.9 REQUIRED)
+find_package(SDL2 2.0.10 REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -460,7 +442,7 @@ else(USE_LUAJIT)
     find_package(Lua REQUIRED)
     add_compile_definitions(NO_LUAJIT)
 endif(USE_LUAJIT)
-if (NOT WIN32)
+if (NOT WIN32 AND NOT ANDROID)
     include(cmake/CheckLuaCustomAllocator.cmake)
 endif()
 
@@ -471,7 +453,6 @@ set(SOL_CONFIG_DIR ${OpenMW_SOURCE_DIR}/extern/sol_config)
 include_directories(
     BEFORE SYSTEM
     "."
-    ${Boost_INCLUDE_DIR}
     ${MyGUI_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${OPENGL_INCLUDE_DIR}
@@ -481,7 +462,7 @@ include_directories(
     ${ICU_INCLUDE_DIRS}
 )
 
-link_directories(${Boost_LIBRARY_DIRS} ${COLLADA_DOM_LIBRARY_DIRS})
+link_directories(${COLLADA_DOM_LIBRARY_DIRS})
 
 if(MYGUI_STATIC)
     add_definitions(-DMYGUI_STATIC)
@@ -523,14 +504,19 @@ pack_resource_file(${OpenMW_SOURCE_DIR}/files/settings-default.cfg
 configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.appdata.xml
     "${OpenMW_BINARY_DIR}" "openmw.appdata.xml")
 
-if (NOT APPLE)
+if (APPLE)
+    configure_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg
+        "${OpenMW_BINARY_DIR}/openmw.cfg")
+elseif (WIN32)
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
+        "${OpenMW_BINARY_DIR}" "openmw.cfg")
+    configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
+        "${OpenMW_BINARY_DIR}" "openmw.cfg.install")
+else ()
     configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg.local
         "${OpenMW_BINARY_DIR}" "openmw.cfg")
     configure_resource_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg
         "${OpenMW_BINARY_DIR}" "openmw.cfg.install")
-else ()
-    configure_file(${OpenMW_SOURCE_DIR}/files/openmw.cfg
-        "${OpenMW_BINARY_DIR}/openmw.cfg")
 endif ()
 
 pack_resource_file(${OpenMW_SOURCE_DIR}/files/openmw-cs.cfg
@@ -569,7 +555,11 @@ endif()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
     set(OPENMW_CXX_FLAGS "-Wall -Wextra -Wundef -Wextra-semi -Wno-unused-parameter -pedantic -Wno-long-long -Wnon-virtual-dtor -Wunused ${OPENMW_CXX_FLAGS}")
-    add_definitions( -DBOOST_NO_CXX11_SCOPED_ENUMS=ON )
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+        # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105438
+        set(OPENMW_CXX_FLAGS "-Wno-array-bounds ${OPENMW_CXX_FLAGS}")
+    endif()
 
     if (APPLE)
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
@@ -604,7 +594,7 @@ endif()
 add_subdirectory (components)
 
 # Apps and tools
-if (BUILD_OPENMW)
+if (BUILD_OPENMW OR BUILD_OPENMW_TESTS)
     add_subdirectory( apps/openmw )
 endif()
 
@@ -638,11 +628,10 @@ endif()
 
 if (BUILD_NIFTEST)
     add_subdirectory(apps/niftest)
-endif(BUILD_NIFTEST)
+endif()
 
-# UnitTests
-if (BUILD_UNITTESTS)
-    add_subdirectory( apps/openmw_test_suite )
+if (BUILD_COMPONENTS_TESTS)
+    add_subdirectory(apps/components_tests)
 endif()
 
 if (BUILD_BENCHMARKS)
@@ -654,11 +643,15 @@ if (BUILD_NAVMESHTOOL)
 endif()
 
 if (BUILD_PHYSICSOBJECTTOOL)
-    add_subdirectory( apps/physicsobjecttool )
+    add_subdirectory(apps/physicsobjecttool)
 endif()
 
 if (BUILD_OPENCS_TESTS)
     add_subdirectory(apps/opencs_tests)
+endif()
+
+if (BUILD_OPENMW_TESTS)
+    add_subdirectory(apps/openmw_tests)
 endif()
 
 if (WIN32)
@@ -742,8 +735,8 @@ if (WIN32)
             target_compile_options(openmw-wizard PRIVATE ${WARNINGS})
         endif()
 
-        if (BUILD_UNITTESTS)
-            target_compile_options(openmw_test_suite PRIVATE ${WARNINGS})
+        if (BUILD_COMPONENTS_TESTS)
+            target_compile_options(components-tests PRIVATE ${WARNINGS})
         endif()
 
         if (BUILD_BENCHMARKS)
@@ -756,6 +749,14 @@ if (WIN32)
 
         if (BUILD_PHYSICSOBJECTTOOL)
             target_compile_options(openmw-physicsobjecttool PRIVATE ${WARNINGS} ${MT_BUILD})
+        endif()
+
+        if (BUILD_OPENCS_TESTS)
+            target_compile_options(openmw-cs-tests PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_OPENMW_TESTS)
+            target_compile_options(openmw-tests PRIVATE ${WARNINGS})
         endif()
     endif(MSVC)
 
@@ -826,7 +827,6 @@ if (OPENMW_OSX_DEPLOYMENT AND APPLE)
         set(BU_CHMOD_BUNDLE_ITEMS ON)
         set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH})
         include(BundleUtilities)
-        cmake_minimum_required(VERSION 3.1)
     " COMPONENT Runtime)
 
     set(ABSOLUTE_PLUGINS "")
@@ -876,6 +876,11 @@ if (OPENMW_OSX_DEPLOYMENT AND APPLE)
     install_plugins_for_bundle("${APP_BUNDLE_NAME}" PLUGINS)
     install_plugins_for_bundle("${OPENCS_BUNDLE_NAME}" OPENCS_PLUGINS)
 
+    INSTALL(FILES "${OpenMW_SOURCE_DIR}/CHANGELOG.md" DESTINATION "/${INSTALLED_OPENMW_APP}/..")
+    INSTALL(FILES "${OpenMW_SOURCE_DIR}/README.md" DESTINATION "/${INSTALLED_OPENMW_APP}/..")
+    INSTALL(FILES "${OpenMW_SOURCE_DIR}/LICENSE" DESTINATION "/${INSTALLED_OPENMW_APP}/..")
+    INSTALL(FILES "${OpenMW_SOURCE_DIR}/AUTHORS.md" DESTINATION "/${INSTALLED_OPENMW_APP}/..")
+
     set(PLUGINS ${PLUGINS} "${INSTALLED_OPENMW_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
     set(PLUGINS ${PLUGINS} "${INSTALLED_OPENMW_APP}/Contents/PlugIns/${QT_QMACSTYLE_PLUGIN_GROUP}/${QT_QMACSTYLE_PLUGIN_NAME}")
     set(OPENCS_PLUGINS ${OPENCS_PLUGINS} "${INSTALLED_OPENCS_APP}/Contents/PlugIns/${QT_COCOA_PLUGIN_GROUP}/${QT_COCOA_PLUGIN_NAME}")
@@ -906,27 +911,48 @@ elseif(NOT APPLE)
 
     if(WIN32)
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/" DESTINATION "." FILES_MATCHING PATTERN "*.dll"
-                                                                              PATTERN "deps" EXCLUDE
+                                                                              PATTERN ".cmake" EXCLUDE
+                                                                              PATTERN ".qt" EXCLUDE
+                                                                              PATTERN "_CPack_Packages" EXCLUDE
+                                                                              PATTERN "_deps" EXCLUDE
                                                                               PATTERN "apps" EXCLUDE
+                                                                              PATTERN "bin" EXCLUDE
                                                                               PATTERN "CMakeFiles" EXCLUDE
                                                                               PATTERN "components" EXCLUDE
+                                                                              PATTERN "deps" EXCLUDE
                                                                               PATTERN "docs" EXCLUDE
                                                                               PATTERN "extern" EXCLUDE
                                                                               PATTERN "files" EXCLUDE
-                                                                              PATTERN "Testing" EXCLUDE)
+                                                                              PATTERN "lib" EXCLUDE
+                                                                              PATTERN "SymStore" EXCLUDE
+                                                                              PATTERN "symstore-venv" EXCLUDE
+                                                                              PATTERN "Testing" EXCLUDE
+                                                                              PATTERN "tests_output" EXCLUDE
+                                                                              PATTERN "try-compile")
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/" DESTINATION "." CONFIGURATIONS Debug;RelWithDebInfo FILES_MATCHING PATTERN "*.pdb"
-                                                                                                                  PATTERN "deps" EXCLUDE
+                                                                                                                  PATTERN ".cmake" EXCLUDE
+                                                                                                                  PATTERN ".qt" EXCLUDE
+                                                                                                                  PATTERN "_CPack_Packages" EXCLUDE
+                                                                                                                  PATTERN "_deps" EXCLUDE
                                                                                                                   PATTERN "apps" EXCLUDE
+                                                                                                                  PATTERN "bin" EXCLUDE
                                                                                                                   PATTERN "CMakeFiles" EXCLUDE
                                                                                                                   PATTERN "components" EXCLUDE
+                                                                                                                  PATTERN "deps" EXCLUDE
                                                                                                                   PATTERN "docs" EXCLUDE
                                                                                                                   PATTERN "extern" EXCLUDE
                                                                                                                   PATTERN "files" EXCLUDE
-                                                                                                                  PATTERN "Testing" EXCLUDE)
+                                                                                                                  PATTERN "lib" EXCLUDE
+                                                                                                                  PATTERN "SymStore" EXCLUDE
+                                                                                                                  PATTERN "symstore-venv" EXCLUDE
+                                                                                                                  PATTERN "Testing" EXCLUDE
+                                                                                                                  PATTERN "tests_output" EXCLUDE
+                                                                                                                  PATTERN "try-compile")
         INSTALL(FILES "${INSTALL_SOURCE}/openmw.cfg.install" DESTINATION "." RENAME "openmw.cfg")
         INSTALL(FILES "${OpenMW_SOURCE_DIR}/CHANGELOG.md" DESTINATION "." RENAME "CHANGELOG.txt")
         INSTALL(FILES "${OpenMW_SOURCE_DIR}/README.md" DESTINATION "." RENAME "README.txt")
         INSTALL(FILES "${OpenMW_SOURCE_DIR}/LICENSE" DESTINATION "." RENAME "LICENSE.txt")
+        INSTALL(FILES "${OpenMW_SOURCE_DIR}/AUTHORS.md" DESTINATION "." RENAME "AUTHORS.txt")
         INSTALL(FILES "${INSTALL_SOURCE}/defaults.bin" DESTINATION ".")
         INSTALL(FILES "${INSTALL_SOURCE}/gamecontrollerdb.txt" DESTINATION ".")
 
@@ -966,24 +992,15 @@ elseif(NOT APPLE)
         SET(CPACK_NSIS_MUI_UNIICON "${OpenMW_SOURCE_DIR}/files/windows/openmw.ico")
         SET(CPACK_PACKAGE_ICON "${OpenMW_SOURCE_DIR}\\\\files\\\\openmw.bmp")
 
-        SET(VCREDIST32 "${OpenMW_BINARY_DIR}/vcredist_x86.exe")
-        if(EXISTS ${VCREDIST32})
-            INSTALL(FILES ${VCREDIST32} DESTINATION "redist")
-            SET(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "ExecWait '\\\"$INSTDIR\\\\redist\\\\vcredist_x86.exe\\\" /q /norestart'" )
-        endif(EXISTS ${VCREDIST32})
-
-        SET(VCREDIST64 "${OpenMW_BINARY_DIR}/vcredist_x64.exe")
+        SET(VCREDIST64 "${OpenMW_BINARY_DIR}/vcredist_x64.exe" CACHE FILEPATH "Path to vcredist_x64.exe")
         if(EXISTS ${VCREDIST64})
             INSTALL(FILES ${VCREDIST64} DESTINATION "redist")
-            SET(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "ExecWait '\\\"$INSTDIR\\\\redist\\\\vcredist_x64.exe\\\" /q /norestart'" )
+            get_filename_component(REDIST_FILENAME "${VCREDIST64}" NAME)
+            SET(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "
+                ExecWait '\\\"$INSTDIR\\\\redist\\\\${REDIST_FILENAME}\\\" /q /norestart'
+                RMDir /r \\\"$INSTDIR\\\\redist\\\"
+                ")
         endif(EXISTS ${VCREDIST64})
-
-        SET(OALREDIST "${OpenMW_BINARY_DIR}/oalinst.exe")
-        if(EXISTS ${OALREDIST})
-            INSTALL(FILES ${OALREDIST} DESTINATION "redist")
-            SET(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "${CPACK_NSIS_EXTRA_INSTALL_COMMANDS}
-                ExecWait '\\\"$INSTDIR\\\\redist\\\\oalinst.exe\\\" /s'" )
-        endif(EXISTS ${OALREDIST})
 
         if(CMAKE_CL_64)
             SET(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
@@ -1051,12 +1068,17 @@ elseif(NOT APPLE)
     endif(WIN32)
 endif(OPENMW_OSX_DEPLOYMENT AND APPLE)
 
-# Doxygen Target -- simply run 'make doc' or 'make doc_pages'
-# output directory for 'make doc'       is "${OpenMW_BINARY_DIR}/docs/Doxygen"
-# output directory for 'make doc_pages' is "${DOXYGEN_PAGES_OUTPUT_DIR}" if defined
-#                                       or "${OpenMW_BINARY_DIR}/docs/Pages" otherwise
-find_package(Doxygen)
-if (DOXYGEN_FOUND)
+# what is necessary to build documentation
+if ( BUILD_DOCS )
+    # Builds the documentation.
+    FIND_PACKAGE( Sphinx REQUIRED )
+    FIND_PACKAGE( Doxygen REQUIRED )
+
+    # Doxygen Target -- simply run 'make doc' or 'make doc_pages'
+    # output directory for 'make doc'       is "${OpenMW_BINARY_DIR}/docs/Doxygen"
+    # output directory for 'make doc_pages' is "${DOXYGEN_PAGES_OUTPUT_DIR}" if defined
+    #                                       or "${OpenMW_BINARY_DIR}/docs/Pages" otherwise
+
     # determine output directory for doc_pages
     if (NOT DEFINED DOXYGEN_PAGES_OUTPUT_DIR)
         set(DOXYGEN_PAGES_OUTPUT_DIR "${OpenMW_BINARY_DIR}/docs/Pages")

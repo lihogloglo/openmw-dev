@@ -27,6 +27,7 @@
 #include "../mwrender/renderinginterface.hpp"
 
 #include "classmodel.hpp"
+#include "nameorid.hpp"
 
 namespace MWClass
 {
@@ -62,7 +63,7 @@ namespace MWClass
     {
         // TODO: add option somewhere to enable collision for placeable objects
         if ((ptr.get<ESM::Light>()->mBase->mData.mFlags & ESM::Light::Carry) == 0)
-            physics.addObject(ptr, model, rotation, MWPhysics::Layers::WORLD);
+            physics.addObject(ptr, VFS::Path::toNormalized(model), rotation, MWPhysics::Layers::WORLD);
     }
 
     bool Light::useAnim() const
@@ -81,9 +82,7 @@ namespace MWClass
 
         if (ref->mBase->mModel.empty())
             return {};
-
-        const std::string& name = ref->mBase->mName;
-        return !name.empty() ? name : ref->mBase->mId.getRefIdString();
+        return getNameOrId<ESM::Light>(ptr);
     }
 
     bool Light::isItem(const MWWorld::ConstPtr& ptr) const

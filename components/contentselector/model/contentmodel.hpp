@@ -25,7 +25,7 @@ namespace ContentSelectorModel
     {
         Q_OBJECT
     public:
-        explicit ContentModel(QObject* parent, QIcon& warningIcon, bool showOMWScripts);
+        explicit ContentModel(QObject* parent, QIcon& warningIcon, QIcon& errorIcon, bool showOMWScripts);
         ~ContentModel();
 
         void setEncoding(const QString& encoding);
@@ -69,9 +69,6 @@ namespace ContentSelectorModel
 
         void refreshModel();
 
-        /// Checks all plug-ins for load order errors and updates mPluginsWithLoadOrderError with plug-ins with issues
-        void checkForLoadOrderErrors();
-
     private:
         void addFile(EsmFile* file);
 
@@ -86,12 +83,12 @@ namespace ContentSelectorModel
 
         const EsmFile* mGameFile;
         ContentFileList mFiles;
-        QSet<QString> mNonUserContent;
+        QStringList mNonUserContent;
         std::set<const EsmFile*> mCheckedFiles;
         QHash<QString, bool> mNewFiles;
-        QSet<QString> mPluginsWithLoadOrderError;
         QString mEncoding;
         QIcon mWarningIcon;
+        QIcon mErrorIcon;
         bool mShowOMWScripts;
 
         QString mErrorToolTips[ContentSelectorModel::LoadOrderError::ErrorCode_LoadOrder]

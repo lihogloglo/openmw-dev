@@ -6,7 +6,7 @@ return {
     ---
     -- Gamepad control interface
     -- @module GamepadControls
-
+    -- @usage require('openmw.interfaces').GamepadControls
     interface = {
         --- Interface version
         -- @field [parent=#GamepadControls] #number version
@@ -19,7 +19,7 @@ return {
             return input._isGamepadCursorActive()
         end,
 
-        --- Set if the gamepad cursor is active. If it is active, the left stick can move the cursor, and A will be interpreted as a mouse click.
+        --- Sets if the gamepad cursor is active. If it is active, the left stick can move the cursor, and A will be interpreted as a mouse click.
         -- @function [parent=#GamepadControls] setGamepadCursorActive
         -- @param #boolean value
         setGamepadCursorActive = function(state)

@@ -1,6 +1,7 @@
 #include "contentmodel.hpp"
 #include "esmfile.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <memory>
 #include <stdexcept>
@@ -9,6 +10,7 @@
 #include <QDataStream>
 #include <QDebug>
 #include <QDir>
+#include <QDirIterator>
 #include <QFont>
 #include <QIODevice>
 
@@ -18,9 +20,11 @@
 #include <components/files/openfile.hpp>
 #include <components/files/qtconversion.hpp>
 
-ContentSelectorModel::ContentModel::ContentModel(QObject* parent, QIcon& warningIcon, bool showOMWScripts)
+ContentSelectorModel::ContentModel::ContentModel(
+    QObject* parent, QIcon& warningIcon, QIcon& errorIcon, bool showOMWScripts)
     : QAbstractTableModel(parent)
     , mWarningIcon(warningIcon)
+    , mErrorIcon(errorIcon)
     , mShowOMWScripts(showOMWScripts)
     , mMimeType("application/omwcontent")
     , mMimeTypes(QStringList() << mMimeType)
@@ -75,14 +79,10 @@ ContentSelectorModel::EsmFile* ContentSelectorModel::ContentModel::item(int row)
 }
 const ContentSelectorModel::EsmFile* ContentSelectorModel::ContentModel::item(const QString& name) const
 {
-    EsmFile::FileProperty fp = EsmFile::FileProperty_FileName;
-
-    if (name.contains('/'))
-        fp = EsmFile::FileProperty_FilePath;
-
+    bool path = name.contains('/');
     for (const EsmFile* file : mFiles)
     {
-        if (name.compare(file->fileProperty(fp).toString(), Qt::CaseInsensitive) == 0)
+        if (name.compare(path ? file->filePath() : file->fileName(), Qt::CaseInsensitive) == 0)
             return file;
     }
     return nullptr;
@@ -168,7 +168,12 @@ QVariant ContentSelectorModel::ContentModel::data(const QModelIndex& index, int 
     {
         case Qt::DecorationRole:
         {
-            return isLoadOrderError(file) ? mWarningIcon : QVariant();
+            if (file->isMissing())
+                return mErrorIcon;
+            else if (isLoadOrderError(file))
+                return mWarningIcon;
+            else
+                return QVariant();
         }
 
         case Qt::FontRole:
@@ -302,7 +307,6 @@ bool ContentSelectorModel::ContentModel::setData(const QModelIndex& index, const
             {
                 setCheckState(file->filePath(), success);
                 emit dataChanged(index, index);
-                checkForLoadOrderErrors();
             }
             else
                 return success;
@@ -417,7 +421,6 @@ bool ContentSelectorModel::ContentModel::dropMimeData(
 
     dataChanged(index(minRow, 0), index(maxRow, 0));
     // at this point we know that drag and drop has finished.
-    checkForLoadOrderErrors();
 
     return true;
 }
@@ -508,13 +511,6 @@ void ContentSelectorModel::ContentModel::addFiles(const QString& path, bool newf
                     file->setDescription(QString::fromUtf8(fileReader.getDesc().c_str()));
                     for (const auto& master : fileReader.getGameFiles())
                         file->addGameFile(QString::fromUtf8(master.name.c_str()));
-
-                    // HACK
-                    // Load order constraint of Bloodmoon.esm needing Tribunal.esm is missing
-                    // from the file supplied by Bethesda, so we have to add it ourselves
-                    if (file->fileName().compare("Bloodmoon.esm", Qt::CaseInsensitive) == 0)
-                        file->addGameFile(QString::fromUtf8("Tribunal.esm"));
-
                     break;
                 }
                 case ESM::Format::Tes4:
@@ -551,15 +547,13 @@ void ContentSelectorModel::ContentModel::addFiles(const QString& path, bool newf
 
 bool ContentSelectorModel::ContentModel::containsDataFiles(const QString& path)
 {
-    QDir dir(path);
     QStringList filters;
     filters << "*.esp"
             << "*.esm"
             << "*.omwgame"
             << "*.omwaddon";
-    dir.setNameFilters(filters);
-
-    return dir.entryList().count() != 0;
+    QDirIterator it(path, filters, QDir::Files | QDir::NoDotAndDotDot);
+    return it.hasNext();
 }
 
 void ContentSelectorModel::ContentModel::clearFiles()
@@ -601,9 +595,37 @@ void ContentSelectorModel::ContentModel::sortFiles()
 {
     emit layoutAboutToBeChanged();
 
-    int firstModifiable = 0;
-    while (mFiles.at(firstModifiable)->builtIn() || mFiles.at(firstModifiable)->fromAnotherConfigFile())
-        ++firstModifiable;
+    // make both Qt5 (int) and Qt6 (qsizetype aka size_t) happy
+    using index_t = ContentFileList::size_type;
+
+    // ensure built-in are first
+    index_t firstModifiable = 0;
+    for (index_t i = 0; i < mFiles.length(); ++i)
+    {
+        if (mFiles.at(i)->builtIn())
+            mFiles.move(i, firstModifiable++);
+    }
+
+    // then non-user content
+    for (const auto& filename : mNonUserContent)
+    {
+        const EsmFile* file = item(filename);
+        int filePosition = indexFromItem(file).row();
+        if (filePosition >= 0)
+            mFiles.move(filePosition, firstModifiable++);
+        else
+        {
+            // the file is not in the VFS, and will be displayed with an error
+            auto missingFile = std::make_unique<EsmFile>(filename);
+            missingFile->setFromAnotherConfigFile(true);
+            mFiles.insert(firstModifiable++, missingFile.release());
+        }
+    }
+
+    // For the purposes of dependency sort we'll hallucinate that Bloodmoon is dependent on Tribunal
+    const EsmFile* tribunalFile = item("Tribunal.esm");
+    const EsmFile* bloodmoonFile = item("Bloodmoon.esm");
+    const bool sortExpansions = tribunalFile != nullptr && bloodmoonFile != nullptr;
 
     // Dependency sort
     std::unordered_set<const EsmFile*> moved;
@@ -615,10 +637,12 @@ void ContentSelectorModel::ContentModel::sortFiles()
             int index = -1;
             for (int j = firstModifiable; j < i; ++j)
             {
-                const QStringList& gameFiles = mFiles.at(j)->gameFiles();
+                const EsmFile* addonFile = mFiles.at(j);
+                const QStringList& gameFiles = addonFile->gameFiles();
                 // All addon files are implicitly dependent on the game file
                 // so that they don't accidentally become the game file
-                if (gameFiles.contains(file->fileName(), Qt::CaseInsensitive) || file == mGameFile)
+                if (gameFiles.contains(file->fileName(), Qt::CaseInsensitive) || file == mGameFile
+                    || (sortExpansions && file == tribunalFile && addonFile == bloodmoonFile))
                 {
                     index = j;
                     break;
@@ -667,32 +691,22 @@ void ContentSelectorModel::ContentModel::setNonUserContent(const QStringList& fi
 {
     mNonUserContent.clear();
     for (const auto& file : fileList)
-        mNonUserContent.insert(file.toLower());
+        mNonUserContent.append(file.toLower());
     for (auto* file : mFiles)
         file->setFromAnotherConfigFile(mNonUserContent.contains(file->fileName().toLower()));
-
-    int insertPosition = 0;
-    while (mFiles.at(insertPosition)->builtIn())
-        ++insertPosition;
-
-    for (const auto& filepath : fileList)
-    {
-        const EsmFile* file = item(filepath);
-        int filePosition = indexFromItem(file).row();
-        mFiles.move(filePosition, insertPosition++);
-    }
 
     sortFiles();
 }
 
 bool ContentSelectorModel::ContentModel::isLoadOrderError(const EsmFile* file) const
 {
-    return mPluginsWithLoadOrderError.contains(file->filePath());
+    int index = indexFromItem(file).row();
+    auto errors = checkForLoadOrderErrors(file, index);
+    return !errors.empty();
 }
 
 void ContentSelectorModel::ContentModel::setContentList(const QStringList& fileList)
 {
-    mPluginsWithLoadOrderError.clear();
     int previousPosition = -1;
     for (const QString& filepath : fileList)
     {
@@ -705,7 +719,6 @@ void ContentSelectorModel::ContentModel::setContentList(const QStringList& fileL
             if (filePosition < previousPosition)
             {
                 mFiles.move(filePosition, previousPosition);
-                emit dataChanged(index(filePosition, 0, QModelIndex()), index(previousPosition, 0, QModelIndex()));
             }
             else
             {
@@ -713,24 +726,7 @@ void ContentSelectorModel::ContentModel::setContentList(const QStringList& fileL
             }
         }
     }
-    checkForLoadOrderErrors();
-}
-
-void ContentSelectorModel::ContentModel::checkForLoadOrderErrors()
-{
-    for (int row = 0; row < mFiles.count(); ++row)
-    {
-        EsmFile* file = mFiles.at(row);
-        bool isRowInError = checkForLoadOrderErrors(file, row).count() != 0;
-        if (isRowInError)
-        {
-            mPluginsWithLoadOrderError.insert(file->filePath());
-        }
-        else
-        {
-            mPluginsWithLoadOrderError.remove(file->filePath());
-        }
-    }
+    emit dataChanged(index(0, 0), index(rowCount(), columnCount()));
 }
 
 QList<ContentSelectorModel::LoadOrderError> ContentSelectorModel::ContentModel::checkForLoadOrderErrors(
@@ -757,16 +753,26 @@ QList<ContentSelectorModel::LoadOrderError> ContentSelectorModel::ContentModel::
             }
         }
     }
+
+    if (file->fileName().compare("Bloodmoon.esm", Qt::CaseInsensitive) == 0)
+    {
+        // Warn the user if Bloodmoon is loaded before Tribunal (Tribunal is not a hard dependency)
+        const EsmFile* tribunalFile = item("Tribunal.esm");
+        if (tribunalFile != nullptr && mCheckedFiles.contains(tribunalFile) && row < indexFromItem(tribunalFile).row())
+            errors.append(LoadOrderError(LoadOrderError::ErrorCode_LoadOrder, "Tribunal.esm"));
+    }
+
     return errors;
 }
 
 QString ContentSelectorModel::ContentModel::toolTip(const EsmFile* file) const
 {
-    if (isLoadOrderError(file))
+    int index = indexFromItem(file).row();
+    auto errors = checkForLoadOrderErrors(file, index);
+    if (!errors.empty())
     {
         QString text("<b>");
-        int index = indexFromItem(item(file->filePath())).row();
-        for (const LoadOrderError& error : checkForLoadOrderErrors(file, index))
+        for (const LoadOrderError& error : errors)
         {
             assert(error.errorCode() != LoadOrderError::ErrorCode::ErrorCode_None);
 
@@ -841,6 +847,17 @@ bool ContentSelectorModel::ContentModel::setCheckState(const QString& filepath, 
         }
     }
 
+    // Need to manually let Bloodmoon entry know if Tribunal is checked/unchecked
+    if (file->fileName().compare("Tribunal.esm", Qt::CaseInsensitive) == 0)
+    {
+        const EsmFile* bloodmoonFile = item("Bloodmoon.esm");
+        if (bloodmoonFile != nullptr)
+        {
+            QModelIndex bloodmoonIndex = indexFromItem(bloodmoonFile);
+            emit dataChanged(bloodmoonIndex, bloodmoonIndex);
+        }
+    }
+
     return true;
 }
 
@@ -860,7 +877,6 @@ ContentSelectorModel::ContentFileList ContentSelectorModel::ContentModel::checke
 
 void ContentSelectorModel::ContentModel::uncheckAll()
 {
-    emit layoutAboutToBeChanged();
     mCheckedFiles.clear();
-    emit layoutChanged();
+    emit dataChanged(index(0, 0), index(rowCount(), columnCount()), { Qt::CheckStateRole, Qt::UserRole + 1 });
 }

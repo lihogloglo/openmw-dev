@@ -9,6 +9,7 @@
 #include <osg/ref_ptr>
 
 #include <components/settings/settings.hpp>
+#include <components/vfs/pathutil.hpp>
 
 namespace osg
 {
@@ -92,7 +93,7 @@ namespace MWRender
 
         void setCullCallback(osg::Callback* callback);
 
-        void listAssetsToPreload(std::vector<std::string>& textures);
+        void listAssetsToPreload(std::vector<VFS::Path::Normalized>& textures);
 
         void setEnabled(bool enabled);
 
@@ -116,9 +117,6 @@ namespace MWRender
         void setRainRipplesEnabled(bool enableRipples);
 
         void update(float dt, bool paused);
-
-        osg::Node* getReflectionNode();
-        osg::Node* getRefractionNode();
 
         osg::Vec3d getPosition() const;
 

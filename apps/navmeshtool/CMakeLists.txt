@@ -1,14 +1,22 @@
-set(NAVMESHTOOL
+set(NAVMESHTOOL_LIB
     worldspacedata.cpp
     navmesh.cpp
-    main.cpp
 )
-source_group(apps\\navmeshtool FILES ${NAVMESHTOOL})
 
-openmw_add_executable(openmw-navmeshtool ${NAVMESHTOOL})
+source_group(apps\\navmeshtool FILES ${NAVMESHTOOL_LIB} main.cpp)
 
-target_link_libraries(openmw-navmeshtool
-    ${Boost_PROGRAM_OPTIONS_LIBRARY}
+add_library(openmw-navmeshtool-lib STATIC ${NAVMESHTOOL_LIB})
+
+if (ANDROID)
+    add_library(openmw-navmeshtool SHARED main.cpp)
+else()
+    openmw_add_executable(openmw-navmeshtool main.cpp)
+endif()
+
+target_link_libraries(openmw-navmeshtool openmw-navmeshtool-lib)
+
+target_link_libraries(openmw-navmeshtool-lib
+    Boost::program_options
     components
 )
 

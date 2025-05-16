@@ -568,16 +568,6 @@ namespace MWRender
         updateVisible();
     }
 
-    osg::Node* Water::getReflectionNode()
-    {
-        return mReflection;
-    }
-
-    osg::Node* Water::getRefractionNode()
-    {
-        return mRefraction;
-    }
-
     osg::Vec3d Water::getPosition() const
     {
         return mWaterNode->getPosition();
@@ -599,8 +589,8 @@ namespace MWRender
         {
             std::ostringstream texname;
             texname << "textures/water/" << texture << std::setw(2) << std::setfill('0') << i << ".dds";
-            osg::ref_ptr<osg::Texture2D> tex(
-                new osg::Texture2D(mResourceSystem->getImageManager()->getImage(texname.str())));
+            const VFS::Path::Normalized path(texname.str());
+            osg::ref_ptr<osg::Texture2D> tex(new osg::Texture2D(mResourceSystem->getImageManager()->getImage(path)));
             tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
             tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
             mResourceSystem->getSceneManager()->applyFilterSettings(tex);
@@ -713,13 +703,12 @@ namespace MWRender
         Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
         osg::ref_ptr<osg::Program> program = shaderMgr.getProgram("water", defineMap);
 
+        constexpr VFS::Path::NormalizedView waterImage("textures/omw/water_nm.png");
         osg::ref_ptr<osg::Texture2D> normalMap(
-            new osg::Texture2D(mResourceSystem->getImageManager()->getImage("textures/omw/water_nm.png")));
+            new osg::Texture2D(mResourceSystem->getImageManager()->getImage(waterImage)));
         normalMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
         normalMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
-        normalMap->setMaxAnisotropy(16);
-        normalMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
-        normalMap->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+        mResourceSystem->getSceneManager()->applyFilterSettings(normalMap);
 
         mRainSettingsUpdater = new RainSettingsUpdater();
         node->setUpdateCallback(mRainSettingsUpdater);
@@ -756,7 +745,7 @@ namespace MWRender
         }
     }
 
-    void Water::listAssetsToPreload(std::vector<std::string>& textures)
+    void Water::listAssetsToPreload(std::vector<VFS::Path::Normalized>& textures)
     {
         const int frameCount = std::clamp(Fallback::Map::getInt("Water_SurfaceFrameCount"), 0, 320);
         std::string_view texture = Fallback::Map::getString("Water_SurfaceTexture");
@@ -764,7 +753,7 @@ namespace MWRender
         {
             std::ostringstream texname;
             texname << "textures/water/" << texture << std::setw(2) << std::setfill('0') << i << ".dds";
-            textures.push_back(texname.str());
+            textures.emplace_back(texname.str());
         }
     }
 

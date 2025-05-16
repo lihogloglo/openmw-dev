@@ -9,13 +9,17 @@ openmw_add_executable(bsatool
 )
 
 target_link_libraries(bsatool
-    ${Boost_PROGRAM_OPTIONS_LIBRARY}
+    Boost::program_options
     components
 )
 
 if (BUILD_WITH_CODE_COVERAGE)
     target_compile_options(bsatool PRIVATE --coverage)
     target_link_libraries(bsatool gcov)
+endif()
+
+if (WIN32)
+    install(TARGETS bsatool RUNTIME DESTINATION ".")
 endif()
 
 if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)

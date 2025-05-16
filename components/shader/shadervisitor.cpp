@@ -26,6 +26,7 @@
 #include <components/sceneutil/morphgeometry.hpp>
 #include <components/sceneutil/riggeometry.hpp>
 #include <components/sceneutil/riggeometryosgaextension.hpp>
+#include <components/sceneutil/texturetype.hpp>
 #include <components/sceneutil/util.hpp>
 #include <components/settings/settings.hpp>
 #include <components/stereo/stereomanager.hpp>
@@ -329,7 +330,7 @@ namespace Shader
                     const osg::Texture* texture = attr->asTexture();
                     if (texture)
                     {
-                        std::string texName = texture->getName();
+                        std::string texName = SceneUtil::getTextureType(*stateset, *texture, unit);
                         if ((texName.empty() || !isTextureNameRecognized(texName)) && unit == 0)
                             texName = "diffuseMap";
 
@@ -403,17 +404,19 @@ namespace Shader
                 bool normalHeight = false;
                 std::string normalHeightMap = normalMapFileName;
                 Misc::StringUtils::replaceLast(normalHeightMap, ".", mNormalHeightMapPattern + ".");
-                if (mImageManager.getVFS()->exists(normalHeightMap))
+                const VFS::Path::Normalized normalHeightMapPath(normalHeightMap);
+                if (mImageManager.getVFS()->exists(normalHeightMapPath))
                 {
-                    image = mImageManager.getImage(normalHeightMap);
+                    image = mImageManager.getImage(normalHeightMapPath);
                     normalHeight = true;
                 }
                 else
                 {
                     Misc::StringUtils::replaceLast(normalMapFileName, ".", mNormalMapPattern + ".");
-                    if (mImageManager.getVFS()->exists(normalMapFileName))
+                    const VFS::Path::Normalized normalMapPath(normalMapFileName);
+                    if (mImageManager.getVFS()->exists(normalMapPath))
                     {
-                        image = mImageManager.getImage(normalMapFileName);
+                        image = mImageManager.getImage(normalMapPath);
                     }
                 }
                 // Avoid using the auto-detected normal map if it's already being used as a bump map.
@@ -430,13 +433,14 @@ namespace Shader
                     normalMapTex->setFilter(osg::Texture::MIN_FILTER, diffuseMap->getFilter(osg::Texture::MIN_FILTER));
                     normalMapTex->setFilter(osg::Texture::MAG_FILTER, diffuseMap->getFilter(osg::Texture::MAG_FILTER));
                     normalMapTex->setMaxAnisotropy(diffuseMap->getMaxAnisotropy());
-                    normalMapTex->setName("normalMap");
                     normalMap = normalMapTex;
 
                     int unit = texAttributes.size();
                     if (!writableStateSet)
                         writableStateSet = getWritableStateSet(node);
                     writableStateSet->setTextureAttributeAndModes(unit, normalMapTex, osg::StateAttribute::ON);
+                    writableStateSet->setTextureAttributeAndModes(
+                        unit, new SceneUtil::TextureType("normalMap"), osg::StateAttribute::ON);
                     mRequirements.back().mTextures[unit] = "normalMap";
                     mRequirements.back().mTexStageRequiringTangents = unit;
                     mRequirements.back().mShaderRequired = true;
@@ -462,9 +466,10 @@ namespace Shader
             {
                 std::string specularMapFileName = diffuseMap->getImage(0)->getFileName();
                 Misc::StringUtils::replaceLast(specularMapFileName, ".", mSpecularMapPattern + ".");
-                if (mImageManager.getVFS()->exists(specularMapFileName))
+                const VFS::Path::Normalized specularMapPath(specularMapFileName);
+                if (mImageManager.getVFS()->exists(specularMapPath))
                 {
-                    osg::ref_ptr<osg::Image> image(mImageManager.getImage(specularMapFileName));
+                    osg::ref_ptr<osg::Image> image(mImageManager.getImage(specularMapPath));
                     osg::ref_ptr<osg::Texture2D> specularMapTex(new osg::Texture2D(image));
                     specularMapTex->setTextureSize(image->s(), image->t());
                     specularMapTex->setWrap(osg::Texture::WRAP_S, diffuseMap->getWrap(osg::Texture::WRAP_S));
@@ -474,12 +479,13 @@ namespace Shader
                     specularMapTex->setFilter(
                         osg::Texture::MAG_FILTER, diffuseMap->getFilter(osg::Texture::MAG_FILTER));
                     specularMapTex->setMaxAnisotropy(diffuseMap->getMaxAnisotropy());
-                    specularMapTex->setName("specularMap");
 
                     int unit = texAttributes.size();
                     if (!writableStateSet)
                         writableStateSet = getWritableStateSet(node);
                     writableStateSet->setTextureAttributeAndModes(unit, specularMapTex, osg::StateAttribute::ON);
+                    writableStateSet->setTextureAttributeAndModes(
+                        unit, new SceneUtil::TextureType("specularMap"), osg::StateAttribute::ON);
                     mRequirements.back().mTextures[unit] = "specularMap";
                     mRequirements.back().mShaderRequired = true;
                 }
@@ -883,12 +889,29 @@ namespace Shader
         if (mAllowedToModifyStateSets && (useShader || generateTangents))
         {
             // make sure that all UV sets are there
-            for (std::map<int, std::string>::const_iterator it = reqs.mTextures.begin(); it != reqs.mTextures.end();
-                 ++it)
+            // it's not safe to assume there's one for slot zero, so try and use one from another slot if possible
+            // if there are none at all, bail.
+            // the TangentSpaceGenerator would bail, but getTangentArray would give an empty array, which is enough to
+            // bypass null checks, but feeds the driver a bad pointer
+            if (sourceGeometry.getTexCoordArray(0) == nullptr)
             {
-                if (sourceGeometry.getTexCoordArray(it->first) == nullptr)
+                for (const auto& array : sourceGeometry.getTexCoordArrayList())
                 {
-                    sourceGeometry.setTexCoordArray(it->first, sourceGeometry.getTexCoordArray(0));
+                    if (array)
+                    {
+                        sourceGeometry.setTexCoordArray(0, array);
+                        break;
+                    }
+                }
+                if (sourceGeometry.getTexCoordArray(0) == nullptr)
+                    return changed;
+            }
+
+            for (const auto& [unit, name] : reqs.mTextures)
+            {
+                if (sourceGeometry.getTexCoordArray(unit) == nullptr)
+                {
+                    sourceGeometry.setTexCoordArray(unit, sourceGeometry.getTexCoordArray(0));
                     changed = true;
                 }
             }

@@ -65,8 +65,6 @@ namespace NavMeshTool
 
         bpo::options_description makeOptionsDescription()
         {
-            using Fallback::FallbackMap;
-
             bpo::options_description result;
             auto addOption = result.add_options();
             addOption("help", "print help message");
@@ -147,14 +145,14 @@ namespace NavMeshTool
 
             if (variables.find("help") != variables.end())
             {
-                getRawStdout() << desc << std::endl;
+                Debug::getRawStdout() << desc << std::endl;
                 return 0;
             }
 
             Files::ConfigurationManager config;
             config.readConfiguration(variables, desc);
 
-            setupLogging(config.getLogPath(), applicationName);
+            Debug::setupLogging(config.getLogPath(), applicationName);
 
             const std::string encoding(variables["encoding"].as<std::string>());
             Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
@@ -232,7 +230,8 @@ namespace NavMeshTool
             Resource::SceneManager sceneManager(&vfs, &imageManager, &nifFileManager, &bgsmFileManager, expiryDelay);
             Resource::PhysicsShapeManager physicsShapeManager(&vfs, &sceneManager, &nifFileManager, expiryDelay);
             DetourNavigator::RecastGlobalAllocator::init();
-            DetourNavigator::Settings navigatorSettings = DetourNavigator::makeSettingsFromSettingsManager();
+            DetourNavigator::Settings navigatorSettings
+                = DetourNavigator::makeSettingsFromSettingsManager(Debug::getRecastMaxLogLevel());
             navigatorSettings.mRecast.mSwimHeightScale
                 = EsmLoader::getGameSetting(esmData.mGameSettings, "fSwimHeightScale").getFloat();
 
@@ -265,7 +264,11 @@ namespace NavMeshTool
     }
 }
 
+#ifdef ANDROID
+extern "C" int SDL_main(int argc, char* argv[])
+#else
 int main(int argc, char* argv[])
+#endif
 {
-    return wrapApplication(NavMeshTool::runNavMeshTool, argc, argv, NavMeshTool::applicationName);
+    return Debug::wrapApplication(NavMeshTool::runNavMeshTool, argc, argv, NavMeshTool::applicationName);
 }

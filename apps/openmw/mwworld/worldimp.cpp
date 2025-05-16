@@ -244,7 +244,6 @@ namespace MWWorld
     {
         if (mSky && (isCellExterior() || isCellQuasiExterior()))
         {
-            updateSkyDate();
             mRendering->setSkyEnabled(true);
         }
         else
@@ -294,14 +293,14 @@ namespace MWWorld
         mSwimHeightScale = mStore.get<ESM::GameSetting>().find("fSwimHeightScale")->mValue.getFloat();
     }
 
-    void World::init(osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode, SceneUtil::WorkQueue* workQueue,
-        SceneUtil::UnrefQueue& unrefQueue)
+    void World::init(Debug::Level maxRecastLogLevel, osgViewer::Viewer* viewer, osg::ref_ptr<osg::Group> rootNode,
+        SceneUtil::WorkQueue* workQueue, SceneUtil::UnrefQueue& unrefQueue)
     {
         mPhysics = std::make_unique<MWPhysics::PhysicsSystem>(mResourceSystem, rootNode);
 
         if (Settings::navigator().mEnable)
         {
-            auto navigatorSettings = DetourNavigator::makeSettingsFromSettingsManager();
+            auto navigatorSettings = DetourNavigator::makeSettingsFromSettingsManager(maxRecastLogLevel);
             navigatorSettings.mRecast.mSwimHeightScale = mSwimHeightScale;
             mNavigator = DetourNavigator::makeNavigator(navigatorSettings, mUserDataPath);
         }
@@ -356,6 +355,8 @@ namespace MWWorld
         else
             mGlobalVariables[Globals::sCharGenState].setInteger(-1);
 
+        MWBase::Environment::get().getLuaManager()->newGameStarted();
+
         if (bypass && !mStartCell.empty())
         {
             ESM::Position pos;
@@ -399,7 +400,6 @@ namespace MWWorld
             {
                 // Make sure that we do not continue to play a Title music after a new game video.
                 MWBase::Environment::get().getSoundManager()->stopMusic();
-                MWBase::Environment::get().getSoundManager()->playPlaylist(MWSound::explorePlaylist);
                 MWBase::Environment::get().getWindowManager()->playVideo(video, true);
             }
         }
@@ -430,8 +430,6 @@ namespace MWWorld
         if (mPlayer)
         {
             mPlayer->clear();
-            mPlayer->setCell(nullptr);
-            mPlayer->getPlayer().getRefData() = RefData();
             mPlayer->set(mStore.get<ESM::NPC>().find(ESM::RefId::stringRefId("Player")));
         }
 
@@ -442,6 +440,7 @@ namespace MWWorld
         mLevitationEnabled = true;
         mPlayerTraveling = false;
         mPlayerInJail = false;
+        mIdsRebuilt = false;
 
         fillGlobalVariables();
     }
@@ -479,8 +478,8 @@ namespace MWWorld
 
         mStore.write(writer, progress); // dynamic Store must be written (and read) before Cells, so that
                                         // references to custom made records will be recognized
+        mWorldModel.write(writer, progress); // the player's cell needs to be loaded before the player
         mPlayer->write(writer, progress);
-        mWorldModel.write(writer, progress);
         mGlobalVariables.write(writer, progress);
         mWeatherManager->write(writer, progress);
         mProjectileManager->write(writer, progress);
@@ -513,11 +512,11 @@ namespace MWWorld
             }
             break;
             case ESM::REC_PLAY:
-                // World::write always puts `ESM::REC_PLAY` between ESMStore (that contains dynamic records)
-                // and WorldModel (that can contain instances of dynamic records). Here we need to rebuild
-                // ESMStore index in order to be able to lookup dynamic records while loading the player and
-                // WorldModel.
-                mStore.rebuildIdsIndex();
+                if (reader.getFormatVersion() <= ESM::MaxPlayerBeforeCellDataFormatVersion && !mIdsRebuilt)
+                {
+                    mStore.rebuildIdsIndex();
+                    mIdsRebuilt = true;
+                }
 
                 mStore.checkPlayer();
                 mPlayer->readRecord(reader, type);
@@ -526,13 +525,22 @@ namespace MWWorld
                     if (getPlayerPtr().getCell()->isExterior())
                         mWorldScene->preloadTerrain(getPlayerPtr().getRefData().getPosition().asVec3(),
                             getPlayerPtr().getCell()->getCell()->getWorldSpace());
-                    mWorldScene->preloadCell(*getPlayerPtr().getCell(), true);
+                    mWorldScene->preloadCellWithSurroundings(*getPlayerPtr().getCell());
                 }
+                break;
+            case ESM::REC_CSTA:
+                // We need to rebuild the ESMStore index in order to be able to lookup dynamic records while loading the
+                // WorldModel and, afterwards, the player.
+                if (!mIdsRebuilt)
+                {
+                    mStore.rebuildIdsIndex();
+                    mIdsRebuilt = true;
+                }
+                mWorldModel.readRecord(reader, type);
                 break;
             default:
                 if (!mStore.readRecord(reader, type) && !mGlobalVariables.readRecord(reader, type)
-                    && !mWeatherManager->readRecord(reader, type) && !mWorldModel.readRecord(reader, type)
-                    && !mProjectileManager->readRecord(reader, type))
+                    && !mWeatherManager->readRecord(reader, type) && !mProjectileManager->readRecord(reader, type))
                 {
                     throw std::runtime_error("unknown record in saved game");
                 }
@@ -597,7 +605,7 @@ namespace MWWorld
         if (mProjectileManager)
             mProjectileManager->clear();
 
-        if (Settings::navigator().mWaitForAllJobsOnExit)
+        if (Settings::navigator().mWaitForAllJobsOnExit && mNavigator != nullptr)
         {
             Log(Debug::Verbose) << "Waiting for all navmesh jobs to be done...";
             mNavigator->wait(DetourNavigator::WaitConditionType::allJobsDone, nullptr);
@@ -631,19 +639,13 @@ namespace MWWorld
 
     void World::setGlobalInt(GlobalVariableName name, int value)
     {
-        bool dateUpdated = mTimeManager->updateGlobalInt(name, value);
-        if (dateUpdated)
-            updateSkyDate();
-
+        mTimeManager->updateGlobalInt(name, value);
         mGlobalVariables[name].setInteger(value);
     }
 
     void World::setGlobalFloat(GlobalVariableName name, float value)
     {
-        bool dateUpdated = mTimeManager->updateGlobalFloat(name, value);
-        if (dateUpdated)
-            updateSkyDate();
-
+        mTimeManager->updateGlobalFloat(name, value);
         mGlobalVariables[name].setFloat(value);
     }
 
@@ -917,7 +919,6 @@ namespace MWWorld
 
         mWeatherManager->advanceTime(hours, incremental);
         mTimeManager->advanceTime(hours, mGlobalVariables);
-        updateSkyDate();
 
         if (!incremental)
         {
@@ -1779,7 +1780,7 @@ namespace MWWorld
             // inform the GUI about focused object
             MWWorld::Ptr object = getFacedObject();
 
-            // retrieve object dimensions so we know where to place the floating label
+            // retrieve the object's top point's screen position so we know where to place the floating label
             if (!object.isEmpty())
             {
                 osg::BoundingBox bb = mPhysics->getBoundingBox(object);
@@ -1790,9 +1791,8 @@ namespace MWWorld
                     object.getRefData().getBaseNode()->accept(computeBoundsVisitor);
                     bb = computeBoundsVisitor.getBoundingBox();
                 }
-                osg::Vec4f screenBounds = mRendering->getScreenBounds(bb);
-                MWBase::Environment::get().getWindowManager()->setFocusObjectScreenCoords(
-                    screenBounds.x(), screenBounds.y(), screenBounds.z(), screenBounds.w());
+                const osg::Vec2f pos = mRendering->getScreenCoords(bb);
+                MWBase::Environment::get().getWindowManager()->setFocusObjectScreenCoords(pos.x(), pos.y());
             }
 
             MWBase::Environment::get().getWindowManager()->setFocusObject(object);
@@ -2382,11 +2382,6 @@ namespace MWWorld
         mRendering->screenshot(image, w, h);
     }
 
-    bool World::screenshot360(osg::Image* image)
-    {
-        return mRendering->screenshot360(image);
-    }
-
     void World::activateDoor(const MWWorld::Ptr& door)
     {
         auto state = door.getClass().getDoorState(door);
@@ -2779,7 +2774,7 @@ namespace MWWorld
 
         int x = ext->getGridX();
         int y = ext->getGridY();
-        osg::Vec2 posFromIndex = indexToPosition(ESM::ExteriorCellLocation(x, y, ext->getWorldSpace()), true);
+        const osg::Vec2f posFromIndex = indexToPosition(ESM::ExteriorCellLocation(x, y, ext->getWorldSpace()), true);
         pos.pos[0] = posFromIndex.x();
         pos.pos[1] = posFromIndex.y();
 
@@ -3250,22 +3245,71 @@ namespace MWWorld
 
     MWWorld::ConstPtr World::getClosestMarkerFromExteriorPosition(const osg::Vec3f& worldPos, const ESM::RefId& id)
     {
-        MWWorld::ConstPtr closestMarker;
-        float closestDistance = std::numeric_limits<float>::max();
+        const ESM::ExteriorCellLocation posIndex = ESM::positionToExteriorCellLocation(worldPos.x(), worldPos.y());
 
-        std::vector<MWWorld::Ptr> markers;
+        // Potential optimization: don't scan the entire world for markers and actually do the Todd spiral
+        std::vector<Ptr> markers;
         mWorldModel.getExteriorPtrs(id, markers);
+
+        struct MarkerInfo
+        {
+            Ptr mPtr;
+            int mColumn, mRow; // Local coordinates in the valid marker grid
+        };
+        std::vector<MarkerInfo> validMarkers;
+        validMarkers.reserve(markers.size());
+
+        // The idea is to collect all markers that belong to the smallest possible square grid around worldPos
+        // They are grouped with their position on that grid's edge where the origin is the SW corner
+        int minGridSize = std::numeric_limits<int>::max();
         for (const Ptr& marker : markers)
         {
-            osg::Vec3f markerPos = marker.getRefData().getPosition().asVec3();
-            float distance = (worldPos - markerPos).length2();
-            if (distance < closestDistance)
+            const osg::Vec3f markerPos = marker.getRefData().getPosition().asVec3();
+            const ESM::ExteriorCellLocation index = ESM::positionToExteriorCellLocation(markerPos.x(), markerPos.y());
+
+            const int deltaX = index.mX - posIndex.mX;
+            const int deltaY = index.mY - posIndex.mY;
+            const int gridSize = std::max(std::abs(deltaX), std::abs(deltaY)) * 2;
+            if (gridSize == 0)
+                return marker;
+
+            if (gridSize <= minGridSize)
             {
-                closestDistance = distance;
-                closestMarker = marker;
+                if (gridSize < minGridSize)
+                {
+                    validMarkers.clear();
+                    minGridSize = gridSize;
+                }
+                validMarkers.push_back({ marker, gridSize / 2 + deltaX, gridSize / 2 + deltaY });
             }
         }
 
+        ConstPtr closestMarker;
+        if (validMarkers.empty())
+            return closestMarker;
+        if (validMarkers.size() == 1)
+            return validMarkers[0].mPtr;
+
+        // All the markers are on the edge of the grid
+        // Break ties by picking the earliest marker on SW -> SE -> NE -> NW -> SW path
+        int earliestDistance = std::numeric_limits<int>::max();
+        for (const MarkerInfo& marker : validMarkers)
+        {
+            int distance = 0;
+            if (marker.mRow == 0) // South edge (plus SW and SE corners)
+                distance = marker.mColumn;
+            else if (marker.mColumn == minGridSize) // East edge and NE corner
+                distance = minGridSize + marker.mRow;
+            else if (marker.mRow == minGridSize) // North edge and NW corner
+                distance = minGridSize * 3 - marker.mColumn;
+            else // West edge
+                distance = minGridSize * 4 - marker.mRow;
+            if (distance < earliestDistance)
+            {
+                closestMarker = marker.mPtr;
+                earliestDistance = distance;
+            }
+        }
         return closestMarker;
     }
 
@@ -3359,9 +3403,10 @@ namespace MWWorld
                                     return true;
                                 }
                             }
-                            catch (const std::exception&)
+                            catch (const std::exception& e)
                             {
-                                // Ignore invalid item id
+                                Log(Debug::Warning)
+                                    << "Failed to process container item " << containerItem.mItem << ": " << e.what();
                             }
                         }
                     }
@@ -3630,16 +3675,18 @@ namespace MWWorld
         if (texture.empty())
             texture = Fallback::Map::getString("Blood_Texture_0");
 
-        std::string model = Misc::ResourceHelpers::correctMeshPath(std::string{
-            Fallback::Map::getString("Blood_Model_" + std::to_string(Misc::Rng::rollDice(3))) } /*[0, 2]*/);
+        // [0, 2]
+        const int number = Misc::Rng::rollDice(3);
+        const VFS::Path::Normalized model = Misc::ResourceHelpers::correctMeshPath(
+            VFS::Path::Normalized(Fallback::Map::getString("Blood_Model_" + std::to_string(number))));
 
-        mRendering->spawnEffect(model, texture, worldPosition, 1.0f, false);
+        mRendering->spawnEffect(model, texture, worldPosition, 1.0f, false, false);
     }
 
-    void World::spawnEffect(const std::string& model, const std::string& textureOverride, const osg::Vec3f& worldPos,
-        float scale, bool isMagicVFX)
+    void World::spawnEffect(VFS::Path::NormalizedView model, const std::string& textureOverride,
+        const osg::Vec3f& worldPos, float scale, bool isMagicVFX, bool useAmbientLight)
     {
-        mRendering->spawnEffect(model, textureOverride, worldPos, scale, isMagicVFX);
+        mRendering->spawnEffect(model, textureOverride, worldPos, scale, isMagicVFX, useAmbientLight);
     }
 
     struct ResetActorsVisitor
@@ -3688,19 +3735,23 @@ namespace MWWorld
         return (targetPos - weaponPos);
     }
 
-    void preload(MWWorld::Scene* scene, const ESMStore& store, const ESM::RefId& obj)
+    namespace
     {
-        if (obj.empty())
-            return;
-        try
+        void preload(MWWorld::Scene* scene, const ESMStore& store, const ESM::RefId& obj)
         {
-            MWWorld::ManualRef ref(store, obj);
-            std::string model = ref.getPtr().getClass().getCorrectedModel(ref.getPtr());
-            if (!model.empty())
-                scene->preload(model, ref.getPtr().getClass().useAnim());
-        }
-        catch (std::exception&)
-        {
+            if (obj.empty())
+                return;
+            try
+            {
+                MWWorld::ManualRef ref(store, obj);
+                std::string model = ref.getPtr().getClass().getCorrectedModel(ref.getPtr());
+                if (!model.empty())
+                    scene->preload(model, ref.getPtr().getClass().useAnim());
+            }
+            catch (const std::exception& e)
+            {
+                Log(Debug::Warning) << "Failed to preload scene object " << obj << ": " << e.what();
+            }
         }
     }
 
@@ -3792,12 +3843,6 @@ namespace MWWorld
         DetourNavigator::reportStats(mNavigator->getStats(), frameNumber, stats);
         mPhysics->reportStats(frameNumber, stats);
         mWorldScene->reportStats(frameNumber, stats);
-    }
-
-    void World::updateSkyDate()
-    {
-        ESM::EpochTimeStamp currentDate = mTimeManager->getEpochTimeStamp();
-        mRendering->skySetDate(currentDate.mDay, currentDate.mMonth);
     }
 
     std::vector<MWWorld::Ptr> World::getAll(const ESM::RefId& id)

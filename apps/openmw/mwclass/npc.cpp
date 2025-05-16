@@ -61,6 +61,8 @@
 
 #include "../mwgui/tooltips.hpp"
 
+#include "nameorid.hpp"
+
 namespace
 {
     struct NpcParts
@@ -439,16 +441,15 @@ namespace MWClass
         return model.substr(prefix.size());
     }
 
-    std::string Npc::getCorrectedModel(const MWWorld::ConstPtr& ptr) const
+    VFS::Path::Normalized Npc::getCorrectedModel(const MWWorld::ConstPtr& ptr) const
     {
         const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
 
-        const std::string& model = Settings::models().mBaseanim;
         const ESM::Race* race = MWBase::Environment::get().getESMStore()->get<ESM::Race>().find(ref->mBase->mRace);
         if (race->mData.mFlags & ESM::Race::Beast)
-            return Settings::models().mBaseanimkna;
+            return Settings::models().mBaseanimkna.get();
 
-        return model;
+        return Settings::models().mBaseanim.get();
     }
 
     void Npc::getModelsToPreload(const MWWorld::ConstPtr& ptr, std::vector<std::string_view>& models) const
@@ -541,10 +542,7 @@ namespace MWClass
             return store.find("sWerewolfPopup")->mValue.getString();
         }
 
-        const MWWorld::LiveCellRef<ESM::NPC>* ref = ptr.get<ESM::NPC>();
-        const std::string& name = ref->mBase->mName;
-
-        return !name.empty() ? name : ref->mBase->mId.getRefIdString();
+        return getNameOrId<ESM::NPC>(ptr);
     }
 
     MWMechanics::CreatureStats& Npc::getCreatureStats(const MWWorld::Ptr& ptr) const
@@ -574,12 +572,8 @@ namespace MWClass
             weapon = *weaponslot;
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
-        const MWWorld::Store<ESM::GameSetting>& store = world->getStore().get<ESM::GameSetting>();
-        const float fCombatDistance = store.find("fCombatDistance")->mValue.getFloat();
-        float dist = fCombatDistance
-            * (!weapon.isEmpty() ? weapon.get<ESM::Weapon>()->mBase->mData.mReach
-                                 : store.find("fHandToHandReach")->mValue.getFloat());
 
+        const float dist = MWMechanics::getMeleeWeaponReach(ptr, weapon);
         const std::pair<MWWorld::Ptr, osg::Vec3f> result = MWMechanics::getHitContact(ptr, dist);
         if (result.first.isEmpty()) // Didn't hit anything
             return true;
@@ -615,6 +609,9 @@ namespace MWClass
         const MWWorld::Class& othercls = victim.getClass();
         MWMechanics::CreatureStats& otherstats = othercls.getCreatureStats(victim);
         if (otherstats.isDead()) // Can't hit dead actors
+            return;
+
+        if (!MWMechanics::isInMeleeReach(ptr, victim, MWMechanics::getMeleeWeaponReach(ptr, weapon)))
             return;
 
         if (ptr == MWMechanics::getPlayer())
@@ -673,8 +670,11 @@ namespace MWClass
             {
                 damage *= store.find("fCombatCriticalStrikeMult")->mValue.getFloat();
                 MWBase::Environment::get().getWindowManager()->messageBox("#{sTargetCriticalStrike}");
-                MWBase::Environment::get().getSoundManager()->playSound3D(
-                    victim, ESM::RefId::stringRefId("critical damage"), 1.0f, 1.0f);
+                if (healthdmg)
+                {
+                    MWBase::Environment::get().getSoundManager()->playSound3D(
+                        victim, ESM::RefId::stringRefId("critical damage"), 1.0f, 1.0f);
+                }
             }
         }
 
@@ -755,9 +755,6 @@ namespace MWClass
 
         if (!object.isEmpty())
             stats.setLastHitObject(object.getCellRef().getRefId());
-
-        if (damage > 0.0f && !object.isEmpty())
-            MWMechanics::resistNormalWeapon(ptr, attacker, object, damage);
 
         if (damage < 0.001f)
             damage = 0;
@@ -984,8 +981,7 @@ namespace MWClass
         // TODO: This function is called several times per frame for each NPC.
         // It would be better to calculate it only once per frame for each NPC and save the result in CreatureStats.
         const MWMechanics::NpcStats& stats = getNpcStats(ptr);
-        bool godmode = ptr == MWMechanics::getPlayer() && MWBase::Environment::get().getWorld()->getGodModeState();
-        if ((!godmode && stats.isParalyzed()) || stats.getKnockedDown() || stats.isDead())
+        if (stats.isParalyzed() || stats.getKnockedDown() || stats.isDead())
             return 0.f;
 
         const MWBase::World* world = MWBase::Environment::get().getWorld();
@@ -1034,8 +1030,7 @@ namespace MWClass
             return 0.f;
 
         const MWMechanics::NpcStats& stats = getNpcStats(ptr);
-        bool godmode = ptr == MWMechanics::getPlayer() && MWBase::Environment::get().getWorld()->getGodModeState();
-        if ((!godmode && stats.isParalyzed()) || stats.getKnockedDown() || stats.isDead())
+        if (stats.isParalyzed() || stats.getKnockedDown() || stats.isDead())
             return 0.f;
 
         const GMST& gmst = getGmst();

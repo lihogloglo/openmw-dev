@@ -122,11 +122,13 @@ namespace Nif
             mStringPalette.read(nif);
         else if (nif->getVersion() >= NIFFile::NIFVersion::VER_BGS && nif->getBethVersion() >= 24)
         {
-            uint16_t numAnimNotes = 1;
             if (nif->getBethVersion() >= 29)
-                nif->read(numAnimNotes);
+                mAnimNotesList.resize(nif->get<uint16_t>());
+            else
+                mAnimNotesList.resize(1);
 
-            nif->skip(4 * numAnimNotes); // BSAnimNotes links
+            for (auto& notes : mAnimNotesList)
+                notes.read(nif);
         }
     }
 
@@ -229,12 +231,32 @@ namespace Nif
         mCollider.post(nif);
     }
 
+    void NiLightColorController::read(NIFStream* nif)
+    {
+        NiPoint3InterpController::read(nif);
+
+        if (nif->getVersion() >= NIFStream::generateVersion(10, 1, 0, 0))
+            mMode = static_cast<Mode>(nif->get<uint16_t>());
+        else
+            mMode = static_cast<Mode>((mFlags >> 4) & 1);
+
+        if (nif->getVersion() <= NIFStream::generateVersion(10, 1, 0, 103))
+            mData.read(nif);
+    }
+
+    void NiLightColorController::post(Reader& nif)
+    {
+        NiPoint3InterpController::post(nif);
+
+        mData.post(nif);
+    }
+
     void NiMaterialColorController::read(NIFStream* nif)
     {
         NiPoint3InterpController::read(nif);
 
         if (nif->getVersion() >= NIFStream::generateVersion(10, 1, 0, 0))
-            mTargetColor = static_cast<TargetColor>(nif->get<uint16_t>() & 3);
+            mTargetColor = static_cast<TargetColor>(nif->get<uint16_t>());
         else
             mTargetColor = static_cast<TargetColor>((mFlags >> 4) & 3);
 
@@ -791,6 +813,94 @@ namespace Nif
     void NiBlendInterpolator::Item::post(Reader& nif)
     {
         mInterpolator.post(nif);
+    }
+
+    void NiBSplineInterpolator::read(NIFStream* nif)
+    {
+        nif->read(mStartTime);
+        nif->read(mStopTime);
+        mSplineData.read(nif);
+        mBasisData.read(nif);
+    }
+
+    void NiBSplineInterpolator::post(Reader& nif)
+    {
+        mSplineData.post(nif);
+        mBasisData.post(nif);
+    }
+
+    void NiBSplineFloatInterpolator::read(NIFStream* nif)
+    {
+        NiBSplineInterpolator::read(nif);
+
+        nif->read(mValue);
+        nif->read(mHandle);
+    }
+
+    void NiBSplineCompFloatInterpolator::read(NIFStream* nif)
+    {
+        NiBSplineFloatInterpolator::read(nif);
+
+        nif->read(mOffset);
+        nif->read(mHalfRange);
+    }
+
+    void NiBSplinePoint3Interpolator::read(NIFStream* nif)
+    {
+        NiBSplineInterpolator::read(nif);
+
+        nif->read(mValue);
+        nif->read(mHandle);
+    }
+
+    void NiBSplineCompPoint3Interpolator::read(NIFStream* nif)
+    {
+        NiBSplinePoint3Interpolator::read(nif);
+
+        nif->read(mOffset);
+        nif->read(mHalfRange);
+    }
+
+    void NiBSplineTransformInterpolator::read(NIFStream* nif)
+    {
+        NiBSplineInterpolator::read(nif);
+
+        nif->read(mValue);
+        nif->read(mTranslationHandle);
+        nif->read(mRotationHandle);
+        nif->read(mScaleHandle);
+    }
+
+    void NiBSplineCompTransformInterpolator::read(NIFStream* nif)
+    {
+        NiBSplineTransformInterpolator::read(nif);
+
+        nif->read(mTranslationOffset);
+        nif->read(mTranslationHalfRange);
+        nif->read(mRotationOffset);
+        nif->read(mRotationHalfRange);
+        nif->read(mScaleOffset);
+        nif->read(mScaleHalfRange);
+    }
+
+    void BSTreadTransform::read(NIFStream* nif)
+    {
+        nif->read(mName);
+        nif->read(mTransform1);
+        nif->read(mTransform2);
+    }
+
+    void BSTreadTransfInterpolator::read(NIFStream* nif)
+    {
+        mTransforms.resize(nif->get<uint32_t>());
+        for (BSTreadTransform& transform : mTransforms)
+            transform.read(nif);
+        mData.read(nif);
+    }
+
+    void BSTreadTransfInterpolator::post(Reader& nif)
+    {
+        mData.post(nif);
     }
 
 }

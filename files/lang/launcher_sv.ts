@@ -393,6 +393,14 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <source>This archive is enabled in an openmw.cfg other than the user one</source>
         <translation>Detta arkiv är aktiverat i en annan openmw.cfg än användarens</translation>
     </message>
+    <message>
+        <source>&amp;Copy Path(s) to Clipboard</source>
+        <translation>&amp;Kopiera sökväg(ar) till klippbordet</translation>
+    </message>
+    <message>
+        <source>&amp;Open Path in File Explorer</source>
+        <translation>Öppna katalogen i filutforskaren</translation>
+    </message>
 </context>
 <context>
     <name>Launcher::GraphicsPage</name>
@@ -451,8 +459,8 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>Stäng</translation>
     </message>
     <message>
-        <source> Launch OpenMW </source>
-        <translation> Starta OpenMW </translation>
+        <source>Launch OpenMW</source>
+        <translation>Starta OpenMW</translation>
     </message>
     <message>
         <source>Help</source>
@@ -934,10 +942,6 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>Sparfiler</translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting determines whether the amount of the time the player has spent playing will be displayed for each saved game in the Load menu.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Denna inställning avgör huruvida mängden tid spelaren har spenderat i spelet kommer visas för varje sparat spel i Ladda spel-menyn.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
         <source>JPG</source>
         <translation>JPG</translation>
     </message>
@@ -1074,25 +1078,13 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Effekter av reflekterade &quot;Absorb&quot;-besvärjelser speglas inte – såsom i Morrowind.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum distance at which lights will appear (measured in units).&lt;/p&gt;&lt;p&gt;Set this to 0 to use an unlimited distance.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximala avståndet där ljuskällor syns (mätt i enheter).&lt;/p&gt;&lt;p&gt;Värdet 0 ger oändligt avstånd.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximum number of lights per object.&lt;/p&gt;&lt;p&gt;A low number near default will cause light popping similar to what you would see with legacy lighting.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Maximalt antal ljuskällor per objekt.&lt;/p&gt;&lt;p&gt;Ett lågt tal nära det förvalda kommer orsaka att ljuskällor poppar upp som vid ljussättningsmetoden Gammaldags.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Fraction of maximum distance at which lights will start to fade.&lt;/p&gt;&lt;p&gt;Set this to a low value for slower transitions or a high value for quicker transitions.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Fraktion av det maximala avståndet från vilket ljuskällor börjar blekna.&lt;/p&gt;&lt;p&gt;Välj ett lågt värde för långsammare övergång eller högre värde för snabbare övergång.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
         <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Set the internal handling of light sources.&lt;/p&gt;
-&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object and provides a lighting closest to an original game.&lt;/p&gt;
-&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover and a configurable light fade. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
+&lt;p&gt; &quot;Legacy&quot; always uses 8 lights per object. It provides results most similar to Morrowind&apos;s lighting.&lt;/p&gt;
+&lt;p&gt;&quot;Shaders (compatibility)&quot; removes the 8 light limit. This mode also enables lighting on groundcover. It is recommended to use this with older hardware and a light limit closer to 8.&lt;/p&gt;
 &lt;p&gt; &quot;Shaders&quot; carries all of the benefits that &quot;Shaders (compatibility)&quot; does, but uses a modern approach that allows for a higher max lights count with little to no performance penalties on modern hardware.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
         <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Välj intern hantering av ljuskällor.&lt;/p&gt;
 &lt;p&gt; &quot;Gammaldags&quot; använder alltid max 8 ljuskällor per objekt och ger ljussättning likt ett gammaldags spel.&lt;/p&gt;
-&lt;p&gt;&quot;Shader (kompatibilitet)&quot; tar bort begränsningen med max 8 ljuskällor per objekt. Detta läge aktiverar också ljus på marktäckning och ett konfigurerbart ljusbleknande. Rekommenderas för äldre hårdvara tillsammans med en ljusbegränsning nära 8.&lt;/p&gt;
+&lt;p&gt;&quot;Shader (kompatibilitet)&quot; tar bort begränsningen med max 8 ljuskällor per objekt. Detta läge aktiverar också ljus på marktäckning. Rekommenderas för äldre hårdvara tillsammans med en ljusbegränsning nära 8.&lt;/p&gt;
 &lt;p&gt; &quot;Shader&quot; har alla fördelar som &quot;Shader (kompatibilitet)&quot; har, men med ett modernt förhållningssätt som möjliggör fler maximalt antal ljuskällor med liten eller ingen prestandaförlust på modern hårdvara.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
@@ -1102,14 +1094,6 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
     <message>
         <source>Shaders (compatibility)</source>
         <translation>Shader (kompatibilitet)</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Multipler for bounding sphere of lights.&lt;/p&gt;&lt;p&gt;Higher numbers allows for smooth falloff but require an increase in number of max lights.&lt;/p&gt;&lt;p&gt;Does not effect the illumination or strength of lights.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Multiplikator för ljusens gränssfär.&lt;/p&gt;&lt;p&gt;Högre värden ger mjukare minskning av gränssfären, men kräver högre värde i Max antal ljuskällor.&lt;/p&gt;&lt;p&gt;Påverkar inte ljusstyrkan.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
-    </message>
-    <message>
-        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Minimum ambient interior brightness.&lt;/p&gt;&lt;p&gt;Increase this if you feel interiors are too dark.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
-        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Minsta omgivande ljusstyrka i interiörer.&lt;/p&gt;&lt;p&gt;Öka värdet om du anser att interiörer är för mörka.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
     <message>
         <source>In third-person view, use the camera as the sound listener instead of the player character.</source>
@@ -1335,24 +1319,8 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>Aktivera terrängskuggor</translation>
     </message>
     <message>
-        <source>Maximum Light Distance</source>
-        <translation>Maximalt ljusavstånd</translation>
-    </message>
-    <message>
-        <source>Max Lights</source>
-        <translation>Max antal ljuskällor</translation>
-    </message>
-    <message>
         <source>Lighting Method</source>
         <translation>Ljussättningsmetod</translation>
-    </message>
-    <message>
-        <source>Bounding Sphere Multiplier</source>
-        <translation>Gränssfärsmultiplikator</translation>
-    </message>
-    <message>
-        <source>Minimum Interior Brightness</source>
-        <translation>Minsta ljusstyrka i interiörer</translation>
     </message>
     <message>
         <source>Audio Device</source>
@@ -1455,6 +1423,10 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>Räkna in styrka i obeväpnad strid</translation>
     </message>
     <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;This setting controls the behavior of factoring of Strength attribute into hand-to-hand damage: damage is multiplied by Strength value divided by 40.&lt;/p&gt;&lt;p&gt;Can apply to all actors or only to non-werewolf actors.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Denna inställning styr om basegenskapen Strength (styrka) ska räknas in i skador från obeväpnade attacker: skadan multipliceras med värdet på Strength dividerat med 40.&lt;/p&gt;&lt;p&gt;Kan tillämpas på alla rollfigurer eller endast för rollfigurer som inte är varulvar.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
+    </message>
+    <message>
         <source>Turn to Movement Direction</source>
         <translation>Vänd mot rörelseriktningen</translation>
     </message>
@@ -1471,10 +1443,6 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
         <translation>Kan zooma på kartor</translation>
     </message>
     <message>
-        <source>Add &quot;Time Played&quot; to Saves</source>
-        <translation>Lägg till spelad tid i sparfiler</translation>
-    </message>
-    <message>
         <source>Notify on Saved Screenshot</source>
         <translation>Ge notis vid sparad skärmdump</translation>
     </message>
@@ -1489,6 +1457,14 @@ de ordinarie fonterna i Morrowind. Bocka denna ruta om du ändå föredrar ordin
     <message>
         <source>Run Script After Startup:</source>
         <translation>Kör skript efter uppstart:</translation>
+    </message>
+    <message>
+        <source>Smooth Animation Transitions</source>
+        <translation>Mjuka animationsövergångar</translation>
+    </message>
+    <message>
+        <source>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;If enabled - makes transitions between different animations/poses much smoother. Also allows to load animation blending config YAML files that can be bundled with animations in order to customise blending styles.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</source>
+        <translation>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p&gt;Vid aktivering gör denna funktion att övergångarna mellan olika animationer och poser blir mycket mjukare. Funktionen gör det också möjligt att konfigurera animationsövergångarna i YAML-filer. Dessa filer kan buntas ihop tillsammans med nya animationsfiler.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</translation>
     </message>
 </context>
 </TS>

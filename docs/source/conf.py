@@ -55,7 +55,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = u'OpenMW'
-copyright = u'2023, OpenMW Team'
+copyright = u'2024, OpenMW Team'
 
 
 # The version info for the project you're documenting, acts as replacement for
@@ -71,17 +71,17 @@ ppApiRevision = "UNDEFINED"
 
 try:
     cmake_raw = open(project_root+'/CMakeLists.txt', 'r').read()
-    majorVersionMatch = re.search('set\(OPENMW_VERSION_MAJOR (\d+)\)', cmake_raw)
-    minorVersionMatch = re.search('set\(OPENMW_VERSION_MINOR (\d+)\)', cmake_raw)
-    releaseVersionMatch = re.search('set\(OPENMW_VERSION_RELEASE (\d+)\)', cmake_raw)
+    majorVersionMatch = re.search(r'set\(OPENMW_VERSION_MAJOR (\d+)\)', cmake_raw)
+    minorVersionMatch = re.search(r'set\(OPENMW_VERSION_MINOR (\d+)\)', cmake_raw)
+    releaseVersionMatch = re.search(r'set\(OPENMW_VERSION_RELEASE (\d+)\)', cmake_raw)
     if majorVersionMatch and minorVersionMatch and releaseVersionMatch:
         release = version = '.'.join((majorVersionMatch.group(1),
                                      minorVersionMatch.group(1),
                                      releaseVersionMatch.group(1)))
-    luaApiRevisionMatch = re.search('set\(OPENMW_LUA_API_REVISION (\d+)\)', cmake_raw)
+    luaApiRevisionMatch = re.search(r'set\(OPENMW_LUA_API_REVISION (\d+)\)', cmake_raw)
     if luaApiRevisionMatch:
         luaApiRevision = luaApiRevisionMatch.group(1)
-    ppApiRevisionMatch = re.search('set\(OPENMW_POSTPROCESSING_API_REVISION (\d+)\)', cmake_raw)
+    ppApiRevisionMatch = re.search(r'set\(OPENMW_POSTPROCESSING_API_REVISION (\d+)\)', cmake_raw)
     if ppApiRevisionMatch:
         ppApiRevision = ppApiRevisionMatch.group(1)
 
@@ -144,7 +144,8 @@ html_theme = 'sphinx_rtd_theme'
 # further.  For a list of options available for each theme, see the
 # documentation.
 html_theme_options = {
-    'navigation_with_keys': True
+    'navigation_with_keys': True,
+    'flyout_display': 'attached',
 }
 
 # Add any paths that contain custom themes here, relative to this directory.
@@ -178,8 +179,8 @@ def setup(app):
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = [
-                    '_static'
-                    ]
+    '_static'
+]
 
 # Add any extra paths that contain custom files (such as robots.txt or
 # .htaccess) here, relative to this directory. These files are copied

@@ -48,6 +48,7 @@
 #include "../mwgui/tooltips.hpp"
 
 #include "classmodel.hpp"
+#include "nameorid.hpp"
 
 namespace
 {
@@ -209,10 +210,7 @@ namespace MWClass
 
     std::string_view Creature::getName(const MWWorld::ConstPtr& ptr) const
     {
-        const MWWorld::LiveCellRef<ESM::Creature>* ref = ptr.get<ESM::Creature>();
-        const std::string& name = ref->mBase->mName;
-
-        return !name.empty() ? name : ref->mBase->mId.getRefIdString();
+        return getNameOrId<ESM::Creature>(ptr);
     }
 
     MWMechanics::CreatureStats& Creature::getCreatureStats(const MWWorld::Ptr& ptr) const
@@ -238,11 +236,8 @@ namespace MWClass
         }
 
         MWBase::World* world = MWBase::Environment::get().getWorld();
-        const MWWorld::Store<ESM::GameSetting>& store = world->getStore().get<ESM::GameSetting>();
-        float dist = store.find("fCombatDistance")->mValue.getFloat();
-        if (!weapon.isEmpty())
-            dist *= weapon.get<ESM::Weapon>()->mBase->mData.mReach;
 
+        const float dist = MWMechanics::getMeleeWeaponReach(ptr, weapon);
         const std::pair<MWWorld::Ptr, osg::Vec3f> result = MWMechanics::getHitContact(ptr, dist);
         if (result.first.isEmpty()) // Didn't hit anything
             return true;
@@ -281,6 +276,9 @@ namespace MWClass
         const MWWorld::Class& othercls = victim.getClass();
         MWMechanics::CreatureStats& otherstats = othercls.getCreatureStats(victim);
         if (otherstats.isDead()) // Can't hit dead actors
+            return;
+
+        if (!MWMechanics::isInMeleeReach(ptr, victim, MWMechanics::getMeleeWeaponReach(ptr, weapon)))
             return;
 
         if (!success)

@@ -15,6 +15,9 @@
 #include <components/esm3/loadrace.hpp>
 #include <components/esm3/projectilestate.hpp>
 
+#include <components/esm/quaternion.hpp>
+#include <components/esm/vector3.hpp>
+
 #include <components/misc/constants.hpp>
 #include <components/misc/convert.hpp>
 #include <components/misc/resourcehelpers.hpp>
@@ -186,7 +189,7 @@ namespace MWWorld
         float mRotateSpeed;
     };
 
-    void ProjectileManager::createModel(State& state, const std::string& model, const osg::Vec3f& pos,
+    void ProjectileManager::createModel(State& state, VFS::Path::NormalizedView model, const osg::Vec3f& pos,
         const osg::Quat& orient, bool rotate, bool createLight, osg::Vec4 lightDiffuseColor, const std::string& texture)
     {
         state.mNode = new osg::PositionAttitudeTransform;
@@ -219,7 +222,8 @@ namespace MWWorld
                 attachTo->accept(findVisitor);
                 if (findVisitor.mFoundNode)
                     mResourceSystem->getSceneManager()->getInstance(
-                        Misc::ResourceHelpers::correctMeshPath(weapon->mModel), findVisitor.mFoundNode);
+                        Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(weapon->mModel)),
+                        findVisitor.mFoundNode);
             }
         }
 
@@ -310,7 +314,7 @@ namespace MWWorld
 
         osg::Vec4 lightDiffuseColor = getMagicBoltLightDiffuseColor(state.mEffects);
 
-        auto model = ptr.getClass().getCorrectedModel(ptr);
+        VFS::Path::Normalized model = ptr.getClass().getCorrectedModel(ptr);
         createModel(state, model, pos, orient, true, true, lightDiffuseColor, texture);
 
         MWBase::SoundManager* sndMgr = MWBase::Environment::get().getSoundManager();
@@ -326,8 +330,8 @@ namespace MWWorld
         // shape
         if (state.mIdMagic.size() > 1)
         {
-            model = Misc::ResourceHelpers::correctMeshPath(
-                MWBase::Environment::get().getESMStore()->get<ESM::Weapon>().find(state.mIdMagic[1])->mModel);
+            model = Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(
+                MWBase::Environment::get().getESMStore()->get<ESM::Weapon>().find(state.mIdMagic[1])->mModel));
         }
         state.mProjectileId = mPhysics->addProjectile(caster, pos, model, true);
         state.mToDelete = false;
@@ -350,7 +354,7 @@ namespace MWWorld
         MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), projectile.getCellRef().getRefId());
         MWWorld::Ptr ptr = ref.getPtr();
 
-        const auto model = ptr.getClass().getCorrectedModel(ptr);
+        const VFS::Path::Normalized model = ptr.getClass().getCorrectedModel(ptr);
         createModel(state, model, pos, orient, false, false, osg::Vec4(0, 0, 0, 0));
         if (!ptr.getClass().getEnchantment(ptr).empty())
             SceneUtil::addEnchantedGlow(state.mNode, mResourceSystem, ptr.getClass().getEnchantmentColor(ptr));
@@ -690,7 +694,7 @@ namespace MWWorld
             state.mAttackStrength = esm.mAttackStrength;
             state.mToDelete = false;
 
-            std::string model;
+            VFS::Path::Normalized model;
             try
             {
                 MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), esm.mId);
@@ -702,8 +706,10 @@ namespace MWWorld
                 state.mProjectileId
                     = mPhysics->addProjectile(state.getCaster(), osg::Vec3f(esm.mPosition), model, false);
             }
-            catch (...)
+            catch (const std::exception& e)
             {
+                Log(Debug::Warning) << "Failed to add projectile for " << esm.mId
+                                    << " while reading projectile record: " << e.what();
                 return true;
             }
 
@@ -731,10 +737,10 @@ namespace MWWorld
                 state.mEffects = getMagicBoltData(
                     state.mIdMagic, state.mSoundIds, state.mSpeed, texture, state.mSourceName, state.mSpellId);
             }
-            catch (...)
+            catch (const std::exception& e)
             {
-                Log(Debug::Warning) << "Warning: Failed to recreate magic projectile from saved data (id \""
-                                    << state.mSpellId << "\" no longer exists?)";
+                Log(Debug::Warning) << "Failed to recreate magic projectile for " << esm.mId << " and spell "
+                                    << state.mSpellId << " while reading projectile record: " << e.what();
                 return true;
             }
 
@@ -743,15 +749,17 @@ namespace MWWorld
                                        // file's effect list, which is already trimmed of non-projectile
                                        // effects. We need to use the stored value.
 
-            std::string model;
+            VFS::Path::Normalized model;
             try
             {
                 MWWorld::ManualRef ref(*MWBase::Environment::get().getESMStore(), state.mIdMagic.at(0));
                 MWWorld::Ptr ptr = ref.getPtr();
                 model = ptr.getClass().getCorrectedModel(ptr);
             }
-            catch (...)
+            catch (const std::exception& e)
             {
+                Log(Debug::Warning) << "Failed to get model for " << state.mIdMagic.at(0)
+                                    << " while reading projectile record: " << e.what();
                 return true;
             }
 

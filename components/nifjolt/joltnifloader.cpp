@@ -72,7 +72,7 @@ namespace NifJolt
         mShape->mFileName = nif.getFilename();
         if (roots.empty())
         {
-            warn("Found no root nodes in NIF file " + mShape->mFileName);
+            warn("Found no root nodes in NIF file " + mShape->mFileName.value());
             return mShape;
         }
 
@@ -104,14 +104,15 @@ namespace NifJolt
     {
         if (Misc::StringUtils::ciEqual(node.mName, "Bounding Box"))
         {
-            if (node.mBounds.mType == Nif::BoundingVolume::Type::BOX_BV)
+            if (node.mBounds.mType == Nif::BoundingVolume::Type::BOX_BV
+                && std::ranges::all_of(node.mBounds.mBox.mExtents._v, [](float extent) { return extent > 0.f; }))
             {
                 mShape->mCollisionBox.mExtents = node.mBounds.mBox.mExtents;
                 mShape->mCollisionBox.mCenter = node.mBounds.mBox.mCenter;
             }
             else
             {
-                warn("Invalid Bounding Box node bounds in file " + mShape->mFileName);
+                warn("Invalid Bounding Box node bounds in file " + mShape->mFileName.value());
             }
             return true;
         }

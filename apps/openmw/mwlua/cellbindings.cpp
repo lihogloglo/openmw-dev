@@ -39,6 +39,7 @@
 #include <components/esm4/loadmisc.hpp>
 #include <components/esm4/loadmstt.hpp>
 #include <components/esm4/loadrefr.hpp>
+#include <components/esm4/loadscol.hpp>
 #include <components/esm4/loadstat.hpp>
 #include <components/esm4/loadtree.hpp>
 #include <components/esm4/loadweap.hpp>
@@ -68,7 +69,8 @@ namespace MWLua
     template <class CellT, class ObjectT>
     static void initCellBindings(const std::string& prefix, const Context& context)
     {
-        sol::usertype<CellT> cellT = context.mLua->sol().new_usertype<CellT>(prefix + "Cell");
+        auto view = context.sol();
+        sol::usertype<CellT> cellT = view.new_usertype<CellT>(prefix + "Cell");
 
         cellT[sol::meta_function::equal_to] = [](const CellT& a, const CellT& b) { return a.mStore == b.mStore; };
         cellT[sol::meta_function::to_string] = [](const CellT& c) {
@@ -83,6 +85,8 @@ namespace MWLua
         };
 
         cellT["name"] = sol::readonly_property([](const CellT& c) { return c.mStore->getCell()->getNameId(); });
+        cellT["id"]
+            = sol::readonly_property([](const CellT& c) { return c.mStore->getCell()->getId().serializeText(); });
         cellT["region"] = sol::readonly_property(
             [](const CellT& c) -> std::string { return c.mStore->getCell()->getRegion().serializeText(); });
         cellT["worldSpaceId"] = sol::readonly_property(
@@ -124,8 +128,7 @@ namespace MWLua
 
         if constexpr (std::is_same_v<CellT, GCell>)
         { // only for global scripts
-            cellT["getAll"] = [ids = getPackageToTypeTable(context.mLua->sol())](
-                                  const CellT& cell, sol::optional<sol::table> type) {
+            cellT["getAll"] = [ids = getPackageToTypeTable(view)](const CellT& cell, sol::optional<sol::table> type) {
                 if (cell.mStore->getState() != MWWorld::CellStore::State_Loaded)
                     cell.mStore->load();
                 ObjectIdList res = std::make_shared<std::vector<ObjectId>>();
@@ -259,6 +262,9 @@ namespace MWLua
                             break;
                         case ESM::REC_ALCH4:
                             cell.mStore->template forEachType<ESM4::Potion>(visitor);
+                            break;
+                        case ESM::REC_SCOL4:
+                            cell.mStore->template forEachType<ESM4::StaticCollection>(visitor);
                             break;
                         case ESM::REC_STAT4:
                             cell.mStore->template forEachType<ESM4::Static>(visitor);

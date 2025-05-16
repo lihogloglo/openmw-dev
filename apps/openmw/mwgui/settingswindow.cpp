@@ -18,6 +18,7 @@
 #include <SDL_video.h>
 
 #include <components/debug/debuglog.hpp>
+#include <components/l10n/manager.hpp>
 #include <components/lua_ui/scriptsettings.hpp>
 #include <components/misc/constants.hpp>
 #include <components/misc/display.hpp>
@@ -43,16 +44,22 @@
 
 namespace
 {
-    std::string textureMipmappingToStr(const std::string& val)
+    std::string textureFilteringToStr(const std::string& mipFilter, const std::string& magFilter)
     {
-        if (val == "linear")
-            return "#{OMWEngine:TextureFilteringTrilinear}";
-        if (val == "nearest")
-            return "#{OMWEngine:TextureFilteringBilinear}";
-        if (val == "none")
+        if (mipFilter == "none")
             return "#{OMWEngine:TextureFilteringDisabled}";
 
-        Log(Debug::Warning) << "Warning: Invalid texture mipmap option: " << val;
+        if (magFilter == "linear")
+        {
+            if (mipFilter == "linear")
+                return "#{OMWEngine:TextureFilteringTrilinear}";
+            if (mipFilter == "nearest")
+                return "#{OMWEngine:TextureFilteringBilinear}";
+        }
+        else if (magFilter == "nearest")
+            return "#{OMWEngine:TextureFilteringNearest}";
+
+        Log(Debug::Warning) << "Warning: Invalid texture filtering options: " << mipFilter << ", " << magFilter;
         return "#{OMWEngine:TextureFilteringOther}";
     }
 
@@ -365,8 +372,8 @@ namespace MWGui
         }
         highlightCurrentResolution();
 
-        const std::string& tmip = Settings::general().mTextureMipmap;
-        mTextureFilteringButton->setCaptionWithReplacing(textureMipmappingToStr(tmip));
+        mTextureFilteringButton->setCaptionWithReplacing(
+            textureFilteringToStr(Settings::general().mTextureMipmap, Settings::general().mTextureMinFilter));
 
         int waterTextureSize = Settings::water().mRttSize;
         if (waterTextureSize >= 512)
@@ -642,6 +649,9 @@ namespace MWGui
         if (selectedButton == 1 || selectedButton == -1)
             return;
 
+        Settings::shaders().mForcePerPixelLighting.reset();
+        Settings::shaders().mClassicFalloff.reset();
+        Settings::shaders().mMatchSunlightToSun.reset();
         Settings::shaders().mLightBoundsMultiplier.reset();
         Settings::shaders().mMaximumLightDistance.reset();
         Settings::shaders().mLightFadeStart.reset();
@@ -660,12 +670,12 @@ namespace MWGui
 
     void SettingsWindow::onButtonToggled(MyGUI::Widget* _sender)
     {
-        std::string_view on = MWBase::Environment::get().getWindowManager()->getGameSettingString("sOn", "On");
+        const std::string on = MWBase::Environment::get().getL10nManager()->getMessage("Interface", "On");
+        const std::string off = MWBase::Environment::get().getL10nManager()->getMessage("Interface", "Off");
         bool newState;
         if (_sender->castType<MyGUI::Button>()->getCaption() == on)
         {
-            _sender->castType<MyGUI::Button>()->setCaption(
-                MyGUI::UString(MWBase::Environment::get().getWindowManager()->getGameSettingString("sOff", "Off")));
+            _sender->castType<MyGUI::Button>()->setCaption(MyGUI::UString(off));
             newState = false;
         }
         else
@@ -684,12 +694,24 @@ namespace MWGui
 
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* _sender, size_t pos)
     {
-        if (pos == 0)
-            Settings::general().mTextureMipmap.set("nearest");
-        else if (pos == 1)
-            Settings::general().mTextureMipmap.set("linear");
-        else
-            Log(Debug::Warning) << "Unexpected option pos " << pos;
+        auto& generalSettings = Settings::general();
+        switch (pos)
+        {
+            case 0: // Bilinear with mips
+                generalSettings.mTextureMipmap.set("nearest");
+                generalSettings.mTextureMagFilter.set("linear");
+                generalSettings.mTextureMinFilter.set("linear");
+                break;
+            case 1: // Trilinear with mips
+                generalSettings.mTextureMipmap.set("linear");
+                generalSettings.mTextureMagFilter.set("linear");
+                generalSettings.mTextureMinFilter.set("linear");
+                break;
+            default:
+                Log(Debug::Warning) << "Unexpected texture filtering option pos " << pos;
+                break;
+        }
+
         apply();
     }
 

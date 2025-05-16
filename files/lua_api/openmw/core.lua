@@ -52,7 +52,7 @@
 -- @return #number
 
 ---
--- Frame duration in seconds
+-- Frame duration in seconds. Not available in global scripts.
 -- @function [parent=#core] getRealFrameDuration
 -- @return #number
 
@@ -277,7 +277,7 @@
 -- money:split(50):moveInto(types.Container.content(cont))
 
 ---
--- The axis aligned bounding box in local coordinates.
+-- The axis aligned bounding box in world coordinates.
 -- @function [parent=#GameObject] getBoundingBox
 -- @param self
 -- @return openmw.util#Box
@@ -292,6 +292,7 @@
 -- A cell of the game world.
 -- @type Cell
 -- @field #string name Name of the cell (can be empty string).
+-- @field #string id Unique record ID of the cell, based on cell name for interiors and the worldspace for exteriors, or the formID of the cell for ESM4 cells.
 -- @field #string region Region of the cell.
 -- @field #boolean isExterior Whether the cell is an exterior cell. "Exterior" means grid of cells where the player can seamless walk from one cell to another without teleports. QuasiExterior (interior with sky) is not an exterior.
 -- @field #boolean isQuasiExterior (DEPRECATED, use `hasTag("QuasiExterior")`) Whether the cell is a quasi exterior (like interior but with the sky and the wheather).
@@ -348,6 +349,7 @@
 
 ---
 -- @type ActiveSpellEffect
+-- @field #number index Index of this effect within the original list of @{#MagicEffectWithParams} of the spell/enchantment/potion this effect came from.
 -- @field #string affectedSkill Optional skill ID
 -- @field #string affectedAttribute Optional attribute ID
 -- @field #string id Magic effect id
@@ -628,7 +630,7 @@
 
 --- List of all @{#Spell}s.
 -- @field [parent=#Spells] #list<#Spell> records A read-only list of all @{#Spell} records in the world database, may be indexed by recordId.
--- Implements [iterables#List](iterables.html#List) of #Spell. 
+-- Implements [iterables#List](iterables.html#List) of #Spell.
 -- @usage local spell = core.magic.spells.records['thunder fist']  -- get by id
 -- @usage local spell = core.magic.spells.records[1]  -- get by index
 -- @usage -- Print all powers
@@ -677,6 +679,7 @@
 -- @field #number cost
 -- @field #list<#MagicEffectWithParams> effects The effects (@{#MagicEffectWithParams}) of the spell
 -- @field #boolean alwaysSucceedFlag If set, the spell should ignore skill checks and always succeed.
+-- @field #boolean starterSpellFlag If set, the spell can be selected as a player's starting spell.
 -- @field #boolean autocalcFlag If set, the casting cost should be computed based on the effect list rather than read from the cost field
 
 ---
@@ -698,7 +701,7 @@
 -- @field #string castStatic Identifier of the vfx static used for casting
 -- @field #string hitStatic Identifier of the vfx static used on hit
 -- @field #string areaStatic Identifier of the vfx static used for AOE spells
--- @field #string boltStatic Identifier of the projectile vfx static used for ranged spells
+-- @field #string bolt Identifier of the projectile used for ranged spells
 -- @field #string castSound Identifier of the sound used for casting
 -- @field #string hitSound Identifier of the sound used on hit
 -- @field #string areaSound Identifier of the sound used for AOE spells
@@ -728,7 +731,6 @@
 -- @field #number magnitude current magnitude of the effect. Will be set to 0 when effect is removed or expires.
 -- @field #number magnitudeBase
 -- @field #number magnitudeModifier
--- @field #number index Index of this effect within the original list of @{#MagicEffectWithParams} of the spell/enchantment/potion this effect came from.
 
 --- @{#Sound}: Sounds and Speech
 -- @field [parent=#core] #Sound sound
@@ -854,7 +856,7 @@
 
 --- List of all @{#SoundRecord}s.
 -- @field [parent=#Sound] #list<#SoundRecord> records A read-only list of all @{#SoundRecord}s in the world database, may be indexed by recordId.
--- Implements [iterables#List](iterables.html#List) of #SoundRecord. 
+-- Implements [iterables#List](iterables.html#List) of #SoundRecord.
 -- @usage local sound = core.sound.records['Ashstorm']  -- get by id
 -- @usage local sound = core.sound.records[1]  -- get by index
 -- @usage -- Print all sound files paths
@@ -872,7 +874,7 @@
 --- `core.stats.Attribute`
 -- @type Attribute
 -- @field #list<#AttributeRecord> records A read-only list of all @{#AttributeRecord}s in the world database, may be indexed by recordId.
--- Implements [iterables#List](iterables.html#List) of #AttributeRecord. 
+-- Implements [iterables#List](iterables.html#List) of #AttributeRecord.
 -- @usage local record = core.stats.Attribute.records['example_recordid']
 -- @usage local record = core.stats.Attribute.records[1]
 
@@ -888,7 +890,7 @@
 --- `core.stats.Skill`
 -- @type Skill
 -- @field #list<#SkillRecord> records A read-only list of all @{#SkillRecord}s in the world database, may be indexed by recordId.
--- Implements [iterables#List](iterables.html#List) of #SkillRecord. 
+-- Implements [iterables#List](iterables.html#List) of #SkillRecord.
 -- @usage local record = core.stats.Skill.records['example_recordid']
 -- @usage local record = core.stats.Skill.records[1]
 
@@ -925,6 +927,193 @@
 -- @field #string failureSound VFS path to the failure sound
 -- @field #string hitSound VFS path to the hit sound
 
+--- @{#Dialogue}: Dialogue
+-- @field [parent=#core] #Dialogue dialogue
+
+---
+-- @{#DialogueRecords} functions for journal (quest) read-only records.
+-- @field [parent=#Dialogue] journal
+-- @usage --print the name of the record, which is a capitalized version of its id
+-- print(core.dialogue.journal.records["ms_fargothring"].name) -- MS_FargothRing
+-- @usage --print ids of all journal records
+-- for _, journalRecord in pairs(core.dialogue.journal.records) do
+--     print(journalRecord.id)
+-- end
+-- @usage --print quest names for all quests the player has inside a player script
+-- for _, quest in pairs(types.Player.quests(self)) do
+--     print(quest.id, core.dialogue.journal.records[quest.id].questName)
+-- end
+
+---
+-- @{#DialogueRecords} functions for topic read-only records.
+-- @field [parent=#Dialogue] topic
+-- @usage --print ids of all topic records
+-- for _, topicRecord in pairs(core.dialogue.topic.records) do
+--     print(topicRecord.id)
+-- end
+-- @usage --print all NPC lines for "vivec"
+-- for idx, topicInfo in pairs(core.dialogue.topic.records["vivec"].infos) do
+--     print(idx, topicInfo.text)
+-- end
+
+---
+-- @{#DialogueRecords} functions for voice read-only records.
+-- @field [parent=#Dialogue] voice
+-- @usage --print ids of all voice records
+-- for _, voiceRecord in pairs(core.dialogue.voice.records) do
+--     print(voiceRecord.id)
+-- end
+-- @usage --print all NPC lines & sounds for "flee"
+-- for idx, voiceInfo in pairs(core.dialogue.voice.records["flee"].infos) do
+--     print(idx, voiceInfo.text, voiceInfo.sound)
+-- end
+
+---
+-- @{#DialogueRecords} functions for greeting read-only records.
+-- @field [parent=#Dialogue] greeting
+-- @usage --print ids of all greeting records
+-- for _, greetingRecord in pairs(core.dialogue.greeting.records) do
+--     print(greetingRecord.id)
+-- end
+-- @usage --print all NPC lines for "greeting 0"
+-- for idx, greetingInfo in pairs(core.dialogue.greeting.records["greeting 0"].infos) do
+--     print(idx, greetingInfo.text)
+-- end
+
+---
+-- @{#DialogueRecords} functions for persuasion read-only records.
+-- @field [parent=#Dialogue] persuasion
+-- @usage --print ids of all persuasion records
+-- for _, persuasionRecord in pairs(core.dialogue.persuasion.records) do
+--     print(persuasionRecord.id)
+-- end
+-- @usage --print all NPC lines for "admire success"
+-- for idx, persuasionInfo in pairs(core.dialogue.persuasion.records["admire success"].infos) do
+--     print(idx, persuasionInfo.text)
+-- end
+
+---
+-- A read-only list of all @{#DialogueRecord}s in the world database, may be indexed by recordId, which doesn't have to be lowercase.
+-- Implements [iterables#List](iterables.html#list-iterable) of #DialogueRecord.
+-- @field [parent=#DialogueRecords] #list<#DialogueRecord> records
+-- @usage local record = core.dialogue.journal.records['ms_fargothring']
+-- @usage local record = core.dialogue.journal.records['MS_FargothRing']
+-- @usage local record = core.dialogue.journal.records[1]
+-- @usage local record = core.dialogue.topic.records[1]
+-- @usage local record = core.dialogue.topic.records['background']
+-- @usage local record = core.dialogue.greeting.records[1]
+-- @usage local record = core.dialogue.greeting.records['greeting 0']
+-- @usage local record = core.dialogue.persuasion.records[1]
+-- @usage local record = core.dialogue.persuasion.records['admire success']
+-- @usage local record = core.dialogue.voice.records[1]
+-- @usage local record = core.dialogue.voice.records["flee"]
+
+---
+-- Depending on which store this read-only dialogue record is from, it may either be a journal, topic, greeting, persuasion or voice.
+-- @type DialogueRecord
+-- @field #string id Record identifier
+-- @field #string name Same as id, but with upper cases preserved.
+-- @field #string questName Non-nil only for journal records with available value. Holds the quest name for this journal entry. Same info may be available under `infos[1].text` as well, but this variable is made for convenience.
+-- @field #list<#DialogueRecordInfo> infos A read-only list containing all @{#DialogueRecordInfo}s for this record, in order.
+-- @usage local journalId = core.dialogue.journal.records['A2_4_MiloGone'].id -- "a2_4_milogone"
+-- @usage local journalName = core.dialogue.journal.records['A2_4_MiloGone'].name -- "A2_4_MiloGone"
+-- @usage local questName = core.dialogue.journal.records['A2_4_MiloGone'].questName -- "Mehra Milo and the Lost Prophecies"
+
+---
+-- Holds the read-only data for one of many info entries inside a dialogue record. Depending on the type of the dialogue record (journal, topic, greeting, persuasion or voice), it could be, for example, a single journal entry or a NPC dialogue line.
+-- @type DialogueRecordInfo
+-- @field #string id Identifier for this info entry. Is unique only within the @{#DialogueRecord} it belongs to.
+-- @field #string text Text associated with this info entry.
+-- @usage --Variable `aa` below is "Congratulations, %PCName. You are now %PCName the %NextPCRank." in vanilla MW:
+-- local aa = core.dialogue.topic.records['advancement'].infos[100].text
+-- @usage --Variable `bb` below is "sound/vo/a/f/fle_af003.mp3" in vanilla MW:
+-- local bb = core.dialogue.voice.records['flee'].infos[149].sound
+
+---
+-- Quest stage (same as in @{openmw_types#PlayerQuest.stage}) this info entry is associated with.
+-- Non-nil only for journal records.
+-- @field [parent=#DialogueRecordInfo] #number questStage
+
+---
+-- True if this info entry has the "Finished" flag checked.
+-- Non-nil only for journal records.
+-- @field [parent=#DialogueRecordInfo] #boolean isQuestFinished
+
+---
+-- True if this info entry has the "Restart" flag checked.
+-- Non-nil only for journal records.
+-- @field [parent=#DialogueRecordInfo] #boolean isQuestRestart
+
+---
+-- True if this info entry has the "Quest Name" flag checked.
+-- Non-nil only for journal records.
+-- If true, then the @{#DialogueRecord}, to which this info entry belongs, should have this info entry's @{#DialogueRecordInfo.text} value available in its @{#DialogueRecord.questName}.
+-- @field [parent=#DialogueRecordInfo] #boolean isQuestName
+
+---
+-- Faction of which the speaker must be a member for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- Can return an empty string - this means that the actor must not be a member of any faction for this filtering to apply.
+-- @field [parent=#DialogueRecordInfo] #string filterActorFaction
+
+---
+-- Speaker ID allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #string filterActorId
+
+---
+-- Speaker race allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #string filterActorRace
+
+---
+-- Speaker class allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #string filterActorClass
+
+---
+-- Minimum speaker's rank in their faction allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- Rank index starts from 1, matching the value in @{openmw_types#NPC.getFactionRank}
+-- @field [parent=#DialogueRecordInfo] #number filterActorFactionRank
+
+---
+-- Cell name prefix of location where the player must be for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- "Prefix" means that the cell's name starting with this value shall pass the filtering. For example: `filterPlayerCell` being "Seyda Neen" does apply to the cell "Seyda Neen, Fargoth's House".
+-- @field [parent=#DialogueRecordInfo] #string filterPlayerCell
+
+---
+-- Minimum speaker disposition allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise is a nonnegative number, with the zero value representing no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #number filterActorDisposition
+
+---
+-- Speaker gender allowing for this info entry to appear: "male" or "female".
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #string filterActorGender
+
+---
+-- Faction of which the player must be a member for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- @field [parent=#DialogueRecordInfo] #string filterPlayerFaction
+
+---
+-- Minimum player's rank in their faction allowing for this info entry to appear.
+-- Always nil for journal records. Otherwise the nil value represents no conditions, i.e. no filtering applied using these criteria.
+-- Rank index starts from 1, matching the value in @{openmw_types#NPC.getFactionRank}
+-- @field [parent=#DialogueRecordInfo] #number filterPlayerFactionRank
+
+---
+-- Sound file path for this info entry.
+-- Always nil for journal records or if there is no sound set.
+-- @field [parent=#DialogueRecordInfo] #string sound
+
+---
+-- MWScript (full script text) executed when this info is chosen.
+-- Always nil for journal records or if there is no value set.
+-- @field [parent=#DialogueRecordInfo] #string resultScript
+
 --- @{#Factions}: Factions
 -- @field [parent=#core] #Factions factions
 
@@ -943,6 +1132,7 @@
 -- @field #map<#string, #number> reactions A read-only map containing reactions of other factions to this faction.
 -- @field #list<#string> attributes A read-only list containing IDs of attributes to advance ranks in the faction.
 -- @field #list<#string> skills A read-only list containing IDs of skills to advance ranks in the faction.
+-- @field #boolean hidden If true, the faction won't show in the player's skills menu
 
 ---
 -- Faction rank data record
@@ -952,25 +1142,5 @@
 -- @field #number primarySkillValue Primary skill value required to get this rank.
 -- @field #number favouredSkillValue Secondary skill value required to get this rank.
 -- @field #number factionReaction Reaction of faction members if player is in this faction.
-
---- @{#VFX}: Visual effects
--- @field [parent=#core] #VFX vfx
-
----
--- Spawn a VFX at the given location in the world
--- @function [parent=#VFX] spawn
--- @param #any static openmw.core#StaticRecord or #string ID
--- @param openmw.util#Vector3 location
--- @param #table options optional table of parameters. Can contain:
---
---   * `mwMagicVfx` - Boolean that if true causes the textureOverride parameter to only affect nodes with the Nif::RC_NiTexturingProperty property set. (default: true).
---   * `particleTextureOverride` - Name of a particle texture that should override this effect's default texture. (default: "")
---   * `scale` - A number that scales the size of the vfx (Default: 1)
---
--- @usage -- Spawn a sanctuary effect near the player
--- local effect = core.magic.effects.records[core.magic.EFFECT_TYPE.Sanctuary]
--- pos = self.position + util.vector3(0, 100, 0)
--- core.vfx.spawn(effect.castingStatic, pos)
---
 
 return nil

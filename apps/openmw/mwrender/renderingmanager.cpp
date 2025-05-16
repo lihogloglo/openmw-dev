@@ -283,22 +283,22 @@ namespace MWRender
         {
             try
             {
-                for (std::vector<std::string>::const_iterator it = mModels.begin(); it != mModels.end(); ++it)
-                    mResourceSystem->getSceneManager()->getTemplate(*it);
-                for (std::vector<std::string>::const_iterator it = mTextures.begin(); it != mTextures.end(); ++it)
-                    mResourceSystem->getImageManager()->getImage(*it);
-                for (std::vector<std::string>::const_iterator it = mKeyframes.begin(); it != mKeyframes.end(); ++it)
-                    mResourceSystem->getKeyframeManager()->get(*it);
+                for (const VFS::Path::Normalized& v : mModels)
+                    mResourceSystem->getSceneManager()->getTemplate(v);
+                for (const VFS::Path::Normalized& v : mTextures)
+                    mResourceSystem->getImageManager()->getImage(v);
+                for (const VFS::Path::Normalized& v : mKeyframes)
+                    mResourceSystem->getKeyframeManager()->get(v);
             }
-            catch (std::exception&)
+            catch (const std::exception& e)
             {
-                // ignore error (will be shown when these are needed proper)
+                Log(Debug::Warning) << "Failed to preload common assets: " << e.what();
             }
         }
 
-        std::vector<std::string> mModels;
-        std::vector<std::string> mTextures;
-        std::vector<std::string> mKeyframes;
+        std::vector<VFS::Path::Normalized> mModels;
+        std::vector<VFS::Path::Normalized> mTextures;
+        std::vector<VFS::Path::Normalized> mKeyframes;
 
     private:
         Resource::ResourceSystem* mResourceSystem;
@@ -437,6 +437,7 @@ namespace MWRender
         globalDefines["forcePPL"] = Settings::shaders().mForcePerPixelLighting ? "1" : "0";
         globalDefines["clamp"] = Settings::shaders().mClampLighting ? "1" : "0";
         globalDefines["preLightEnv"] = Settings::shaders().mApplyLightingToEnvironmentMaps ? "1" : "0";
+        globalDefines["classicFalloff"] = Settings::shaders().mClassicFalloff ? "1" : "0";
         const bool exponentialFog = Settings::fog().mExponentialFog;
         globalDefines["radialFog"] = (exponentialFog || Settings::fog().mRadialFog) ? "1" : "0";
         globalDefines["exponentialFog"] = exponentialFog ? "1" : "0";
@@ -521,8 +522,7 @@ namespace MWRender
 
         mCamera = std::make_unique<Camera>(mViewer->getCamera());
 
-        mScreenshotManager
-            = std::make_unique<ScreenshotManager>(viewer, mRootNode, sceneRoot, mResourceSystem, mWater.get());
+        mScreenshotManager = std::make_unique<ScreenshotManager>(viewer);
 
         mViewer->setLightingMode(osgViewer::View::NO_LIGHT);
 
@@ -584,7 +584,6 @@ namespace MWRender
         NifOsg::Loader::setHiddenNodeMask(Mask_UpdateVisitor);
         NifOsg::Loader::setIntersectionDisabledNodeMask(Mask_Effect);
         Nif::Reader::setLoadUnsupportedFiles(Settings::models().mLoadUnsupportedNifFiles);
-        Nif::Reader::setWriteNifDebugLog(Settings::models().mWriteNifDebugLog);
 
         mStateUpdater->setFogEnd(mViewDistance);
 
@@ -686,11 +685,6 @@ namespace MWRender
         updateAmbient();
     }
 
-    void RenderingManager::skySetDate(int day, int month)
-    {
-        mSky->setDate(day, month);
-    }
-
     int RenderingManager::skyGetMasserPhase() const
     {
         return mSky->getMasserPhase();
@@ -711,7 +705,7 @@ namespace MWRender
         bool isInterior = !cell.isExterior() && !cell.isQuasiExterior();
         bool needsAdjusting = false;
         if (mResourceSystem->getSceneManager()->getLightingMethod() != SceneUtil::LightingMethod::FFP)
-            needsAdjusting = isInterior;
+            needsAdjusting = isInterior && !Settings::shaders().mClassicFalloff;
 
         osg::Vec4f ambient = SceneUtil::colourFromRGB(cell.getMood().mAmbiantColor);
 
@@ -760,13 +754,18 @@ namespace MWRender
 
     void RenderingManager::setSunDirection(const osg::Vec3f& direction)
     {
-        osg::Vec3 position = direction * -1;
-        // need to wrap this in a StateUpdater?
-        mSunLight->setPosition(osg::Vec4(position.x(), position.y(), position.z(), 0));
+        osg::Vec3f position = -direction;
 
-        // The sun is not synchronized with the sunlight because sunlight origin can't reach the horizon
+        // The sun is not synchronized with the sunlight because reasons
         // This is based on exterior sun orbit and won't make sense for interiors, see WeatherManager::update
         position.z() = 400.f - std::abs(position.x());
+
+        // need to wrap this in a StateUpdater?
+        if (Settings::shaders().mMatchSunlightToSun)
+            mSunLight->setPosition(osg::Vec4f(position, 0.f));
+        else
+            mSunLight->setPosition(osg::Vec4f(-direction, 0.f));
+
         mSky->setSunDirection(position);
 
         mPostProcessor->getStateUpdater()->setSunPos(osg::Vec4f(position, 0.f), mNight);
@@ -1019,52 +1018,30 @@ namespace MWRender
         mScreenshotManager->screenshot(image, w, h);
     }
 
-    bool RenderingManager::screenshot360(osg::Image* image)
+    osg::Vec2f RenderingManager::getScreenCoords(const osg::BoundingBox& bb)
     {
-        if (mCamera->isVanityOrPreviewModeEnabled())
+        if (bb.valid())
         {
-            Log(Debug::Warning) << "Spherical screenshots are not allowed in preview mode.";
-            return false;
+            const osg::Matrix viewProj
+                = mViewer->getCamera()->getViewMatrix() * mViewer->getCamera()->getProjectionMatrix();
+            const osg::Vec3f worldPoint((bb.xMin() + bb.xMax()) * 0.5f, (bb.yMin() + bb.yMax()) * 0.5f, bb.zMax());
+            const osg::Vec4f clipPoint = osg::Vec4f(worldPoint, 1.0f) * viewProj;
+            if (clipPoint.w() > 0.f)
+            {
+                const float screenPointX = (clipPoint.x() / clipPoint.w() + 1.f) * 0.5f;
+                const float screenPointY = (clipPoint.y() / clipPoint.w() - 1.f) * (-0.5f);
+                if (screenPointX >= 0.f && screenPointX <= 1.f && screenPointY >= 0.f && screenPointY <= 1.f)
+                    return osg::Vec2f(screenPointX, screenPointY);
+            }
         }
 
-        mScreenshotManager->screenshot360(image);
-
-        return true;
-    }
-
-    osg::Vec4f RenderingManager::getScreenBounds(const osg::BoundingBox& worldbb)
-    {
-        if (!worldbb.valid())
-            return osg::Vec4f();
-        osg::Matrix viewProj = mViewer->getCamera()->getViewMatrix() * mViewer->getCamera()->getProjectionMatrix();
-        float min_x = 1.0f, max_x = 0.0f, min_y = 1.0f, max_y = 0.0f;
-        for (int i = 0; i < 8; ++i)
-        {
-            osg::Vec3f corner = worldbb.corner(i);
-            corner = corner * viewProj;
-
-            float x = (corner.x() + 1.f) * 0.5f;
-            float y = (corner.y() - 1.f) * (-0.5f);
-
-            if (x < min_x)
-                min_x = x;
-
-            if (x > max_x)
-                max_x = x;
-
-            if (y < min_y)
-                min_y = y;
-
-            if (y > max_y)
-                max_y = y;
-        }
-
-        return osg::Vec4f(min_x, min_y, max_x, max_y);
+        return osg::Vec2f(0.5f, 0.f);
     }
 
     RenderingManager::RayResult getIntersectionResult(osgUtil::LineSegmentIntersector* intersector,
         const osg::ref_ptr<osgUtil::IntersectionVisitor>& visitor, std::span<const MWWorld::Ptr> ignoreList = {})
     {
+        constexpr auto nonObjectWorldMask = Mask_Terrain | Mask_Water;
         RenderingManager::RayResult result;
         result.mHit = false;
         result.mRatio = 0;
@@ -1075,9 +1052,14 @@ namespace MWRender
         auto test = [&](const osgUtil::LineSegmentIntersector::Intersection& intersection) {
             PtrHolder* ptrHolder = nullptr;
             std::vector<RefnumMarker*> refnumMarkers;
+            bool hitNonObjectWorld = false;
             for (osg::NodePath::const_iterator it = intersection.nodePath.begin(); it != intersection.nodePath.end();
                  ++it)
             {
+                const auto& nodeMask = (*it)->getNodeMask();
+                if (!hitNonObjectWorld)
+                    hitNonObjectWorld = nodeMask & nonObjectWorldMask;
+
                 osg::UserDataContainer* userDataContainer = (*it)->getUserDataContainer();
                 if (!userDataContainer)
                     continue;
@@ -1123,7 +1105,7 @@ namespace MWRender
                 vertexCounter += refnumMarkers[i]->mNumVertices;
             }
 
-            if (!result.mHitObject.isEmpty() || result.mHitRefnum.isSet())
+            if (!result.mHitObject.isEmpty() || result.mHitRefnum.isSet() || hitNonObjectWorld)
             {
                 result.mHit = true;
                 result.mHitPointWorld = intersection.getWorldIntersectPoint();
@@ -1270,10 +1252,10 @@ namespace MWRender
         mActorsPaths->updatePtr(old, updated);
     }
 
-    void RenderingManager::spawnEffect(const std::string& model, std::string_view texture,
-        const osg::Vec3f& worldPosition, float scale, bool isMagicVFX)
+    void RenderingManager::spawnEffect(VFS::Path::NormalizedView model, std::string_view texture,
+        const osg::Vec3f& worldPosition, float scale, bool isMagicVFX, bool useAmbientLight)
     {
-        mEffectManager->addEffect(model, texture, worldPosition, scale, isMagicVFX);
+        mEffectManager->addEffect(model, texture, worldPosition, scale, isMagicVFX, useAmbientLight);
     }
 
     void RenderingManager::notifyWorldSpaceChanged()
@@ -1467,7 +1449,7 @@ namespace MWRender
         RenderingManager::WorldspaceChunkMgr newChunkMgr;
 
         const float lodFactor = Settings::terrain().mLodFactor;
-        const bool groundcover = Settings::groundcover().mEnabled;
+        const bool groundcover = Settings::groundcover().mEnabled && worldspace == ESM::Cell::sDefaultWorldspaceId;
         const bool distantTerrain = Settings::terrain().mDistantTerrain;
         const double expiryDelay = Settings::cells().mCacheExpiryDelay;
         if (distantTerrain || groundcover)
@@ -1507,6 +1489,7 @@ namespace MWRender
         newChunkMgr.mTerrain->setTargetFrameRate(Settings::cells().mTargetFramerate);
         float distanceMult = std::cos(osg::DegreesToRadians(std::min(mFieldOfView, 140.f)) / 2.f);
         newChunkMgr.mTerrain->setViewDistance(mViewDistance * (distanceMult ? 1.f / distanceMult : 1.f));
+        newChunkMgr.mTerrain->enableHeightCullCallback(Settings::terrain().mWaterCulling);
 
         return mWorldspaceChunks.emplace(worldspace, std::move(newChunkMgr)).first->second;
     }
@@ -1554,6 +1537,21 @@ namespace MWRender
             {
                 if (MWMechanics::getPlayer().isInCell())
                     configureAmbient(*MWMechanics::getPlayer().getCell()->getCell());
+            }
+            else if (it->first == "Shaders"
+                && (it->second == "force per pixel lighting" || it->second == "classic falloff"))
+            {
+                mViewer->stopThreading();
+
+                auto defines = mResourceSystem->getSceneManager()->getShaderManager().getGlobalDefines();
+                defines["forcePPL"] = Settings::shaders().mForcePerPixelLighting ? "1" : "0";
+                defines["classicFalloff"] = Settings::shaders().mClassicFalloff ? "1" : "0";
+                mResourceSystem->getSceneManager()->getShaderManager().setGlobalDefines(defines);
+
+                if (MWMechanics::getPlayer().isInCell() && it->second == "classic falloff")
+                    configureAmbient(*MWMechanics::getPlayer().getCell()->getCell());
+
+                mViewer->startThreading();
             }
             else if (it->first == "Shaders"
                 && (it->second == "light bounds multiplier" || it->second == "maximum light distance"
@@ -1641,7 +1639,7 @@ namespace MWRender
     osg::Vec3f RenderingManager::getHalfExtents(const MWWorld::ConstPtr& object) const
     {
         osg::Vec3f halfExtents(0, 0, 0);
-        std::string modelName = object.getClass().getCorrectedModel(object);
+        VFS::Path::Normalized modelName(object.getClass().getCorrectedModel(object));
         if (modelName.empty())
             return halfExtents;
 
@@ -1663,24 +1661,39 @@ namespace MWRender
 
     osg::BoundingBox RenderingManager::getCullSafeBoundingBox(const MWWorld::Ptr& ptr) const
     {
-        const std::string model = ptr.getClass().getCorrectedModel(ptr);
-        if (model.empty())
+        if (ptr.isEmpty())
             return {};
 
-        osg::ref_ptr<SceneUtil::PositionAttitudeTransform> rootNode = new SceneUtil::PositionAttitudeTransform;
-        // Hack even used by osg internally, osg's NodeVisitor won't accept const qualified nodes
-        rootNode->addChild(const_cast<osg::Node*>(mResourceSystem->getSceneManager()->getTemplate(model).get()));
+        osg::ref_ptr<SceneUtil::PositionAttitudeTransform> rootNode = ptr.getRefData().getBaseNode();
 
-        const float refScale = ptr.getCellRef().getScale();
-        rootNode->setScale({ refScale, refScale, refScale });
-        rootNode->setPosition(osg::Vec3(0, 0, 0));
-
-        osg::ref_ptr<Animation> animation = nullptr;
-
-        if (ptr.getClass().isNpc())
+        // Recalculate bounds on the ptr's template when the object is not loaded or is loaded but paged
+        MWWorld::Scene* worldScene = MWBase::Environment::get().getWorldScene();
+        if (!rootNode || worldScene->isPagedRef(ptr))
         {
-            rootNode->setNodeMask(Mask_Actor);
-            animation = new NpcAnimation(ptr, osg::ref_ptr<osg::Group>(rootNode), mResourceSystem);
+            const VFS::Path::Normalized model(ptr.getClass().getCorrectedModel(ptr));
+
+            if (model.empty())
+                return {};
+
+            rootNode = new SceneUtil::PositionAttitudeTransform;
+            // Hack even used by osg internally, osg's NodeVisitor won't accept const qualified nodes
+            rootNode->addChild(const_cast<osg::Node*>(mResourceSystem->getSceneManager()->getTemplate(model).get()));
+
+            const float refScale = ptr.getCellRef().getScale();
+            rootNode->setScale({ refScale, refScale, refScale });
+            const auto& rotation = ptr.getCellRef().getPosition().rot;
+            if (!ptr.getClass().isActor())
+                rootNode->setAttitude(osg::Quat(rotation[0], osg::Vec3(-1, 0, 0))
+                    * osg::Quat(rotation[1], osg::Vec3(0, -1, 0)) * osg::Quat(rotation[2], osg::Vec3(0, 0, -1)));
+            rootNode->setPosition(ptr.getCellRef().getPosition().asVec3());
+
+            osg::ref_ptr<Animation> animation = nullptr;
+
+            if (ptr.getClass().isNpc())
+            {
+                rootNode->setNodeMask(Mask_Actor);
+                animation = new NpcAnimation(ptr, osg::ref_ptr<osg::Group>(rootNode), mResourceSystem);
+            }
         }
 
         SceneUtil::CullSafeBoundsVisitor computeBounds;

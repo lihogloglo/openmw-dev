@@ -47,6 +47,7 @@
 #include "aifollow.hpp"
 #include "aipursue.hpp"
 #include "aiwander.hpp"
+#include "attacktype.hpp"
 #include "character.hpp"
 #include "creaturestats.hpp"
 #include "movement.hpp"
@@ -213,7 +214,7 @@ namespace
                 const ESM::Static* const fx
                     = world->getStore().get<ESM::Static>().search(ESM::RefId::stringRefId("VFX_Soul_Trap"));
                 if (fx != nullptr)
-                    world->spawnEffect(Misc::ResourceHelpers::correctMeshPath(fx->mModel), "",
+                    world->spawnEffect(Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(fx->mModel)), "",
                         creature.getRefData().getPosition().asVec3());
 
                 MWBase::Environment::get().getSoundManager()->playSound3D(
@@ -239,6 +240,23 @@ namespace MWMechanics
 
     namespace
     {
+        std::string_view attackTypeName(AttackType attackType)
+        {
+            switch (attackType)
+            {
+                case AttackType::NoAttack:
+                case AttackType::Any:
+                    return {};
+                case AttackType::Chop:
+                    return "chop";
+                case AttackType::Slash:
+                    return "slash";
+                case AttackType::Thrust:
+                    return "thrust";
+            }
+            throw std::logic_error("Invalid attack type value: " + std::to_string(static_cast<int>(attackType)));
+        }
+
         float getTimeToDestination(const AiPackage& package, const osg::Vec3f& position, float speed, float duration,
             const osg::Vec3f& halfExtents)
         {
@@ -363,7 +381,11 @@ namespace MWMechanics
                 mov.mSpeedFactor = osg::Vec2(controls.mMovement, controls.mSideMovement).length();
                 stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Run, controls.mRun);
                 stats.setMovementFlag(MWMechanics::CreatureStats::Flag_Sneak, controls.mSneak);
-                stats.setAttackingOrSpell((controls.mUse & 1) == 1);
+
+                AttackType attackType = static_cast<AttackType>(controls.mUse);
+                stats.setAttackingOrSpell(attackType != AttackType::NoAttack);
+                stats.setAttackType(attackTypeName(attackType));
+
                 controls.mChanged = false;
             }
             // For the player we don't need to copy these values to Lua because mwinput doesn't change them.
@@ -512,7 +534,8 @@ namespace MWMechanics
             if (greetingTimer >= GREETING_SHOULD_START)
             {
                 greetingState = Greet_InProgress;
-                MWBase::Environment::get().getDialogueManager()->say(actor, ESM::RefId::stringRefId("hello"));
+                if (!MWBase::Environment::get().getDialogueManager()->say(actor, ESM::RefId::stringRefId("hello")))
+                    greetingState = Greet_Done;
                 greetingTimer = 0;
             }
         }
@@ -1290,40 +1313,6 @@ namespace MWMechanics
         }
     }
 
-    bool Actors::playerHasHostiles() const
-    {
-        const MWWorld::Ptr player = getPlayer();
-        const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
-        bool hasHostiles = false; // need to know this to play Battle music
-        const bool aiActive = MWBase::Environment::get().getMechanicsManager()->isAIActive();
-
-        if (aiActive)
-        {
-            const int actorsProcessingRange = Settings::game().mActorsProcessingRange;
-            for (const Actor& actor : mActors)
-            {
-                if (actor.getPtr() == player)
-                    continue;
-
-                const bool inProcessingRange
-                    = (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length2()
-                    <= actorsProcessingRange * actorsProcessingRange;
-                if (inProcessingRange)
-                {
-                    MWMechanics::CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
-                    bool isDead = stats.isDead() && stats.isDeathAnimationFinished();
-                    if (!isDead && stats.getAiSequence().isInCombat())
-                    {
-                        hasHostiles = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return hasHostiles;
-    }
-
     void Actors::predictAndAvoidCollisions(float duration) const
     {
         if (!MWBase::Environment::get().getMechanicsManager()->isAIActive())
@@ -1516,7 +1505,6 @@ namespace MWMechanics
                 if (!playerHitAttemptActor.isInCell())
                     player.getClass().getCreatureStats(player).setHitAttemptActorId(-1);
             }
-            const bool godmode = MWBase::Environment::get().getWorld()->getGodModeState();
             const int actorsProcessingRange = Settings::game().mActorsProcessingRange;
 
             // AI and magic effects update
@@ -1668,8 +1656,7 @@ namespace MWMechanics
                 world->setActorActive(actor.getPtr(), true);
 
                 const bool isDead = actor.getPtr().getClass().getCreatureStats(actor.getPtr()).isDead();
-                if (!isDead && (!godmode || !isPlayer)
-                    && actor.getPtr().getClass().getCreatureStats(actor.getPtr()).isParalyzed())
+                if (!isDead && actor.getPtr().getClass().getCreatureStats(actor.getPtr()).isParalyzed())
                     ctrl.skipAnim();
 
                 // Handle player last, in case a cell transition occurs by casting a teleportation spell
@@ -1798,9 +1785,6 @@ namespace MWMechanics
                 {
                     // player's death animation is over
                     MWBase::Environment::get().getStateManager()->askLoadRecent();
-                    // Play Death Music if it was the player dying
-                    MWBase::Environment::get().getSoundManager()->streamMusic(
-                        MWSound::deathMusic, MWSound::MusicType::Special);
                 }
                 else
                 {
@@ -1822,7 +1806,8 @@ namespace MWMechanics
                 ESM::RefId::stringRefId("VFX_Summon_End"));
             if (fx)
                 MWBase::Environment::get().getWorld()->spawnEffect(
-                    Misc::ResourceHelpers::correctMeshPath(fx->mModel), "", ptr.getRefData().getPosition().asVec3());
+                    Misc::ResourceHelpers::correctMeshPath(VFS::Path::Normalized(fx->mModel)), "",
+                    ptr.getRefData().getPosition().asVec3());
 
             // Remove the summoned creature's summoned creatures as well
             MWMechanics::CreatureStats& stats = ptr.getClass().getCreatureStats(ptr);
@@ -1878,6 +1863,9 @@ namespace MWMechanics
                 || (playerPos - actor.getPtr().getRefData().getPosition().asVec3()).length2()
                     > actorsProcessingRange * actorsProcessingRange)
                 continue;
+
+            // Get rid of effects pending removal so they are not applied when resting
+            updateMagicEffects(actor.getPtr());
 
             adjustMagicEffects(actor.getPtr(), duration);
 
@@ -2040,7 +2028,7 @@ namespace MWMechanics
             iter->second->getCharacterController().skipAnim();
     }
 
-    bool Actors::checkAnimationPlaying(const MWWorld::Ptr& ptr, const std::string& groupName) const
+    bool Actors::checkAnimationPlaying(const MWWorld::Ptr& ptr, std::string_view groupName) const
     {
         const auto iter = mIndex.find(ptr.mRef);
         if (iter != mIndex.end())

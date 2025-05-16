@@ -32,7 +32,8 @@ ContentSelectorView::ContentSelector::~ContentSelector() = default;
 void ContentSelectorView::ContentSelector::buildContentModel(bool showOMWScripts)
 {
     QIcon warningIcon(ui->addonView->style()->standardIcon(QStyle::SP_MessageBoxWarning));
-    mContentModel = new ContentSelectorModel::ContentModel(this, warningIcon, showOMWScripts);
+    QIcon errorIcon(ui->addonView->style()->standardIcon(QStyle::SP_MessageBoxCritical));
+    mContentModel = new ContentSelectorModel::ContentModel(this, warningIcon, errorIcon, showOMWScripts);
 }
 
 void ContentSelectorView::ContentSelector::buildGameFileView()
@@ -210,7 +211,6 @@ void ContentSelectorView::ContentSelector::addFiles(const QString& path, bool ne
         ui->gameFileView->setCurrentIndex(0);
 
     mContentModel->uncheckAll();
-    mContentModel->checkForLoadOrderErrors();
 }
 
 void ContentSelectorView::ContentSelector::sortFiles()
@@ -253,7 +253,6 @@ void ContentSelectorView::ContentSelector::slotCurrentGameFileIndexChanged(int i
         oldIndex = index;
 
         setGameFileSelected(index, true);
-        mContentModel->checkForLoadOrderErrors();
     }
 
     emit signalCurrentGamefileIndexChanged(index);
@@ -319,17 +318,17 @@ void ContentSelectorView::ContentSelector::slotCheckMultiSelectedItems()
 void ContentSelectorView::ContentSelector::slotCopySelectedItemsPaths()
 {
     QClipboard* clipboard = QApplication::clipboard();
-    QString filepaths;
+    QStringList filepaths;
     for (const QModelIndex& index : ui->addonView->selectionModel()->selectedIndexes())
     {
         int row = mAddonProxyModel->mapToSource(index).row();
         const ContentSelectorModel::EsmFile* file = mContentModel->item(row);
-        filepaths += file->filePath() + "\n";
+        filepaths.push_back(file->filePath());
     }
 
     if (!filepaths.isEmpty())
     {
-        clipboard->setText(filepaths);
+        clipboard->setText(filepaths.join("\n"));
     }
 }
 

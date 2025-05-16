@@ -18,7 +18,8 @@ namespace SceneUtil
 {
     void setupSoftEffect(osg::Node& node, float size, bool falloff, float falloffDepth)
     {
-        static const osg::ref_ptr<SceneUtil::AutoDepth> depth = new SceneUtil::AutoDepth(osg::Depth::LESS, 0, 1, false);
+        static const osg::ref_ptr<SceneUtil::AutoDepth> depth
+            = new SceneUtil::AutoDepth(osg::Depth::LEQUAL, 0, 1, false);
 
         osg::StateSet* stateset = node.getOrCreateStateSet();
 
@@ -37,7 +38,8 @@ namespace SceneUtil
 
         osg::StateSet* stateset = node.getOrCreateStateSet();
 
-        stateset->setRenderBinDetails(14, "Distortion", osg::StateSet::OVERRIDE_RENDERBIN_DETAILS);
+        stateset->setNestRenderBins(false);
+        stateset->setRenderBinDetails(14, "Distortion", osg::StateSet::OVERRIDE_PROTECTED_RENDERBIN_DETAILS);
         stateset->addUniform(new osg::Uniform("distortionStrength", distortionStrength));
 
         stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);

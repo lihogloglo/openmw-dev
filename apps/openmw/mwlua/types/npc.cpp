@@ -1,9 +1,12 @@
-#include "actor.hpp"
 #include "types.hpp"
+
+#include "actor.hpp"
+#include "modelproperty.hpp"
 
 #include <components/esm3/loadfact.hpp>
 #include <components/esm3/loadnpc.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/lua/util.hpp>
 #include <components/misc/resourcehelpers.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
@@ -50,6 +53,18 @@ namespace
             throw std::runtime_error("Faction '" + std::string(faction) + "' does not exist");
         return id;
     }
+
+    void verifyPlayer(const MWLua::Object& o)
+    {
+        if (o.ptr() != MWBase::Environment::get().getWorld()->getPlayerPtr())
+            throw std::runtime_error("The argument must be a player!");
+    }
+
+    void verifyNpc(const MWWorld::Class& cls)
+    {
+        if (!cls.isNpc())
+            throw std::runtime_error("The argument must be a NPC!");
+    }
 }
 
 namespace MWLua
@@ -60,7 +75,7 @@ namespace MWLua
 
         addRecordFunctionBinding<ESM::NPC>(npc, context);
 
-        sol::state_view& lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
 
         sol::usertype<ESM::NPC> record = lua.new_usertype<ESM::NPC>("ESM3_NPC");
         record[sol::meta_function::to_string]
@@ -72,17 +87,20 @@ namespace MWLua
             = sol::readonly_property([](const ESM::NPC& rec) -> std::string { return rec.mRace.serializeText(); });
         record["class"]
             = sol::readonly_property([](const ESM::NPC& rec) -> std::string { return rec.mClass.serializeText(); });
-        record["mwscript"]
-            = sol::readonly_property([](const ESM::NPC& rec) -> std::string { return rec.mScript.serializeText(); });
+        record["mwscript"] = sol::readonly_property(
+            [](const ESM::NPC& rec) -> sol::optional<std::string> { return LuaUtil::serializeRefId(rec.mScript); });
         record["hair"]
             = sol::readonly_property([](const ESM::NPC& rec) -> std::string { return rec.mHair.serializeText(); });
         record["baseDisposition"]
             = sol::readonly_property([](const ESM::NPC& rec) -> int { return (int)rec.mNpdt.mDisposition; });
         record["head"]
             = sol::readonly_property([](const ESM::NPC& rec) -> std::string { return rec.mHead.serializeText(); });
-        record["model"] = sol::readonly_property(
-            [](const ESM::NPC& rec) -> std::string { return Misc::ResourceHelpers::correctMeshPath(rec.mModel); });
+        addModelProperty(record);
+        record["isEssential"]
+            = sol::readonly_property([](const ESM::NPC& rec) -> bool { return rec.mFlags & ESM::NPC::Essential; });
         record["isMale"] = sol::readonly_property([](const ESM::NPC& rec) -> bool { return rec.isMale(); });
+        record["isRespawning"]
+            = sol::readonly_property([](const ESM::NPC& rec) -> bool { return rec.mFlags & ESM::NPC::Respawn; });
         record["baseGold"] = sol::readonly_property([](const ESM::NPC& rec) -> int { return rec.mNpdt.mGold; });
         addActorServicesBindings<ESM::NPC>(record, context);
 
@@ -99,38 +117,60 @@ namespace MWLua
         };
 
         npc["getDisposition"] = [](const Object& o, const Object& player) -> int {
-            if (player.ptr() != MWBase::Environment::get().getWorld()->getPlayerPtr())
-                throw std::runtime_error("The argument must be a player!");
             const MWWorld::Class& cls = o.ptr().getClass();
-            if (!cls.isNpc())
-                throw std::runtime_error("NPC expected");
+            verifyPlayer(player);
+            verifyNpc(cls);
             return MWBase::Environment::get().getMechanicsManager()->getDerivedDisposition(o.ptr());
         };
 
-        npc["getFactionRank"] = [](const Object& actor, std::string_view faction) {
+        npc["getBaseDisposition"] = [](const Object& o, const Object& player) -> int {
+            const MWWorld::Class& cls = o.ptr().getClass();
+            verifyPlayer(player);
+            verifyNpc(cls);
+            return cls.getNpcStats(o.ptr()).getBaseDisposition();
+        };
+
+        npc["setBaseDisposition"] = [](Object& o, const Object& player, int value) {
+            if (dynamic_cast<LObject*>(&o) && !dynamic_cast<SelfObject*>(&o))
+                throw std::runtime_error("Local scripts can modify only self");
+
+            const MWWorld::Class& cls = o.ptr().getClass();
+            verifyPlayer(player);
+            verifyNpc(cls);
+            cls.getNpcStats(o.ptr()).setBaseDisposition(value);
+        };
+
+        npc["modifyBaseDisposition"] = [](Object& o, const Object& player, int value) {
+            if (dynamic_cast<LObject*>(&o) && !dynamic_cast<SelfObject*>(&o))
+                throw std::runtime_error("Local scripts can modify only self");
+
+            const MWWorld::Class& cls = o.ptr().getClass();
+            verifyPlayer(player);
+            verifyNpc(cls);
+            auto& stats = cls.getNpcStats(o.ptr());
+            stats.setBaseDisposition(stats.getBaseDisposition() + value);
+        };
+
+        npc["getFactionRank"] = [](const Object& actor, std::string_view faction) -> size_t {
             const MWWorld::Ptr ptr = actor.ptr();
             ESM::RefId factionId = parseFactionId(faction);
 
             const MWMechanics::NpcStats& npcStats = ptr.getClass().getNpcStats(ptr);
-
-            int factionRank = npcStats.getFactionRank(factionId);
             if (ptr == MWBase::Environment::get().getWorld()->getPlayerPtr())
             {
                 if (npcStats.isInFaction(factionId))
-                    return factionRank + 1;
-                else
-                    return 0;
+                {
+                    int factionRank = npcStats.getFactionRank(factionId);
+                    return LuaUtil::toLuaIndex(factionRank);
+                }
             }
             else
             {
                 ESM::RefId primaryFactionId = ptr.getClass().getPrimaryFaction(ptr);
-                if (factionId == primaryFactionId && factionRank == -1)
-                    return ptr.getClass().getPrimaryFactionRank(ptr);
-                else if (primaryFactionId == factionId)
-                    return factionRank + 1;
-                else
-                    return 0;
+                if (factionId == primaryFactionId)
+                    return LuaUtil::toLuaIndex(ptr.getClass().getPrimaryFactionRank(ptr));
             }
+            return 0;
         };
 
         npc["setFactionRank"] = [](Object& actor, std::string_view faction, int value) {
@@ -147,7 +187,7 @@ namespace MWLua
             if (value <= 0 || value > ranksCount)
                 throw std::runtime_error("Requested rank does not exist");
 
-            auto targetRank = std::clamp(value, 1, ranksCount) - 1;
+            auto targetRank = LuaUtil::fromLuaIndex(std::clamp(value, 1, ranksCount));
 
             if (ptr != MWBase::Environment::get().getWorld()->getPlayerPtr())
             {
@@ -294,7 +334,7 @@ namespace MWLua
             ESM::RefId factionId = parseFactionId(faction);
             return ptr.getClass().getNpcStats(ptr).getExpelled(factionId);
         };
-        npc["getFactions"] = [&lua](const Object& actor) {
+        npc["getFactions"] = [](sol::this_state lua, const Object& actor) {
             const MWWorld::Ptr ptr = actor.ptr();
             MWMechanics::NpcStats& npcStats = ptr.getClass().getNpcStats(ptr);
             sol::table res(lua, sol::create);
@@ -312,10 +352,6 @@ namespace MWLua
             res.add(primaryFactionId.serializeText());
 
             return res;
-        };
-        npc["getCapacity"] = [](const Object& actor) -> float {
-            const MWWorld::Ptr ptr = actor.ptr();
-            return ptr.getClass().getCapacity(ptr);
         };
     }
 }

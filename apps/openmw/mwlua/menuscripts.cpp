@@ -1,5 +1,6 @@
 #include "menuscripts.hpp"
 
+#include <components/lua/util.hpp>
 #include <components/misc/strings/lower.hpp>
 
 #include "../mwbase/environment.hpp"
@@ -29,15 +30,16 @@ namespace MWLua
 
     sol::table initMenuPackage(const Context& context)
     {
-        sol::state_view lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
         sol::table api(lua, sol::create);
 
         api["STATE"]
-            = LuaUtil::makeStrictReadOnly(context.mLua->tableFromPairs<std::string_view, MWBase::StateManager::State>({
-                { "NoGame", MWBase::StateManager::State_NoGame },
-                { "Running", MWBase::StateManager::State_Running },
-                { "Ended", MWBase::StateManager::State_Ended },
-            }));
+            = LuaUtil::makeStrictReadOnly(LuaUtil::tableFromPairs<std::string_view, MWBase::StateManager::State>(lua,
+                {
+                    { "NoGame", MWBase::StateManager::State_NoGame },
+                    { "Running", MWBase::StateManager::State_Running },
+                    { "Ended", MWBase::StateManager::State_Ended },
+                }));
 
         api["getState"] = []() -> int { return MWBase::Environment::get().getStateManager()->getState(); };
 
@@ -88,7 +90,7 @@ namespace MWLua
                 slotInfo["timePlayed"] = slot.mProfile.mTimePlayed;
                 sol::table contentFiles(lua, sol::create);
                 for (size_t i = 0; i < slot.mProfile.mContentFiles.size(); ++i)
-                    contentFiles[i + 1] = Misc::StringUtils::lowerCase(slot.mProfile.mContentFiles[i]);
+                    contentFiles[LuaUtil::toLuaIndex(i)] = Misc::StringUtils::lowerCase(slot.mProfile.mContentFiles[i]);
 
                 {
                     auto system_time = std::chrono::system_clock::now()

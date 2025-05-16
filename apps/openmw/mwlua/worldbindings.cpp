@@ -5,6 +5,7 @@
 #include <components/esm3/loadarmo.hpp>
 #include <components/esm3/loadbook.hpp>
 #include <components/esm3/loadclot.hpp>
+#include <components/esm3/loadligh.hpp>
 #include <components/esm3/loadmisc.hpp>
 #include <components/esm3/loadskil.hpp>
 #include <components/esm3/loadweap.hpp>
@@ -24,6 +25,7 @@
 
 #include "luamanagerimp.hpp"
 
+#include "animationbindings.hpp"
 #include "corebindings.hpp"
 #include "mwscriptbindings.hpp"
 
@@ -78,6 +80,10 @@ namespace MWLua
         api["getCellByName"] = [](std::string_view name) {
             return GCell{ &MWBase::Environment::get().getWorldModel()->getCell(name, /*forceLoad=*/false) };
         };
+        api["getCellById"] = [](std::string_view stringId) {
+            return GCell{ &MWBase::Environment::get().getWorldModel()->getCell(
+                ESM::RefId::deserializeText(stringId), /*forceLoad=*/false) };
+        };
         api["getExteriorCell"] = [](int x, int y, sol::object cellOrName) {
             ESM::RefId worldspace;
             if (cellOrName.is<GCell>())
@@ -96,7 +102,8 @@ namespace MWLua
 
         const MWWorld::Store<ESM::Cell>* cells3Store = &MWBase::Environment::get().getESMStore()->get<ESM::Cell>();
         const MWWorld::Store<ESM4::Cell>* cells4Store = &MWBase::Environment::get().getESMStore()->get<ESM4::Cell>();
-        sol::usertype<CellsStore> cells = context.mLua->sol().new_usertype<CellsStore>("Cells");
+        auto view = context.sol();
+        sol::usertype<CellsStore> cells = view.new_usertype<CellsStore>("Cells");
         cells[sol::meta_function::length]
             = [cells3Store, cells4Store](const CellsStore&) { return cells3Store->getSize() + cells4Store->getSize(); };
         cells[sol::meta_function::index]
@@ -118,14 +125,14 @@ namespace MWLua
                     cellRecord->mId, /*forceLoad=*/false) };
             }
         };
-        cells[sol::meta_function::pairs] = context.mLua->sol()["ipairsForArray"].template get<sol::function>();
-        cells[sol::meta_function::ipairs] = context.mLua->sol()["ipairsForArray"].template get<sol::function>();
+        cells[sol::meta_function::pairs] = view["ipairsForArray"].template get<sol::function>();
+        cells[sol::meta_function::ipairs] = view["ipairsForArray"].template get<sol::function>();
         api["cells"] = CellsStore{};
     }
 
     sol::table initWorldPackage(const Context& context)
     {
-        sol::table api(context.mLua->sol(), sol::create);
+        sol::table api(context.mLua->unsafeState(), sol::create);
 
         addCoreTimeBindings(api, context);
         addWorldTimeBindings(api, context);
@@ -181,6 +188,10 @@ namespace MWLua
             [lua = context.mLua](const ESM::Weapon& weapon) -> const ESM::Weapon* {
                 checkGameInitialized(lua);
                 return MWBase::Environment::get().getESMStore()->insert(weapon);
+            },
+            [lua = context.mLua](const ESM::Light& light) -> const ESM::Light* {
+                checkGameInitialized(lua);
+                return MWBase::Environment::get().getESMStore()->insert(light);
             });
 
         api["_runStandardActivationAction"] = [context](const GObject& object, const GObject& actor) {
@@ -209,6 +220,8 @@ namespace MWLua
                 },
                 "_runStandardUseAction");
         };
+
+        api["vfx"] = initWorldVfxBindings(context);
 
         return LuaUtil::makeReadOnly(api);
     }

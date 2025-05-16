@@ -61,6 +61,7 @@
 #include <components/esm4/loadmstt.hpp>
 #include <components/esm4/loadnpc.hpp>
 #include <components/esm4/loadrefr.hpp>
+#include <components/esm4/loadscol.hpp>
 #include <components/esm4/loadstat.hpp>
 #include <components/esm4/loadterm.hpp>
 #include <components/esm4/loadtree.hpp>
@@ -264,7 +265,15 @@ namespace
         else if (state.mVersion <= ESM::MaxOldCreatureStatsFormatVersion)
         {
             if constexpr (std::is_same_v<T, ESM::Creature> || std::is_same_v<T, ESM::NPC>)
+            {
                 MWWorld::convertStats(state.mCreatureStats);
+                MWWorld::convertEnchantmentSlots(state.mCreatureStats, state.mInventory);
+            }
+        }
+        else if (state.mVersion <= ESM::MaxActiveSpellSlotIndexFormatVersion)
+        {
+            if constexpr (std::is_same_v<T, ESM::Creature> || std::is_same_v<T, ESM::NPC>)
+                MWWorld::convertEnchantmentSlots(state.mCreatureStats, state.mInventory);
         }
 
         if (state.mRef.mRefNum.hasContentFile())
@@ -308,9 +317,9 @@ namespace
         }
 
         // new reference
-        MWWorld::LiveCellRef<T> ref(record);
+        MWWorld::LiveCellRef<T> ref(ESM::makeBlankCellRef(), record);
         ref.load(state);
-        collection.mList.push_back(ref);
+        collection.mList.push_back(std::move(ref));
 
         MWWorld::LiveCellRefBase* base = &collection.mList.back();
         MWBase::Environment::get().getWorldModel()->registerPtr(MWWorld::Ptr(base, cellstore));
@@ -328,13 +337,13 @@ namespace
 
     // helper function for forEachInternal
     template <class Visitor, class List>
-    bool forEachImp(Visitor& visitor, List& list, MWWorld::CellStore* cellStore)
+    bool forEachImp(Visitor& visitor, List& list, MWWorld::CellStore& cellStore, bool includeDeleted)
     {
-        for (typename List::List::iterator iter(list.mList.begin()); iter != list.mList.end(); ++iter)
+        for (auto& v : list.mList)
         {
-            if (!MWWorld::CellStore::isAccessible(iter->mData, iter->mRef))
+            if (!includeDeleted && !MWWorld::CellStore::isAccessible(v.mData, v.mRef))
                 continue;
-            if (!visitor(MWWorld::Ptr(&*iter, cellStore)))
+            if (!visitor(MWWorld::Ptr(&v, &cellStore)))
                 return false;
         }
         return true;
@@ -343,6 +352,34 @@ namespace
 
 namespace MWWorld
 {
+    namespace
+    {
+        template <class T>
+        bool isEnabled(const T& ref, const ESMStore& store)
+        {
+            if (ref.mEsp.parent.isZeroOrUnset())
+                return true;
+
+            // Disable objects that are linked to an initially disabled parent.
+            // Actually when we will start working on Oblivion/Skyrim scripting we will need to:
+            //  - use the current state of the parent instead of initial state of the parent
+            //  - every time when the parent is enabled/disabled we should also enable/disable
+            //        all objects that are linked to it.
+            // But for now we assume that the parent remains in its initial state.
+            if (const ESM4::Reference* parentRef = store.get<ESM4::Reference>().searchStatic(ref.mEsp.parent))
+            {
+                const bool parentDisabled = parentRef->mFlags & ESM4::Rec_Disabled;
+                const bool inversed = ref.mEsp.flags & ESM4::EnableParent::Flag_Inversed;
+                if (parentDisabled != inversed)
+                    return false;
+
+                return isEnabled(*parentRef, store);
+            }
+
+            return true;
+        }
+    }
+
     struct CellStoreImp
     {
         CellStoreTuple mRefLists;
@@ -362,12 +399,12 @@ namespace MWWorld
         // listing only objects owned by this cell. Internal use only, you probably want to use forEach() so that moved
         // objects are accounted for.
         template <class Visitor>
-        static bool forEachInternal(Visitor& visitor, MWWorld::CellStore& cellStore)
+        static bool forEachInternal(Visitor& visitor, MWWorld::CellStore& cellStore, bool includeDeleted)
         {
             bool returnValue = true;
 
-            Misc::tupleForEach(cellStore.mCellStoreImp->mRefLists, [&visitor, &returnValue, &cellStore](auto& store) {
-                returnValue = returnValue && forEachImp(visitor, store, &cellStore);
+            Misc::tupleForEach(cellStore.mCellStoreImp->mRefLists, [&](auto& store) {
+                returnValue = returnValue && forEachImp(visitor, store, cellStore, includeDeleted);
             });
 
             return returnValue;
@@ -389,9 +426,9 @@ namespace MWWorld
                 liveCellRef.mData.setDeletedByContentFile(true);
 
             if (iter != mList.end())
-                *iter = liveCellRef;
+                *iter = std::move(liveCellRef);
             else
-                mList.push_back(liveCellRef);
+                mList.push_back(std::move(liveCellRef));
         }
         else
         {
@@ -416,24 +453,9 @@ namespace MWWorld
             return;
         }
         LiveCellRef<X> liveCellRef(ref, ptr);
-        if (!ref.mEsp.parent.isZeroOrUnset())
-        {
-            // Disable objects that are linked to an initially disabled parent.
-            // Actually when we will start working on Oblivion/Skyrim scripting we will need to:
-            //  - use the current state of the parent instead of initial state of the parent
-            //  - every time when the parent is enabled/disabled we should also enable/disable
-            //        all objects that are linked to it.
-            // But for now we assume that the parent remains in its initial state.
-            const ESM4::Reference* parentRef = esmStore.get<ESM4::Reference>().searchStatic(ref.mEsp.parent);
-            if (parentRef)
-            {
-                bool parentDisabled = parentRef->mFlags & ESM4::Rec_Disabled;
-                bool inversed = ref.mEsp.flags & ESM4::EnableParent::Flag_Inversed;
-                if (parentDisabled != inversed)
-                    liveCellRef.mData.disable();
-            }
-        }
-        list.push_back(liveCellRef);
+        if (!isEnabled(ref, esmStore))
+            liveCellRef.mData.disable();
+        list.push_back(std::move(liveCellRef));
     }
 
     template <typename X>
@@ -561,11 +583,11 @@ namespace MWWorld
         mMergedRefsNeedsUpdate = true;
     }
 
-    void CellStore::updateMergedRefs() const
+    void CellStore::updateMergedRefs(bool includeDeleted) const
     {
         mMergedRefs.clear();
         MergeVisitor visitor(mMergedRefs, mMovedHere, mMovedToAnotherCell);
-        CellStoreImp::forEachInternal(visitor, const_cast<CellStore&>(*this));
+        CellStoreImp::forEachInternal(visitor, const_cast<CellStore&>(*this), includeDeleted);
         visitor.merge();
         mMergedRefsNeedsUpdate = false;
     }

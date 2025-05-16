@@ -6,6 +6,7 @@
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/imagemanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/sceneutil/texturetype.hpp>
 #include <components/sceneutil/visitor.hpp>
 #include <components/settings/values.hpp>
 
@@ -48,13 +49,13 @@ namespace MWRender
     {
         if (texture.empty())
             return;
-        std::string correctedTexture = Misc::ResourceHelpers::correctTexturePath(texture, resourceSystem->getVFS());
+        const VFS::Path::Normalized correctedTexture
+            = Misc::ResourceHelpers::correctTexturePath(texture, resourceSystem->getVFS());
         // Not sure if wrap settings should be pulled from the overridden texture?
         osg::ref_ptr<osg::Texture2D> tex
             = new osg::Texture2D(resourceSystem->getImageManager()->getImage(correctedTexture));
         tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
         tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
-        tex->setName("diffuseMap");
 
         osg::ref_ptr<osg::StateSet> stateset;
         if (const osg::StateSet* const src = node.getStateSet())
@@ -63,6 +64,7 @@ namespace MWRender
             stateset = new osg::StateSet;
 
         stateset->setTextureAttribute(0, tex, osg::StateAttribute::OVERRIDE);
+        stateset->setTextureAttribute(0, new SceneUtil::TextureType("diffuseMap"), osg::StateAttribute::OVERRIDE);
 
         node.setStateSet(stateset);
     }
@@ -72,4 +74,16 @@ namespace MWRender
         return Settings::shaders().mAntialiasAlphaTest && Settings::video().mAntialiasing > 1;
     }
 
+    osg::ref_ptr<osg::LightModel> makeVFXLightModelInstance()
+    {
+        osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel;
+        lightModel->setAmbientIntensity({ 1, 1, 1, 1 });
+        return lightModel;
+    }
+
+    const osg::ref_ptr<osg::LightModel>& getVFXLightModelInstance()
+    {
+        static const osg::ref_ptr<osg::LightModel> lightModel = makeVFXLightModelInstance();
+        return lightModel;
+    }
 }

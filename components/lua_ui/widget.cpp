@@ -126,6 +126,7 @@ namespace LuaUi
     {
         mParent = nullptr;
         widget()->detachFromWidget();
+        widget()->detachFromLayer();
     }
 
     WidgetExtension* WidgetExtension::findDeep(std::string_view flagName)
@@ -280,7 +281,7 @@ namespace LuaUi
         updateChildrenCoord();
     }
 
-    void WidgetExtension::setProperties(const sol::object& props)
+    void WidgetExtension::setProperties(const sol::main_object& props)
     {
         mProperties = props;
         updateProperties();

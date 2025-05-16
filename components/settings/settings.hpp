@@ -5,12 +5,12 @@
 #include "gyroscopeaxis.hpp"
 #include "hrtfmode.hpp"
 #include "navmeshrendermode.hpp"
-#include "screenshotsettings.hpp"
 #include "windowmode.hpp"
 
 #include <components/detournavigator/collisionshapetype.hpp>
 #include <components/sceneutil/lightingmethod.hpp>
 #include <components/sdlutil/vsyncmode.hpp>
+#include <components/vfs/pathutil.hpp>
 
 #include <filesystem>
 #include <set>
@@ -265,12 +265,11 @@ namespace Settings
         return static_cast<SDLUtil::VSyncMode>(value);
     }
 
-    ScreenshotSettings parseScreenshotSettings(std::string_view value);
-
     template <>
-    inline ScreenshotSettings Manager::getImpl<ScreenshotSettings>(std::string_view setting, std::string_view category)
+    inline VFS::Path::Normalized Manager::getImpl<VFS::Path::Normalized>(
+        std::string_view setting, std::string_view category)
     {
-        return parseScreenshotSettings(getString(setting, category));
+        return VFS::Path::Normalized(getString(setting, category));
     }
 }
 

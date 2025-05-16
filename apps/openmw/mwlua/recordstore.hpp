@@ -5,6 +5,7 @@
 
 #include <components/esm/defs.hpp>
 #include <components/lua/luastate.hpp>
+#include <components/lua/util.hpp>
 
 #include "apps/openmw/mwbase/environment.hpp"
 #include "apps/openmw/mwbase/world.hpp"
@@ -38,7 +39,7 @@ namespace MWLua
         // Define a custom user type for the store.
         // Provide the interface of a read-only array.
         using StoreT = MWWorld::Store<T>;
-        sol::state_view& lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
         sol::usertype<StoreT> storeT = lua.new_usertype<StoreT>(recordName + "WorldStore");
         storeT[sol::meta_function::to_string] = [recordName](const StoreT& store) {
             return "{" + std::to_string(store.getSize()) + " " + recordName + " records}";
@@ -48,7 +49,7 @@ namespace MWLua
             [](const StoreT& store, size_t index) -> const T* {
                 if (index == 0 || index > store.getSize())
                     return nullptr;
-                return store.at(index - 1); // Translate from Lua's 1-based indexing.
+                return store.at(LuaUtil::fromLuaIndex(index));
             },
             [](const StoreT& store, std::string_view id) -> const T* {
                 return store.search(ESM::RefId::deserializeText(id));

@@ -54,7 +54,7 @@ namespace
             if (it != self->mStatsCache.end())
                 return it->second;
         }
-        return sol::make_object(context.mLua->sol(), getter(obj.ptr()));
+        return sol::make_object(context.mLua->unsafeState(), getter(obj.ptr()));
     }
 }
 
@@ -123,7 +123,8 @@ namespace MWLua
 
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &setNpcValue, attributeId, "skillIncreasesForAttribute" }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &setNpcValue, attributeId, "skillIncreasesForAttribute" }]
+                = sol::main_object(value);
         }
     };
 
@@ -159,7 +160,7 @@ namespace MWLua
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
             obj->mStatsCache[SelfObject::CachedStat{ &setNpcValue, specialization, "skillIncreasesForSpecialization" }]
-                = value;
+                = sol::main_object(value);
         }
     };
 
@@ -183,7 +184,8 @@ namespace MWLua
         {
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &setCreatureValue, std::monostate{}, "current" }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &setCreatureValue, std::monostate{}, "current" }]
+                = sol::main_object(value);
         }
 
         sol::object getProgress(const Context& context) const
@@ -204,7 +206,8 @@ namespace MWLua
 
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &setNpcValue, std::monostate{}, "progress" }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &setNpcValue, std::monostate{}, "progress" }]
+                = sol::main_object(value);
         }
 
         SkillIncreasesForAttributeStats getSkillIncreasesForAttributeStats() const
@@ -258,7 +261,7 @@ namespace MWLua
         {
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &DynamicStat::setValue, mIndex, prop }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &DynamicStat::setValue, mIndex, prop }] = sol::main_object(value);
         }
 
         static void setValue(Index i, std::string_view prop, const MWWorld::Ptr& ptr, const sol::object& value)
@@ -318,7 +321,7 @@ namespace MWLua
         {
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &AttributeStat::setValue, mId, prop }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &AttributeStat::setValue, mId, prop }] = sol::main_object(value);
         }
 
         static void setValue(Index i, std::string_view prop, const MWWorld::Ptr& ptr, const sol::object& value)
@@ -402,7 +405,7 @@ namespace MWLua
         {
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &SkillStat::setValue, mId, prop }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &SkillStat::setValue, mId, prop }] = sol::main_object(value);
         }
 
         static void setValue(Index index, std::string_view prop, const MWWorld::Ptr& ptr, const sol::object& value)
@@ -465,7 +468,8 @@ namespace MWLua
         {
             SelfObject* obj = mObject.asSelfObject();
             addStatUpdateAction(context.mLuaManager, *obj);
-            obj->mStatsCache[SelfObject::CachedStat{ &AIStat::setValue, static_cast<int>(mIndex), prop }] = value;
+            obj->mStatsCache[SelfObject::CachedStat{ &AIStat::setValue, static_cast<int>(mIndex), prop }]
+                = sol::main_object(value);
         }
 
         static void setValue(Index i, std::string_view prop, const MWWorld::Ptr& ptr, const sol::object& value)
@@ -531,11 +535,12 @@ namespace MWLua
 {
     void addActorStatsBindings(sol::table& actor, const Context& context)
     {
-        sol::table stats(context.mLua->sol(), sol::create);
+        sol::state_view lua = context.sol();
+        sol::table stats(lua, sol::create);
         actor["stats"] = LuaUtil::makeReadOnly(stats);
 
         auto skillIncreasesForAttributeStatsT
-            = context.mLua->sol().new_usertype<SkillIncreasesForAttributeStats>("SkillIncreasesForAttributeStats");
+            = lua.new_usertype<SkillIncreasesForAttributeStats>("SkillIncreasesForAttributeStats");
         for (const auto& attribute : MWBase::Environment::get().getESMStore()->get<ESM::Attribute>())
         {
             skillIncreasesForAttributeStatsT[ESM::RefId(attribute.mId).serializeText()] = sol::property(
@@ -546,8 +551,7 @@ namespace MWLua
         }
         // ESM::Class::specializationIndexToLuaId.at(rec.mData.mSpecialization)
         auto skillIncreasesForSpecializationStatsT
-            = context.mLua->sol().new_usertype<SkillIncreasesForSpecializationStats>(
-                "skillIncreasesForSpecializationStats");
+            = lua.new_usertype<SkillIncreasesForSpecializationStats>("skillIncreasesForSpecializationStats");
         for (int i = 0; i < 3; i++)
         {
             std::string_view index = ESM::Class::specializationIndexToLuaId.at(i);
@@ -558,7 +562,7 @@ namespace MWLua
                     });
         }
 
-        auto levelStatT = context.mLua->sol().new_usertype<LevelStat>("LevelStat");
+        auto levelStatT = lua.new_usertype<LevelStat>("LevelStat");
         levelStatT["current"] = sol::property([context](const LevelStat& stat) { return stat.getCurrent(context); },
             [context](const LevelStat& stat, const sol::object& value) { stat.setCurrent(context, value); });
         levelStatT["progress"] = sol::property([context](const LevelStat& stat) { return stat.getProgress(context); },
@@ -569,32 +573,32 @@ namespace MWLua
             [](const LevelStat& stat) { return stat.getSkillIncreasesForSpecializationStats(); });
         stats["level"] = addIndexedAccessor<LevelStat>(0);
 
-        auto dynamicStatT = context.mLua->sol().new_usertype<DynamicStat>("DynamicStat");
+        auto dynamicStatT = lua.new_usertype<DynamicStat>("DynamicStat");
         addProp(context, dynamicStatT, "base", &MWMechanics::DynamicStat<float>::getBase);
         addProp(context, dynamicStatT, "current", &MWMechanics::DynamicStat<float>::getCurrent);
         addProp(context, dynamicStatT, "modifier", &MWMechanics::DynamicStat<float>::getModifier);
-        sol::table dynamic(context.mLua->sol(), sol::create);
+        sol::table dynamic(lua, sol::create);
         stats["dynamic"] = LuaUtil::makeReadOnly(dynamic);
         dynamic["health"] = addIndexedAccessor<DynamicStat>(0);
         dynamic["magicka"] = addIndexedAccessor<DynamicStat>(1);
         dynamic["fatigue"] = addIndexedAccessor<DynamicStat>(2);
 
-        auto attributeStatT = context.mLua->sol().new_usertype<AttributeStat>("AttributeStat");
+        auto attributeStatT = lua.new_usertype<AttributeStat>("AttributeStat");
         addProp(context, attributeStatT, "base", &MWMechanics::AttributeValue::getBase);
         addProp(context, attributeStatT, "damage", &MWMechanics::AttributeValue::getDamage);
         attributeStatT["modified"]
             = sol::readonly_property([=](const AttributeStat& stat) { return stat.getModified(context); });
         addProp(context, attributeStatT, "modifier", &MWMechanics::AttributeValue::getModifier);
-        sol::table attributes(context.mLua->sol(), sol::create);
+        sol::table attributes(lua, sol::create);
         stats["attributes"] = LuaUtil::makeReadOnly(attributes);
         for (const ESM::Attribute& attribute : MWBase::Environment::get().getESMStore()->get<ESM::Attribute>())
             attributes[ESM::RefId(attribute.mId).serializeText()] = addIndexedAccessor<AttributeStat>(attribute.mId);
 
-        auto aiStatT = context.mLua->sol().new_usertype<AIStat>("AIStat");
+        auto aiStatT = lua.new_usertype<AIStat>("AIStat");
         addProp(context, aiStatT, "base", &MWMechanics::Stat<int>::getBase);
         addProp(context, aiStatT, "modifier", &MWMechanics::Stat<int>::getModifier);
         aiStatT["modified"] = sol::readonly_property([=](const AIStat& stat) { return stat.getModified(context); });
-        sol::table ai(context.mLua->sol(), sol::create);
+        sol::table ai(lua, sol::create);
         stats["ai"] = LuaUtil::makeReadOnly(ai);
         ai["alarm"] = addIndexedAccessor<AIStat>(MWMechanics::AiSetting::Alarm);
         ai["fight"] = addIndexedAccessor<AIStat>(MWMechanics::AiSetting::Fight);
@@ -604,13 +608,14 @@ namespace MWLua
 
     void addNpcStatsBindings(sol::table& npc, const Context& context)
     {
-        sol::table npcStats(context.mLua->sol(), sol::create);
-        sol::table baseMeta(context.mLua->sol(), sol::create);
+        sol::state_view lua = context.sol();
+        sol::table npcStats(lua, sol::create);
+        sol::table baseMeta(lua, sol::create);
         baseMeta[sol::meta_function::index] = LuaUtil::getMutableFromReadOnly(npc["baseType"]["stats"]);
         npcStats[sol::metatable_key] = baseMeta;
         npc["stats"] = LuaUtil::makeReadOnly(npcStats);
 
-        auto skillStatT = context.mLua->sol().new_usertype<SkillStat>("SkillStat");
+        auto skillStatT = lua.new_usertype<SkillStat>("SkillStat");
         addProp(context, skillStatT, "base", &MWMechanics::SkillValue::getBase);
         addProp(context, skillStatT, "damage", &MWMechanics::SkillValue::getDamage);
         skillStatT["modified"]
@@ -618,7 +623,7 @@ namespace MWLua
         addProp(context, skillStatT, "modifier", &MWMechanics::SkillValue::getModifier);
         skillStatT["progress"] = sol::property([context](const SkillStat& stat) { return stat.getProgress(context); },
             [context](const SkillStat& stat, const sol::object& value) { stat.cache(context, "progress", value); });
-        sol::table skills(context.mLua->sol(), sol::create);
+        sol::table skills(lua, sol::create);
         npcStats["skills"] = LuaUtil::makeReadOnly(skills);
         for (const ESM::Skill& skill : MWBase::Environment::get().getESMStore()->get<ESM::Skill>())
             skills[ESM::RefId(skill.mId).serializeText()] = addIndexedAccessor<SkillStat>(skill.mId);
@@ -626,7 +631,7 @@ namespace MWLua
 
     sol::table initCoreStatsBindings(const Context& context)
     {
-        sol::state_view& lua = context.mLua->sol();
+        sol::state_view lua = context.sol();
         sol::table statsApi(lua, sol::create);
         auto* vfs = MWBase::Environment::get().getResourceSystem()->getVFS();
 
@@ -635,7 +640,7 @@ namespace MWLua
         statsApi["Attribute"] = LuaUtil::makeReadOnly(attributes);
         statsApi["Attribute"][sol::metatable_key][sol::meta_function::to_string] = ESM::Attribute::getRecordType;
 
-        auto attributeT = context.mLua->sol().new_usertype<ESM::Attribute>("Attribute");
+        auto attributeT = lua.new_usertype<ESM::Attribute>("Attribute");
         attributeT[sol::meta_function::to_string]
             = [](const ESM::Attribute& rec) { return "ESM3_Attribute[" + rec.mId.toDebugString() + "]"; };
         attributeT["id"] = sol::readonly_property(
@@ -653,7 +658,7 @@ namespace MWLua
         statsApi["Skill"] = LuaUtil::makeReadOnly(skills);
         statsApi["Skill"][sol::metatable_key][sol::meta_function::to_string] = ESM::Skill::getRecordType;
 
-        auto skillT = context.mLua->sol().new_usertype<ESM::Skill>("Skill");
+        auto skillT = lua.new_usertype<ESM::Skill>("Skill");
         skillT[sol::meta_function::to_string]
             = [](const ESM::Skill& rec) { return "ESM3_Skill[" + rec.mId.toDebugString() + "]"; };
         skillT["id"] = sol::readonly_property(
@@ -683,7 +688,7 @@ namespace MWLua
             return res;
         });
 
-        auto schoolT = context.mLua->sol().new_usertype<ESM::MagicSchool>("MagicSchool");
+        auto schoolT = lua.new_usertype<ESM::MagicSchool>("MagicSchool");
         schoolT[sol::meta_function::to_string]
             = [](const ESM::MagicSchool& rec) { return "ESM3_MagicSchool[" + rec.mName + "]"; };
         schoolT["name"]

@@ -7,7 +7,10 @@
 
 #include <sol/sol.hpp>
 
+#include <components/vfs/pathutil.hpp>
+
 #include "configuration.hpp"
+#include "luastateptr.hpp"
 
 namespace VFS
 {
@@ -34,6 +37,36 @@ namespace LuaUtil
         bool mLogMemoryUsage = false;
     };
 
+    class LuaState;
+    class LuaView
+    {
+        sol::state_view mSol;
+
+        LuaView(const LuaView&) = delete;
+
+        LuaView(lua_State* L)
+            : mSol(L)
+        {
+        }
+
+    public:
+        friend class LuaState;
+        // Returns underlying sol::state.
+        sol::state_view& sol() { return mSol; }
+
+        // A shortcut to create a new Lua table.
+        sol::table newTable() { return sol::table(mSol, sol::create); }
+    };
+
+    template <typename Key, typename Value>
+    sol::table tableFromPairs(lua_State* L, std::initializer_list<std::pair<Key, Value>> list)
+    {
+        sol::table res(L, sol::create);
+        for (const auto& [k, v] : list)
+            res[k] = v;
+        return res;
+    }
+
     // Holds Lua state.
     // Provides additional features:
     //   - Load scripts from the virtual filesystem;
@@ -54,25 +87,52 @@ namespace LuaUtil
         LuaState(const LuaState&) = delete;
         LuaState(LuaState&&) = delete;
 
-        // Returns underlying sol::state.
-        sol::state_view& sol() { return mSol; }
+        // Pushing to the stack from outside a Lua context crashes the engine if no memory can be allocated to grow the
+        // stack
+        template <class Lambda>
+        [[nodiscard]] int invokeProtectedCall(Lambda&& f) const
+        {
+            if (!lua_checkstack(mSol.lua_state(), 2))
+                return LUA_ERRMEM;
+            lua_pushcfunction(mSol.lua_state(), [](lua_State* L) {
+                void* f = lua_touserdata(L, 1);
+                LuaView view(L);
+                (*static_cast<Lambda*>(f))(view);
+                return 0;
+            });
+            lua_pushlightuserdata(mSol.lua_state(), &f);
+            return lua_pcall(mSol.lua_state(), 1, 0, 0);
+        }
+
+        template <class Lambda>
+        void protectedCall(Lambda&& f) const
+        {
+            int result = invokeProtectedCall(std::forward<Lambda>(f));
+            switch (result)
+            {
+                case LUA_OK:
+                    break;
+                case LUA_ERRMEM:
+                    throw std::runtime_error("Lua error: out of memory");
+                case LUA_ERRRUN:
+                {
+                    sol::optional<std::string> error = sol::stack::check_get<std::string>(mSol.lua_state());
+                    if (error)
+                        throw std::runtime_error(*error);
+                }
+                    [[fallthrough]];
+                default:
+                    throw std::runtime_error("Lua error: " + std::to_string(result));
+            }
+        }
+
+        // Note that constructing a sol::state_view is only safe from a Lua context. Use protectedCall to get one
+        lua_State* unsafeState() const { return mSol.lua_state(); }
 
         // Can be used by a C++ function that is called from Lua to get the Lua traceback.
         // Makes no sense if called not from Lua code.
         // Note: It is a slow function, should be used for debug purposes only.
         std::string debugTraceback() { return mSol["debug"]["traceback"]().get<std::string>(); }
-
-        // A shortcut to create a new Lua table.
-        sol::table newTable() { return sol::table(mSol, sol::create); }
-
-        template <typename Key, typename Value>
-        sol::table tableFromPairs(std::initializer_list<std::pair<Key, Value>> list)
-        {
-            sol::table res(mSol, sol::create);
-            for (const auto& [k, v] : list)
-                res[k] = v;
-            return res;
-        }
 
         // Registers a package that will be available from every sandbox via `require(name)`.
         // The package can be either a sol::table with an API or a sol::function. If it is a function,
@@ -84,13 +144,13 @@ namespace LuaUtil
         // (the result is expected to be an interface of the script).
         // Args:
         //     path: path to the script in the virtual filesystem;
-        //     namePrefix: sandbox name will be "<namePrefix>[<filePath>]". Sandbox name
-        //         will be added to every `print` output.
+        //     envName: sandbox name.
         //     packages: additional packages that should be available from the sandbox via `require`. Each package
         //         should be either a sol::table or a sol::function. If it is a function, it will be evaluated
         //         (once per sandbox) with the argument 'hiddenData' the first time when requested.
-        sol::protected_function_result runInNewSandbox(const std::string& path, const std::string& namePrefix = "",
-            const std::map<std::string, sol::object>& packages = {}, const sol::object& hiddenData = sol::nil);
+        sol::protected_function_result runInNewSandbox(const VFS::Path::Normalized& path,
+            const std::string& envName = "unnamed", const std::map<std::string, sol::main_object>& packages = {},
+            const sol::main_object& hiddenData = sol::nil);
 
         void dropScriptCache() { mCompiledScripts.clear(); }
 
@@ -100,7 +160,7 @@ namespace LuaUtil
         // directly.
         void addInternalLibSearchPath(const std::filesystem::path& path) { mLibSearchPaths.push_back(path); }
         sol::function loadInternalLib(std::string_view libName);
-        sol::function loadFromVFS(const std::string& path);
+        sol::function loadFromVFS(const VFS::Path::Normalized& path);
         sol::environment newInternalLibEnvironment();
 
         uint64_t getTotalMemoryUsage() const { return mSol.memory_used(); }
@@ -116,19 +176,20 @@ namespace LuaUtil
         static void disableProfiler() { sProfilerEnabled = false; }
         static bool isProfilerEnabled() { return sProfilerEnabled; }
 
-    private:
         static sol::protected_function_result throwIfError(sol::protected_function_result&&);
+
+    private:
         template <typename... Args>
         friend sol::protected_function_result call(const sol::protected_function& fn, Args&&... args);
         template <typename... Args>
         friend sol::protected_function_result call(
             ScriptId scriptId, const sol::protected_function& fn, Args&&... args);
 
-        sol::function loadScriptAndCache(const std::string& path);
+        sol::function loadScriptAndCache(const VFS::Path::Normalized& path);
         static void countHook(lua_State* L, lua_Debug* ar);
         static void* trackingAllocator(void* ud, void* ptr, size_t osize, size_t nsize);
 
-        lua_State* createLuaRuntime(LuaState* luaState);
+        static LuaStatePtr createLuaRuntime(LuaState* luaState);
 
         struct AllocOwner
         {
@@ -146,30 +207,13 @@ namespace LuaUtil
         uint64_t mSmallAllocMemoryUsage = 0;
         std::vector<int64_t> mMemoryUsage;
 
-        class LuaStateHolder
-        {
-        public:
-            LuaStateHolder(lua_State* L)
-                : L(L)
-            {
-                sol::set_default_state(L);
-            }
-            ~LuaStateHolder() { lua_close(L); }
-            LuaStateHolder(const LuaStateHolder&) = delete;
-            LuaStateHolder(LuaStateHolder&&) = delete;
-            lua_State* get() { return L; }
-
-        private:
-            lua_State* L;
-        };
-
         // Must be declared before mSol and all sol-related objects. Then on exit it will be destructed the last.
-        LuaStateHolder mLuaHolder;
+        LuaStatePtr mLuaState;
 
         sol::state_view mSol;
         const ScriptsConfiguration* mConf;
         sol::table mSandboxEnv;
-        std::map<std::string, sol::bytecode> mCompiledScripts;
+        std::map<VFS::Path::Normalized, sol::bytecode> mCompiledScripts;
         std::map<std::string, sol::object> mCommonPackages;
         const VFS::Manager* mVFS;
         std::vector<std::filesystem::path> mLibSearchPaths;
@@ -264,6 +308,20 @@ namespace LuaUtil
             return getFieldOrNil(value, str...);
     }
 
+    template <class... Str>
+    void setDeepField(sol::table& table, const sol::object& value, std::string_view first, const Str&... str)
+    {
+        if constexpr (sizeof...(str) == 0)
+            table[first] = value;
+        else
+        {
+            if (table[first] == sol::nil)
+                table[first] = sol::table(table.lua_state(), sol::create);
+            sol::table nextTable = table[first];
+            setDeepField(nextTable, value, str...);
+        }
+    }
+
     // String representation of a Lua object. Should be used for debugging/logging purposes only.
     std::string toString(const sol::object&);
 
@@ -298,6 +356,12 @@ namespace LuaUtil
     }
     sol::table getMutableFromReadOnly(const sol::userdata&);
 
+    template <class T>
+    void copyVectorToTable(const std::vector<T>& v, sol::table& out)
+    {
+        for (const T& t : v)
+            out.add(t);
+    }
 }
 
 #endif // COMPONENTS_LUA_LUASTATE_H
