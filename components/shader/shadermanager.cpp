@@ -600,6 +600,37 @@ namespace Shader
         return found->second;
     }
 
+    osg::ref_ptr<osg::Program> ShaderManager::getProgram(osg::ref_ptr<osg::Shader> vertexShader,
+        osg::ref_ptr<osg::Shader> fragmentShader, osg::ref_ptr<osg::Shader> tessControlShader,
+        osg::ref_ptr<osg::Shader> tessEvalShader, const osg::Program* programTemplate)
+    {
+        std::lock_guard<std::mutex> lock(mMutex);
+        TessProgramKey key = std::make_tuple(vertexShader, fragmentShader, tessControlShader, tessEvalShader);
+        TessProgramMap::iterator found = mTessPrograms.find(key);
+        if (found == mTessPrograms.end())
+        {
+            if (!programTemplate)
+                programTemplate = mProgramTemplate;
+            osg::ref_ptr<osg::Program> program
+                = programTemplate ? cloneProgram(programTemplate) : osg::ref_ptr<osg::Program>(new osg::Program);
+            program->addShader(vertexShader);
+            program->addShader(fragmentShader);
+            if (tessControlShader)
+                program->addShader(tessControlShader);
+            if (tessEvalShader)
+                program->addShader(tessEvalShader);
+            addLinkedShaders(vertexShader, program);
+            addLinkedShaders(fragmentShader, program);
+            if (tessControlShader)
+                addLinkedShaders(tessControlShader, program);
+            if (tessEvalShader)
+                addLinkedShaders(tessEvalShader, program);
+
+            found = mTessPrograms.insert(std::make_pair(key, program)).first;
+        }
+        return found->second;
+    }
+
     osg::ref_ptr<osg::Program> ShaderManager::cloneProgram(const osg::Program* src)
     {
         osg::ref_ptr<osg::Program> program = static_cast<osg::Program*>(src->clone(osg::CopyOp::SHALLOW_COPY));

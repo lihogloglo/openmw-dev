@@ -335,12 +335,25 @@ namespace MWRender
         setRenderOrder(osg::Camera::PRE_RENDER);
         setReferenceFrame(osg::Camera::ABSOLUTE_RF);
         setNodeMask(Mask_RenderToTexture);
+        // CRITICAL: Set cull mask to 0 so this camera only renders its own children (the deformation surface)
+        // Without this, the camera would render the entire scene to screen!
+        setCullMask(0);
         setClearMask(GL_NONE);
         setViewport(
             0, 0, TerrainDeformationSurface::sRTTSize, TerrainDeformationSurface::sRTTSize);
-        addChild(mDeformationSurface);
-        setCullingActive(false);
+
+        // Set to FBO mode and attach texture to prevent rendering to screen
+        setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+
+        // Attach the deformation texture - the geometry will override this with its own FBOs in drawImplementation
+        // but the camera needs an attachment to prevent rendering to the screen framebuffer
+        attach(osg::Camera::COLOR_BUFFER0, mDeformationSurface->getColorTexture());
+
         setImplicitBufferAttachmentMask(0, 0);
+
+        addChild(mDeformationSurface);
+        // Keep culling active so the cull mask is respected
+        setCullingActive(true);
     }
 
     osg::Texture* TerrainDeformation::getColorTexture() const

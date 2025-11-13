@@ -8,6 +8,7 @@
 #include <osg/TexMat>
 #include <osg/Texture2D>
 
+#include <components/debug/debuglog.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/util.hpp>
@@ -315,7 +316,30 @@ namespace Terrain
                 defineMap["terrainDeformTess"] = terrainDeformTess ? "1" : "0";
                 Stereo::shaderStereoDefines(defineMap);
 
-                stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                // Load shaders based on tessellation requirement
+                if (terrainDeformTess)
+                {
+                    // Load tessellation shaders
+                    auto vert = shaderManager.getShader("terrain.vert", defineMap, osg::Shader::VERTEX);
+                    auto frag = shaderManager.getShader("terrain.frag", defineMap, osg::Shader::FRAGMENT);
+                    auto tesc = shaderManager.getShader("terrain.tesc", defineMap, osg::Shader::TESSCONTROL);
+                    auto tese = shaderManager.getShader("terrain.tese", defineMap, osg::Shader::TESSEVALUATION);
+
+                    if (vert && frag && tesc && tese)
+                    {
+                        stateset->setAttributeAndModes(
+                            shaderManager.getProgram(vert, frag, tesc, tese));
+                    }
+                    else
+                    {
+                        Log(Debug::Warning) << "Failed to load tessellation shaders for terrain, falling back to non-tessellation mode";
+                        stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                    }
+                }
+                else
+                {
+                    stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
+                }
                 stateset->addUniform(UniformCollection::value().mColorMode);
 
                 // Add terrain deformation uniforms if enabled

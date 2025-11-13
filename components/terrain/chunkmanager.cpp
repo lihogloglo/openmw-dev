@@ -1,6 +1,7 @@
 #include "chunkmanager.hpp"
 
 #include <osg/Material>
+#include <osg/PatchParameter>
 #include <osg/Texture2D>
 
 #include <osgUtil/IncrementalCompileOperation>
@@ -8,6 +9,7 @@
 #include <components/esm/util.hpp>
 #include <components/resource/objectcache.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/settings/values.hpp>
 
 #include <components/sceneutil/lightmanager.hpp>
 
@@ -263,7 +265,48 @@ namespace Terrain
 
         unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
 
-        geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
+        osg::ref_ptr<osg::DrawElements> indexBuffer = mBufferCache.getIndexBuffer(numVerts, lodFlags);
+
+        // Check if tessellation is enabled
+        bool terrainDeform = Settings::shaders().mTerrainDeformation;
+        bool useTessellation = terrainDeform && Settings::shaders().mTerrainDeformationTessellation;
+
+        if (useTessellation)
+        {
+            // Clone the index buffer to avoid modifying the cached version
+            osg::ref_ptr<osg::DrawElements> tessIndexBuffer;
+
+            // Clone based on the actual type
+            if (auto* drawUInt = dynamic_cast<osg::DrawElementsUInt*>(indexBuffer.get()))
+            {
+                tessIndexBuffer = new osg::DrawElementsUInt(*drawUInt);
+            }
+            else if (auto* drawUShort = dynamic_cast<osg::DrawElementsUShort*>(indexBuffer.get()))
+            {
+                tessIndexBuffer = new osg::DrawElementsUShort(*drawUShort);
+            }
+            else if (auto* drawUByte = dynamic_cast<osg::DrawElementsUByte*>(indexBuffer.get()))
+            {
+                tessIndexBuffer = new osg::DrawElementsUByte(*drawUByte);
+            }
+            else
+            {
+                tessIndexBuffer = indexBuffer; // Fallback
+            }
+
+            // Set primitive mode to PATCHES for tessellation
+            tessIndexBuffer->setMode(osg::PrimitiveSet::PATCHES);
+
+            // Set patch size to 3 vertices (for triangle patches)
+            osg::ref_ptr<osg::PatchParameter> patchParam = new osg::PatchParameter(3);
+            geometry->getOrCreateStateSet()->setAttribute(patchParam, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+
+            geometry->addPrimitiveSet(tessIndexBuffer);
+        }
+        else
+        {
+            geometry->addPrimitiveSet(indexBuffer);
+        }
 
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
         unsigned int numUvSets = useCompositeMap ? 1 : 2;

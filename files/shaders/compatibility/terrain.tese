@@ -4,6 +4,9 @@
 
 layout(triangles, fractional_odd_spacing, ccw) in;
 
+// Per-pixel lighting support (must be defined before use)
+#define PER_PIXEL_LIGHTING (@normalMap || @specularMap || @forcePPL)
+
 // Uniforms
 uniform mat4 osg_ModelViewProjectionMatrix;
 uniform mat4 osg_ModelViewMatrix;
@@ -27,11 +30,22 @@ uniform float maxDisplacementDepth;  // Maximum displacement in world units (def
     const bool onlyNormalOffsetUV = false;
 #endif
 
-// Input from TCS
+// Input from TCS (matching vertex shader outputs)
 in vec3 worldPos_TE_in[];
 in vec2 uv_TE_in[];
 in vec3 passNormal_TE_in[];
 in vec3 passViewPos_TE_in[];
+
+#if !PER_PIXEL_LIGHTING
+in vec3 passLighting_TE_in[];
+in vec3 passSpecular_TE_in[];
+in vec3 shadowDiffuseLighting_TE_in[];
+in vec3 shadowSpecularLighting_TE_in[];
+#endif
+
+in vec4 passColor_TE_in[];
+in float euclideanDepth_TE_in[];
+in float linearDepth_TE_in[];
 
 // Output to fragment shader (must match fragment shader inputs)
 out vec2 uv;
@@ -39,6 +53,17 @@ out vec3 passNormal;
 out vec3 passViewPos;
 out float euclideanDepth;
 out float linearDepth;
+out mat3 normalToViewMatrix;
+
+#if !PER_PIXEL_LIGHTING
+centroid out vec3 passLighting;
+centroid out vec3 passSpecular;
+centroid out vec3 shadowDiffuseLighting;
+centroid out vec3 shadowSpecularLighting;
+#endif
+
+// Vertex colors
+out vec4 passColor;
 
 #include "lib/terrain/deformation.glsl"
 #include "lib/view/depth.glsl"
@@ -61,6 +86,16 @@ void main()
     uv = interpolate2D(uv_TE_in[0], uv_TE_in[1], uv_TE_in[2]);
     vec3 baseNormal = interpolate3D(passNormal_TE_in[0], passNormal_TE_in[1], passNormal_TE_in[2]);
     passViewPos = interpolate3D(passViewPos_TE_in[0], passViewPos_TE_in[1], passViewPos_TE_in[2]);
+
+#if !PER_PIXEL_LIGHTING
+    passLighting = interpolate3D(passLighting_TE_in[0], passLighting_TE_in[1], passLighting_TE_in[2]);
+    passSpecular = interpolate3D(passSpecular_TE_in[0], passSpecular_TE_in[1], passSpecular_TE_in[2]);
+    shadowDiffuseLighting = interpolate3D(shadowDiffuseLighting_TE_in[0], shadowDiffuseLighting_TE_in[1], shadowDiffuseLighting_TE_in[2]);
+    shadowSpecularLighting = interpolate3D(shadowSpecularLighting_TE_in[0], shadowSpecularLighting_TE_in[1], shadowSpecularLighting_TE_in[2]);
+#endif
+
+    // Interpolate color (simple linear interpolation for vec4)
+    passColor = gl_TessCoord.x * passColor_TE_in[0] + gl_TessCoord.y * passColor_TE_in[1] + gl_TessCoord.z * passColor_TE_in[2];
 
     // Sample deformation texture
     vec2 deformUV = (worldPos.xy + deformationOffset) / deformationScale;
@@ -91,6 +126,22 @@ void main()
     // Blend with base normal based on deformation amount
     vec3 deformedNormal = normalize(baseNormal + gradient);
     passNormal = mix(baseNormal, deformedNormal, smoothstep(0.0, 0.2, deformValue));
+
+    // Set up normal-to-view matrix for tangent space calculations
+    normalToViewMatrix = osg_NormalMatrix;
+
+#if @normalMap
+    // Generate tangent space for normal mapping
+    // Using a fixed tangent for terrain (aligned with world X axis)
+    vec4 tangent = vec4(1.0, 0.0, 0.0, -1.0);
+    vec3 normalizedNormal = normalize(passNormal);
+    vec3 normalizedTangent = normalize(tangent.xyz);
+    vec3 binormal = cross(normalizedTangent, normalizedNormal) * tangent.w;
+    // Rederive tangent at 90 degrees to normal
+    vec3 finalTangent = -normalize(cross(normalizedNormal, binormal));
+    mat3 tbnMatrix = mat3(finalTangent, binormal, normalizedNormal);
+    normalToViewMatrix *= tbnMatrix;
+#endif
 
     // Update view position with displacement
     vec4 viewPos = osg_ModelViewMatrix * vec4(displacedPos, 1.0);

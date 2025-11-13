@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(cat:*)",
+      "Bash(git log:*)",
+      "Bash(where openmw.exe 2)",
+      "Bash(NUL)",
+      "Bash(findstr:*)",
+      "Bash(cmake --build:*)",
+      "Bash(powershell \"Get-Content openmw.log -Tail 100 | Select-String -Pattern ''shader|error|terrain|tess'' -CaseSensitive:$false | Select-Object -Last 50\")",
+      "Bash(powershell \"Get-Content openmw.log -Tail 200 | Select-String -Pattern ''shader|error|terrain|tess''\")",
+      "Bash(where:*)",
+      "Bash(powershell \"Get-ChildItem -Directory | Where-Object {$_Name -like ''*build*''} | Select-Object -First 5 Name\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

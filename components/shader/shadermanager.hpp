@@ -50,6 +50,10 @@ namespace Shader
         osg::ref_ptr<osg::Program> getProgram(osg::ref_ptr<osg::Shader> vertexShader,
             osg::ref_ptr<osg::Shader> fragmentShader, const osg::Program* programTemplate = nullptr);
 
+        osg::ref_ptr<osg::Program> getProgram(osg::ref_ptr<osg::Shader> vertexShader,
+            osg::ref_ptr<osg::Shader> fragmentShader, osg::ref_ptr<osg::Shader> tessControlShader,
+            osg::ref_ptr<osg::Shader> tessEvalShader, const osg::Program* programTemplate = nullptr);
+
         const osg::Program* getProgramTemplate() const { return mProgramTemplate; }
         void setProgramTemplate(const osg::Program* program) { mProgramTemplate = program; }
 
@@ -109,6 +113,13 @@ namespace Shader
         typedef std::map<std::pair<osg::ref_ptr<osg::Shader>, osg::ref_ptr<osg::Shader>>, osg::ref_ptr<osg::Program>>
             ProgramMap;
         ProgramMap mPrograms;
+
+        // Program map for programs with tessellation shaders (vert, frag, tesc, tese)
+        typedef std::tuple<osg::ref_ptr<osg::Shader>, osg::ref_ptr<osg::Shader>, osg::ref_ptr<osg::Shader>,
+            osg::ref_ptr<osg::Shader>>
+            TessProgramKey;
+        typedef std::map<TessProgramKey, osg::ref_ptr<osg::Program>> TessProgramMap;
+        TessProgramMap mTessPrograms;
 
         typedef std::vector<osg::ref_ptr<osg::Shader>> ShaderList;
         typedef std::map<osg::ref_ptr<osg::Shader>, ShaderList> LinkedShadersMap;

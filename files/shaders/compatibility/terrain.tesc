@@ -4,6 +4,9 @@
 
 layout(vertices = 3) out;
 
+// Per-pixel lighting support (must be defined before use)
+#define PER_PIXEL_LIGHTING (@normalMap || @specularMap || @forcePPL)
+
 // Uniforms
 uniform vec3 eyePos;                        // Camera position (from OpenMW)
 uniform sampler2D terrainDeformationMap;    // Displacement texture
@@ -19,11 +22,33 @@ in vec2 uv_TC_in[];
 in vec3 passNormal_TC_in[];
 in vec3 passViewPos_TC_in[];
 
+#if !PER_PIXEL_LIGHTING
+in vec3 passLighting_TC_in[];
+in vec3 passSpecular_TC_in[];
+in vec3 shadowDiffuseLighting_TC_in[];
+in vec3 shadowSpecularLighting_TC_in[];
+#endif
+
+in vec4 passColor_TC_in[];
+in float euclideanDepth_TC_in[];
+in float linearDepth_TC_in[];
+
 // Output to TES
 out vec3 worldPos_TE_in[];
 out vec2 uv_TE_in[];
 out vec3 passNormal_TE_in[];
 out vec3 passViewPos_TE_in[];
+
+#if !PER_PIXEL_LIGHTING
+out vec3 passLighting_TE_in[];
+out vec3 passSpecular_TE_in[];
+out vec3 shadowDiffuseLighting_TE_in[];
+out vec3 shadowSpecularLighting_TE_in[];
+#endif
+
+out vec4 passColor_TE_in[];
+out float euclideanDepth_TE_in[];
+out float linearDepth_TE_in[];
 
 float getTessellationLevel(vec3 pos)
 {
@@ -57,6 +82,17 @@ void main()
     uv_TE_in[gl_InvocationID] = uv_TC_in[gl_InvocationID];
     passNormal_TE_in[gl_InvocationID] = passNormal_TC_in[gl_InvocationID];
     passViewPos_TE_in[gl_InvocationID] = passViewPos_TC_in[gl_InvocationID];
+
+#if !PER_PIXEL_LIGHTING
+    passLighting_TE_in[gl_InvocationID] = passLighting_TC_in[gl_InvocationID];
+    passSpecular_TE_in[gl_InvocationID] = passSpecular_TC_in[gl_InvocationID];
+    shadowDiffuseLighting_TE_in[gl_InvocationID] = shadowDiffuseLighting_TC_in[gl_InvocationID];
+    shadowSpecularLighting_TE_in[gl_InvocationID] = shadowSpecularLighting_TC_in[gl_InvocationID];
+#endif
+
+    passColor_TE_in[gl_InvocationID] = passColor_TC_in[gl_InvocationID];
+    euclideanDepth_TE_in[gl_InvocationID] = euclideanDepth_TC_in[gl_InvocationID];
+    linearDepth_TE_in[gl_InvocationID] = linearDepth_TC_in[gl_InvocationID];
 
     // Calculate tessellation levels for each edge
     if (gl_InvocationID == 0)
