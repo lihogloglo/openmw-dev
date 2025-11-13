@@ -338,14 +338,6 @@ namespace MWRender
         setClearMask(GL_NONE);
         setViewport(
             0, 0, TerrainDeformationSurface::sRTTSize, TerrainDeformationSurface::sRTTSize);
-
-        // Explicitly set FBO render target to prevent rendering to screen
-        setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
-
-        // Attach the deformation texture as the render target
-        // The geometry will manage actual rendering via its own FBOs in drawImplementation
-        attach(osg::Camera::COLOR_BUFFER0, mDeformationSurface->getColorTexture());
-
         addChild(mDeformationSurface);
         setCullingActive(false);
         setImplicitBufferAttachmentMask(0, 0);

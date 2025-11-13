@@ -20,12 +20,10 @@ in vec2 uv_TE_in[];
 in vec3 passNormal_TE_in[];
 in vec3 passViewPos_TE_in[];
 
-// Output to fragment shader
-out vec3 worldPos_FS;
-out vec2 uv_FS;
-out vec3 passNormal_FS;
-out vec3 passViewPos_FS;
-out float deformation_FS;
+// Output to fragment shader (must match fragment shader inputs)
+out vec2 uv;
+out vec3 passNormal;
+out vec3 passViewPos;
 
 #include "lib/terrain/deformation.glsl"
 
@@ -43,22 +41,21 @@ vec2 interpolate2D(vec2 v0, vec2 v1, vec2 v2)
 void main()
 {
     // Interpolate vertex attributes
-    worldPos_FS = interpolate3D(worldPos_TE_in[0], worldPos_TE_in[1], worldPos_TE_in[2]);
-    uv_FS = interpolate2D(uv_TE_in[0], uv_TE_in[1], uv_TE_in[2]);
+    vec3 worldPos = interpolate3D(worldPos_TE_in[0], worldPos_TE_in[1], worldPos_TE_in[2]);
+    uv = interpolate2D(uv_TE_in[0], uv_TE_in[1], uv_TE_in[2]);
     vec3 baseNormal = interpolate3D(passNormal_TE_in[0], passNormal_TE_in[1], passNormal_TE_in[2]);
-    passViewPos_FS = interpolate3D(passViewPos_TE_in[0], passViewPos_TE_in[1], passViewPos_TE_in[2]);
+    passViewPos = interpolate3D(passViewPos_TE_in[0], passViewPos_TE_in[1], passViewPos_TE_in[2]);
 
     // Sample deformation texture
-    vec2 deformUV = (worldPos_FS.xy + deformationOffset) / deformationScale;
+    vec2 deformUV = (worldPos.xy + deformationOffset) / deformationScale;
     float deformValue = texture(terrainDeformationMap, deformUV).r;
-    deformation_FS = deformValue;
 
     // Apply material-specific depth multiplier
     float depthMultiplier = getDepthMultiplier(materialType);
 
     // Displace vertex downward (negative Z in world space)
     float displacement = deformValue * depthMultiplier * maxDisplacementDepth;
-    vec3 displacedPos = worldPos_FS;
+    vec3 displacedPos = worldPos;
     displacedPos.z -= displacement;
 
     // Calculate new normal by sampling neighbors for gradient
@@ -77,11 +74,11 @@ void main()
 
     // Blend with base normal based on deformation amount
     vec3 deformedNormal = normalize(baseNormal + gradient);
-    passNormal_FS = mix(baseNormal, deformedNormal, smoothstep(0.0, 0.2, deformValue));
+    passNormal = mix(baseNormal, deformedNormal, smoothstep(0.0, 0.2, deformValue));
 
     // Update view position with displacement
     vec4 viewPos = osg_ModelViewMatrix * vec4(displacedPos, 1.0);
-    passViewPos_FS = viewPos.xyz;
+    passViewPos = viewPos.xyz;
 
     // Transform to clip space
     gl_Position = osg_ModelViewProjectionMatrix * vec4(displacedPos, 1.0);
