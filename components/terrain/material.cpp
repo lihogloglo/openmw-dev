@@ -220,8 +220,21 @@ namespace
     };
 }
 
+namespace MWRender
+{
+    class SnowDeformationManager;
+}
+
 namespace Terrain
 {
+    // Static pointer to snow deformation manager for terrain integration
+    static MWRender::SnowDeformationManager* sSnowDeformationManager = nullptr;
+
+    void setSnowDeformationManager(MWRender::SnowDeformationManager* manager)
+    {
+        sSnowDeformationManager = manager;
+    }
+
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(bool useShaders, Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
         int blendmapScale, float layerTileSize, bool esm4terrain)
@@ -305,10 +318,26 @@ namespace Terrain
                 defineMap["parallax"] = parallax ? "1" : "0";
                 defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
                 defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
+
+                // Snow deformation integration
+                bool enableSnowDeformation = (sSnowDeformationManager != nullptr && sSnowDeformationManager->isEnabled());
+                defineMap["snowDeformation"] = enableSnowDeformation ? "1" : "0";
+
                 Stereo::shaderStereoDefines(defineMap);
 
                 stateset->setAttributeAndModes(shaderManager.getProgram("terrain", defineMap));
                 stateset->addUniform(UniformCollection::value().mColorMode);
+
+                // Bind snow deformation texture and uniforms if enabled
+                if (enableSnowDeformation)
+                {
+                    // Use texture unit 4 to avoid conflicts with terrain textures (0-3)
+                    stateset->setTextureAttributeAndModes(4, sSnowDeformationManager->getDeformationTexture(), osg::StateAttribute::ON);
+                    stateset->addUniform(new osg::Uniform("deformationMap", 4));
+                    stateset->addUniform(new osg::Uniform("deformationStrength", sSnowDeformationManager->getDeformationStrength()));
+                    stateset->addUniform(new osg::Uniform("textureCenter", sSnowDeformationManager->getTextureCenter()));
+                    stateset->addUniform(new osg::Uniform("worldTextureSize", sSnowDeformationManager->getWorldTextureSize()));
+                }
             }
             else
             {

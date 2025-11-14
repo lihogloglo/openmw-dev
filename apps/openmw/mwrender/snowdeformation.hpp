@@ -57,6 +57,12 @@ namespace MWRender
         /// Get the deformation texture (for debugging or shader access)
         osg::Texture2D* getDeformationTexture() const { return mDeformationTexture.get(); }
 
+        /// Get the texture center in world coordinates (for terrain shader integration)
+        osg::Vec2f getTextureCenter() const { return mTextureCenter; }
+
+        /// Get the world size covered by the deformation texture (for terrain shader integration)
+        float getWorldTextureSize() const { return mWorldTextureSize; }
+
         /// Footprint data structure (public for DeformationTextureRenderer access)
         struct Footprint
         {
@@ -110,9 +116,9 @@ namespace MWRender
         float mDecayRate;              // How fast footprints fade (per second)
 
         static constexpr int DEFORMATION_TEXTURE_SIZE = 1024;
-        static constexpr float DEFAULT_DEFORMATION_RADIUS = 50.0f;   // 50 units ≈ 10-15 meters
-        static constexpr float DEFAULT_WORLD_TEXTURE_SIZE = 100.0f;  // 100x100 world units to match mesh size (2x radius)
-        static constexpr float DEFAULT_FOOTPRINT_INTERVAL = 5.0f;    // New footprint every 5 units (1 meter)
+        static constexpr float DEFAULT_DEFORMATION_RADIUS = 150.0f;   // 150 units ≈ 30 meters (3x increase)
+        static constexpr float DEFAULT_WORLD_TEXTURE_SIZE = 300.0f;  // 300x300 world units to match mesh size (2x radius)
+        static constexpr float DEFAULT_FOOTPRINT_INTERVAL = 15.0f;    // New footprint every 15 units (3 meters)
         static constexpr float DEFAULT_DECAY_RATE = 0.1f;            // 10% fade per second
     };
 
