@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git stash:*)",
+      "Bash(dir:*)",
+      "Bash(cmake --build:*)",
+      "Bash(Select-String -Pattern \"error|snowdeformation\" -Context 0,2)",
+      "Bash(Select-Object -First 30)",
+      "Bash(cmake:*)",
+      "Bash(./openmw.exe:*)",
+      "Bash(timeout:*)",
+      "Bash(\"d:/Gamedev/openmw-snow/SNOW_DEFORMATION_SUMMARY.md\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

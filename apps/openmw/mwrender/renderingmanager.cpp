@@ -82,6 +82,7 @@
 #include "recastmesh.hpp"
 #include "screenshotmanager.hpp"
 #include "sky.hpp"
+#include "snowdeformation.hpp"
 #include "terrainstorage.hpp"
 #include "util.hpp"
 #include "vismask.hpp"
@@ -484,6 +485,9 @@ namespace MWRender
         mResourceSystem->getSceneManager()->setIncrementalCompileOperation(mViewer->getIncrementalCompileOperation());
 
         mEffectManager = std::make_unique<EffectManager>(sceneRoot, mResourceSystem);
+
+        // Initialize snow deformation system
+        mSnowDeformation = std::make_unique<SnowDeformationManager>(sceneRoot, mResourceSystem);
 
         const std::string& normalMapPattern = Settings::shaders().mNormalMapPattern;
         const std::string& heightMapPattern = Settings::shaders().mNormalHeightMapPattern;
@@ -913,6 +917,10 @@ namespace MWRender
             float windSpeed = mSky->getBaseWindSpeed();
             mSharedUniformStateUpdater->setWindSpeed(windSpeed);
             mSharedUniformStateUpdater->setPlayerPos(playerPos);
+
+            // Update snow deformation
+            if (mSnowDeformation)
+                mSnowDeformation->update(playerPos, dt);
         }
 
         updateNavMesh();
@@ -1823,5 +1831,11 @@ namespace MWRender
     void RenderingManager::setNavMeshMode(Settings::NavMeshRenderMode value)
     {
         mNavMesh->setMode(value);
+    }
+
+    void RenderingManager::setSnowDeformationEnabled(bool enabled)
+    {
+        if (mSnowDeformation)
+            mSnowDeformation->setEnabled(enabled);
     }
 }

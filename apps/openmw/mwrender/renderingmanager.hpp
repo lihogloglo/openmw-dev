@@ -106,6 +106,7 @@ namespace MWRender
     class ObjectPaging;
     class Groundcover;
     class PostProcessor;
+    class SnowDeformationManager;
 
     class RenderingManager : public MWRender::RenderingInterface
     {
@@ -276,6 +277,9 @@ namespace MWRender
 
         void setNavMeshMode(Settings::NavMeshRenderMode value);
 
+        SnowDeformationManager* getSnowDeformationManager() { return mSnowDeformation.get(); }
+        void setSnowDeformationEnabled(bool enabled);
+
     private:
         void updateTextureFiltering();
         void updateAmbient();
@@ -335,6 +339,7 @@ namespace MWRender
         osg::ref_ptr<SceneUtil::PositionAttitudeTransform> mPlayerNode;
         std::unique_ptr<Camera> mCamera;
         osg::ref_ptr<Debug::DebugDrawer> mDebugDraw;
+        std::unique_ptr<SnowDeformationManager> mSnowDeformation;
 
         osg::ref_ptr<StateUpdater> mStateUpdater;
         osg::ref_ptr<SharedUniformStateUpdater> mSharedUniformStateUpdater;

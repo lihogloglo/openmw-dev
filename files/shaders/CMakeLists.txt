@@ -28,6 +28,7 @@ set(SHADER_FILES
     lib/sky/passes.glsl
     lib/material/parallax.glsl
     lib/material/alpha.glsl
+    lib/terrain/deformation.glsl
     compatibility/ripples_blobber.frag
     compatibility/ripples_simulate.frag
     compatibility/fog.glsl
@@ -57,6 +58,13 @@ set(SHADER_FILES
     compatibility/sky.frag
     compatibility/fullscreen_tri.vert
     compatibility/fullscreen_tri.frag
+    compatibility/snow_deformation.vert
+    compatibility/snow_deformation.frag
+    compatibility/snow_footprint.vert
+    compatibility/snow_footprint.frag
+    compatibility/snow_decay.vert
+    compatibility/snow_decay.frag
+    compatibility/snow_fullscreen.vert
     compatibility/bs/default.vert
     compatibility/bs/default.frag
     compatibility/bs/nolighting.vert
