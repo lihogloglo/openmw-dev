@@ -14,6 +14,7 @@
 #include <components/sceneutil/util.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/stereomanager.hpp>
+#include <components/debug/debuglog.hpp>
 
 #include <mutex>
 
@@ -249,6 +250,14 @@ namespace Terrain
     void setSnowDeformationData(bool enabled, osg::Texture2D* texture, float strength,
                                  const osg::Vec2f& textureCenter, float worldTextureSize)
     {
+        static bool firstCall = true;
+        if (firstCall)
+        {
+            Log(Debug::Info) << "SnowDeformation (material.cpp): First setSnowDeformationData call - enabled="
+                             << enabled << ", texture=" << (texture ? "valid" : "null");
+            firstCall = false;
+        }
+
         sSnowDeformationData.enabled = enabled;
         sSnowDeformationData.texture = texture;
         sSnowDeformationData.strength = strength;
@@ -343,6 +352,25 @@ namespace Terrain
                 // Snow deformation integration
                 bool enableSnowDeformation = sSnowDeformationData.enabled && sSnowDeformationData.texture != nullptr;
                 defineMap["snowDeformation"] = enableSnowDeformation ? "1" : "0";
+
+                static int logCounter = 0;
+                if (enableSnowDeformation && (++logCounter % 100 == 0))
+                {
+                    Log(Debug::Info) << "Terrain material: Snow deformation ENABLED for chunk - texture="
+                                     << (sSnowDeformationData.texture != nullptr ? "valid" : "null")
+                                     << ", strength=" << sSnowDeformationData.strength
+                                     << ", center=(" << sSnowDeformationData.textureCenter.x() << "," << sSnowDeformationData.textureCenter.y() << ")";
+                }
+
+                static bool loggedOnce = false;
+                if (!loggedOnce && it == layers.begin())  // Log only for first layer of first pass
+                {
+                    Log(Debug::Info) << "SnowDeformation (createPasses): enabled=" << sSnowDeformationData.enabled
+                                     << ", texture=" << (sSnowDeformationData.texture.get() ? "valid" : "null")
+                                     << ", enableSnowDeformation=" << enableSnowDeformation
+                                     << ", shader define will be: " << (enableSnowDeformation ? "1" : "0");
+                    loggedOnce = true;
+                }
 
                 Stereo::shaderStereoDefines(defineMap);
 

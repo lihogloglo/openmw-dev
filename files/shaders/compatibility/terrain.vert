@@ -17,10 +17,12 @@
     uniform float deformationStrength;
     uniform vec2 textureCenter;
     uniform float worldTextureSize;
+    uniform mat4 osg_ViewMatrixInverse;  // Needed to convert view space to world space
 
     // Sample deformation height from texture
     float sampleDeformation(vec2 worldPos)
     {
+        // Calculate UV coordinates from world position
         vec2 offset = worldPos - textureCenter;
         vec2 uv = (offset / worldTextureSize) + 0.5;
 
@@ -28,8 +30,11 @@
         if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
             return 0.0;
 
-        // Sample deformation texture (red channel contains height)
-        return texture2D(deformationMap, uv).r;
+        // Sample deformation texture
+        vec4 texSample = texture2D(deformationMap, uv);
+
+        // Return the red channel (deformation height)
+        return texSample.r;
     }
 
     // Calculate deformed normal using finite differences
@@ -64,6 +69,11 @@ varying vec2 uv;
 varying float euclideanDepth;
 varying float linearDepth;
 
+#if @snowDeformation
+    // Debug: Pass deformation value to fragment shader for visualization
+    varying float debugDeformation;
+#endif
+
 #define PER_PIXEL_LIGHTING (@normalMap || @specularMap || @forcePPL)
 
 #if !PER_PIXEL_LIGHTING
@@ -88,12 +98,16 @@ void main(void)
     vec3 normal = gl_Normal;
 
 #if @snowDeformation
-    // Get world position of vertex (gl_ModelViewMatrix includes world transform for terrain chunks)
-    vec4 worldPos4 = gl_ModelViewMatrix * gl_Vertex;
+    // Get world position of vertex (need to transform from view space back to world space)
+    vec4 viewPosDeform = gl_ModelViewMatrix * gl_Vertex;
+    vec4 worldPos4 = osg_ViewMatrixInverse * viewPosDeform;
     vec2 worldPosXY = worldPos4.xy;
 
     // Sample deformation at this world position
     float deformation = sampleDeformation(worldPosXY);
+
+    // Pass through the actual value - no forced offset
+    debugDeformation = deformation;
 
     // Apply deformation if significant
     if (deformation > 0.01) {

@@ -20,6 +20,6 @@ void main()
     float materialDecayRate = getDecayRate(1);
     float newDeformation = currentDeformation * materialDecayRate * decayFactor;
 
-    // Output decayed value
+    // Output decayed value in RGBA format
     gl_FragColor = vec4(newDeformation, 0.0, 0.0, 1.0);
 }

@@ -9,7 +9,9 @@
       "Bash(cmake:*)",
       "Bash(./openmw.exe:*)",
       "Bash(timeout:*)",
-      "Bash(\"d:/Gamedev/openmw-snow/SNOW_DEFORMATION_SUMMARY.md\")"
+      "Bash(\"d:/Gamedev/openmw-snow/SNOW_DEFORMATION_SUMMARY.md\")",
+      "Bash(Select-String \"snow\")",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

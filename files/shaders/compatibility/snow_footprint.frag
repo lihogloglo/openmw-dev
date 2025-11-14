@@ -22,6 +22,6 @@ void main()
     // Apply intensity
     float deformation = falloff * footprintIntensity;
 
-    // Output to red channel (height map)
+    // Output to red channel (height map), RGBA format
     gl_FragColor = vec4(deformation, 0.0, 0.0, 1.0);
 }

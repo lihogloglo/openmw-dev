@@ -116,9 +116,9 @@ namespace MWRender
         float mDecayRate;              // How fast footprints fade (per second)
 
         static constexpr int DEFORMATION_TEXTURE_SIZE = 1024;
-        static constexpr float DEFAULT_DEFORMATION_RADIUS = 150.0f;   // 150 units ≈ 30 meters (3x increase)
-        static constexpr float DEFAULT_WORLD_TEXTURE_SIZE = 300.0f;  // 300x300 world units to match mesh size (2x radius)
-        static constexpr float DEFAULT_FOOTPRINT_INTERVAL = 15.0f;    // New footprint every 15 units (3 meters)
+        static constexpr float DEFAULT_DEFORMATION_RADIUS = 2048.0f;   // 2048 units ≈ 29 meters
+        static constexpr float DEFAULT_WORLD_TEXTURE_SIZE = 4096.0f;  // 4096 units ≈ 58 meters (covers large area)
+        static constexpr float DEFAULT_FOOTPRINT_INTERVAL = 128.0f;    // New footprint every 128 units (~1.8m)
         static constexpr float DEFAULT_DECAY_RATE = 0.1f;            // 10% fade per second
     };
 

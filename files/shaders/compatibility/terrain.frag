@@ -34,6 +34,10 @@ centroid varying vec3 shadowSpecularLighting;
 varying vec3 passViewPos;
 varying vec3 passNormal;
 
+#if @snowDeformation
+    varying float debugDeformation;
+#endif
+
 uniform vec2 screenRes;
 uniform float far;
 
@@ -95,6 +99,21 @@ void main()
 
     clampLightingResult(lighting);
     gl_FragData[0].xyz = gl_FragData[0].xyz * lighting + specular;
+
+#if @snowDeformation
+    // EXTREME DEBUG: First check if shader is even running
+    // This will make ALL terrain slightly red if @snowDeformation is enabled
+    gl_FragData[0].xyz += vec3(0.2, 0.0, 0.0);  // Constant red tint
+
+    // DEBUG: Show the actual debugDeformation value as color intensity
+    // This helps us see what values are being passed from vertex shader
+    gl_FragData[0].xyz += vec3(debugDeformation * 10.0, debugDeformation, 0.0);  // Red-orange gradient
+
+    // If ANY deformation value is detected, make it BRIGHT
+    if (debugDeformation > 0.0001) {
+        gl_FragData[0].xyz = vec3(1.0, debugDeformation, 0.0);  // Bright red-orange
+    }
+#endif
 
     gl_FragData[0] = applyFogAtDist(gl_FragData[0], euclideanDepth, linearDepth, far);
 

@@ -13,6 +13,8 @@
 
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/sceneutil/color.hpp>
+#include <components/sceneutil/glextensions.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/settings/values.hpp>
 #include <components/debug/debuglog.hpp>
@@ -32,15 +34,16 @@ SnowDeformationManager::SnowDeformationManager(osg::ref_ptr<osg::Group> rootNode
     , mEnabled(true)
     , mTerrainMaterialType(1)  // Default to snow
     , mDeformationRadius(DEFAULT_DEFORMATION_RADIUS)
-    , mDeformationStrength(0.5f)  // Subtle, realistic snow compression (0.5 = moderate depth)
+    , mDeformationStrength(5.0f)  // VERY HIGH for debugging (was 0.5, increased 10x for visibility)
     , mLastPlayerPos(0, 0, 0)
     , mWorldTextureSize(DEFAULT_WORLD_TEXTURE_SIZE)
-    , mTextureCenter(0, 0)
+    , mTextureCenter(0, 0)  // Will be initialized to player pos on first update
     , mFootprintInterval(DEFAULT_FOOTPRINT_INTERVAL)
     , mLastFootprintDist(0.0f)
     , mDecayRate(DEFAULT_DECAY_RATE)
 {
     initialize();
+    Log(Debug::Info) << "SnowDeformation: Manager created - texture center will be set on first update";
 }
 
 SnowDeformationManager::~SnowDeformationManager()
@@ -66,33 +69,41 @@ void SnowDeformationManager::initialize()
 
 void SnowDeformationManager::createDeformationTexture()
 {
-    // Create front buffer
+    // Use RGBA format like ripples for better compatibility
     mDeformationTexture = new osg::Texture2D;
     mDeformationTexture->setTextureSize(DEFORMATION_TEXTURE_SIZE, DEFORMATION_TEXTURE_SIZE);
-    mDeformationTexture->setInternalFormat(GL_R16F); // 16-bit float for height values
-    mDeformationTexture->setSourceFormat(GL_RED);
+    mDeformationTexture->setInternalFormat(GL_RGBA16F); // Use RGBA for compatibility
+    mDeformationTexture->setSourceFormat(GL_RGBA);
     mDeformationTexture->setSourceType(GL_FLOAT);
     mDeformationTexture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
     mDeformationTexture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
     mDeformationTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
     mDeformationTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
 
-    // Create back buffer for ping-pong
+    // Don't create test image - let RTT handle it
+    // Texture will start empty and be filled by footprint rendering
+
+    Log(Debug::Info) << "SnowDeformation: Created front buffer texture (will be filled by RTT)";
+
+    // Create back buffer (RTT only)
     mDeformationTextureBack = new osg::Texture2D;
     mDeformationTextureBack->setTextureSize(DEFORMATION_TEXTURE_SIZE, DEFORMATION_TEXTURE_SIZE);
-    mDeformationTextureBack->setInternalFormat(GL_R16F);
-    mDeformationTextureBack->setSourceFormat(GL_RED);
+    mDeformationTextureBack->setInternalFormat(GL_RGBA16F);
+    mDeformationTextureBack->setSourceFormat(GL_RGBA);
     mDeformationTextureBack->setSourceType(GL_FLOAT);
     mDeformationTextureBack->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
     mDeformationTextureBack->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
     mDeformationTextureBack->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
     mDeformationTextureBack->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+
+    Log(Debug::Info) << "SnowDeformation: Created deformation textures (" << DEFORMATION_TEXTURE_SIZE << "x" << DEFORMATION_TEXTURE_SIZE << ") in RGBA16F format";
 }
 
 void SnowDeformationManager::createDeformationCamera()
 {
     // Camera for decay pass - renders FIRST (order 0)
     mDecayCamera = new osg::Camera;
+    mDecayCamera->setName("SnowDeformationDecayCamera");
     mDecayCamera->setRenderOrder(osg::Camera::PRE_RENDER, 0);  // Order 0 - renders first
     mDecayCamera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
     mDecayCamera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
@@ -103,9 +114,16 @@ void SnowDeformationManager::createDeformationCamera()
     mDecayCamera->attach(osg::Camera::COLOR_BUFFER0, mDeformationTextureBack.get());
     mDecayCamera->setViewport(0, 0, DEFORMATION_TEXTURE_SIZE, DEFORMATION_TEXTURE_SIZE);
 
+    // CRITICAL: Set implicit buffer attachment mask - prevents OSG from creating default attachments
+    mDecayCamera->setImplicitBufferAttachmentMask(0, 0);
+
     // Set proper node mask for RTT
-    mDecayCamera->setNodeMask(Mask_RenderToTexture);
+    mDecayCamera->setNodeMask(Mask_RenderToTexture);  // Use standard RTT mask like ripples
     mDecayCamera->setCullingActive(false);
+
+    // Disable lighting and depth test (2D RTT operation)
+    mDecayCamera->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    mDecayCamera->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 
     // Create fullscreen quad for decay
     mDecayQuad = createFullscreenQuad();
@@ -115,11 +133,28 @@ void SnowDeformationManager::createDeformationCamera()
     Shader::ShaderManager::DefineMap defines;
     osg::ref_ptr<osg::Program> decayProgram = shaderMgr.getProgram("compatibility/snow_decay", defines);
 
+    if (!decayProgram)
+    {
+        Log(Debug::Error) << "SnowDeformation: Failed to load decay shader program!";
+    }
+
     osg::ref_ptr<osg::StateSet> decayState = mDecayQuad->getOrCreateStateSet();
     decayState->setAttributeAndModes(decayProgram, osg::StateAttribute::ON);
     decayState->setTextureAttributeAndModes(0, mDeformationTexture.get(), osg::StateAttribute::ON);
     decayState->addUniform(new osg::Uniform("deformationMap", 0));
     decayState->addUniform(new osg::Uniform("decayFactor", 0.99f));  // Will be updated each frame
+
+    // Add cull callback to verify camera is being traversed
+    struct DecayCameraCallback : public osg::NodeCallback {
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+            static int callCount = 0;
+            if (++callCount % 60 == 0) {
+                Log(Debug::Info) << "SnowDeformation: Decay camera callback executed (frame " << callCount << ")";
+            }
+            traverse(node, nv);
+        }
+    };
+    mDecayCamera->addCullCallback(new DecayCameraCallback());
 
     mDecayCamera->addChild(mDecayQuad);
 
@@ -127,6 +162,7 @@ void SnowDeformationManager::createDeformationCamera()
 
     // Camera for rendering footprints - renders SECOND (order 1)
     mDeformationCamera = new osg::Camera;
+    mDeformationCamera->setName("SnowDeformationFootprintCamera");
     mDeformationCamera->setRenderOrder(osg::Camera::PRE_RENDER, 1);  // Order 1 - renders after decay
     mDeformationCamera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
     mDeformationCamera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
@@ -136,17 +172,37 @@ void SnowDeformationManager::createDeformationCamera()
     mDeformationCamera->attach(osg::Camera::COLOR_BUFFER0, mDeformationTextureBack.get());
     mDeformationCamera->setViewport(0, 0, DEFORMATION_TEXTURE_SIZE, DEFORMATION_TEXTURE_SIZE);
 
+    // CRITICAL: Set implicit buffer attachment mask
+    mDeformationCamera->setImplicitBufferAttachmentMask(0, 0);
+
     // Set proper node mask for RTT
-    mDeformationCamera->setNodeMask(Mask_RenderToTexture);
+    mDeformationCamera->setNodeMask(Mask_RenderToTexture);  // Use standard RTT mask
     mDeformationCamera->setCullingActive(false);
+
+    // Disable lighting and depth test (2D RTT operation)
+    mDeformationCamera->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    mDeformationCamera->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
 
     // Enable additive blending for footprint accumulation
     osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc(osg::BlendFunc::ONE, osg::BlendFunc::ONE);
     mDeformationCamera->getOrCreateStateSet()->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
+    // Add cull callback to verify camera is being traversed
+    struct FootprintCameraCallback : public osg::NodeCallback {
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv) override {
+            static int callCount = 0;
+            if (++callCount % 60 == 0) {
+                osg::Camera* cam = static_cast<osg::Camera*>(node);
+                Log(Debug::Info) << "SnowDeformation: Footprint camera callback executed (frame " << callCount << "), children=" << cam->getNumChildren();
+            }
+            traverse(node, nv);
+        }
+    };
+    mDeformationCamera->addCullCallback(new FootprintCameraCallback());
+
     mRootNode->addChild(mDeformationCamera);
 
-    Log(Debug::Info) << "SnowDeformation: RTT cameras created (decay order=0, footprints order=1)";
+    Log(Debug::Info) << "SnowDeformation: RTT cameras created (decay order=0, footprints order=1) with callbacks";
 }
 
 void SnowDeformationManager::createDeformationMesh()
@@ -223,14 +279,24 @@ void SnowDeformationManager::update(const osg::Vec3f& playerPos, float dt)
     if (!mEnabled)
         return;
 
+    // Initialize texture center on first update
+    static bool firstUpdate = true;
+    if (firstUpdate)
+    {
+        mTextureCenter = osg::Vec2f(playerPos.x(), playerPos.y());
+        mLastPlayerPos = playerPos;
+        firstUpdate = false;
+        Log(Debug::Info) << "SnowDeformation: First update - initialized texture center to player pos ("
+                         << mTextureCenter.x() << "," << mTextureCenter.y() << ")";
+    }
+
     static int logCounter = 0;
     if (++logCounter % 60 == 0) // Log every 60 frames (~1 second)
     {
         Log(Debug::Info) << "SnowDeformation: Active footprints=" << mFootprints.size()
-                         << " PlayerPos=(" << playerPos.x() << "," << playerPos.y() << "," << playerPos.z() << ")";
+                         << " PlayerPos=(" << playerPos.x() << "," << playerPos.y() << "," << playerPos.z() << ")"
+                         << " TextureCenter=(" << mTextureCenter.x() << "," << mTextureCenter.y() << ")";
     }
-
- 
 
     // Calculate distance moved
     float distMoved = (playerPos - mLastPlayerPos).length();
@@ -241,8 +307,8 @@ void SnowDeformationManager::update(const osg::Vec3f& playerPos, float dt)
     {
         Footprint footprint;
         footprint.position = osg::Vec2f(playerPos.x(), playerPos.y());
-        footprint.intensity = 0.8f;  // Much more visible intensity (0-1 range, will be multiplied by deformationStrength)
-        footprint.radius = 24.0f;    // 24 units ≈ 4.8m diameter - large visible trail (3x increase)
+        footprint.intensity = 1.0f;  // MAXIMUM intensity for debugging
+        footprint.radius = 80.0f;    // VERY LARGE radius for debugging (was 24, increased 3x for visibility)
         footprint.timestamp = 0.0f;
 
         mFootprints.push_back(footprint);
@@ -296,6 +362,11 @@ void SnowDeformationManager::updateDeformationTexture(const osg::Vec3f& playerPo
                          << " footprints, texture center=(" << mTextureCenter.x() << "," << mTextureCenter.y() << ")";
     }
 
+    // RTT cameras render to BACK buffer
+    // Decay reads from FRONT, writes to BACK
+    // Footprints read nothing, write to BACK (additive)
+    // Both cameras already attached to BACK buffer
+
     // Step 1: Apply decay to existing deformation (always, even with no footprints)
     applyDecayPass();
 
@@ -309,11 +380,27 @@ void SnowDeformationManager::updateDeformationTexture(const osg::Vec3f& playerPo
         }
     }
 
-    // Step 3: Swap textures (ping-pong)
+    // Step 3: Swap texture attachments (ping-pong)
+    // Swap which texture is attached to the cameras and which is read by terrain
+    mDecayCamera->detach(osg::Camera::COLOR_BUFFER0);
+    mDeformationCamera->detach(osg::Camera::COLOR_BUFFER0);
+
     std::swap(mDeformationTexture, mDeformationTextureBack);
 
-    // Update the mesh shader to use the new front buffer
-    mDeformationStateSet->setTextureAttributeAndModes(7, mDeformationTexture.get(), osg::StateAttribute::ON);
+    mDecayCamera->attach(osg::Camera::COLOR_BUFFER0, mDeformationTextureBack.get());
+    mDeformationCamera->attach(osg::Camera::COLOR_BUFFER0, mDeformationTextureBack.get());
+
+    // Update decay shader input (it reads from FRONT buffer)
+    osg::StateSet* decayState = mDecayQuad->getStateSet();
+    if (decayState)
+    {
+        decayState->setTextureAttributeAndModes(0, mDeformationTexture.get(), osg::StateAttribute::ON);
+    }
+
+    if (shouldLog)
+    {
+        Log(Debug::Info) << "SnowDeformation: Swapped textures - terrain reads from FRONT, RTT writes to BACK";
+    }
 }
 
 void SnowDeformationManager::updateMeshPosition(const osg::Vec3f& playerPos)
@@ -513,6 +600,14 @@ void SnowDeformationManager::renderFootprintsToTexture()
     // Clear previous footprint geometry
     mDeformationCamera->removeChildren(0, mDeformationCamera->getNumChildren());
 
+    static int renderCounter = 0;
+    bool shouldLog = (++renderCounter % 60 == 0);
+
+    if (shouldLog)
+    {
+        Log(Debug::Info) << "SnowDeformation: renderFootprintsToTexture - rendering " << mFootprints.size() << " footprints to RTT camera";
+    }
+
     // Get shader manager
     Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
 
@@ -520,7 +615,22 @@ void SnowDeformationManager::renderFootprintsToTexture()
     Shader::ShaderManager::DefineMap defines;
     osg::ref_ptr<osg::Program> footprintProgram = shaderMgr.getProgram("compatibility/snow_footprint", defines);
 
+    if (!footprintProgram)
+    {
+        Log(Debug::Error) << "SnowDeformation: Failed to load footprint shader program!";
+        return;
+    }
+
+    // Check shader compilation status
+    static bool shaderLogged = false;
+    if (!shaderLogged)
+    {
+        Log(Debug::Info) << "SnowDeformation: Footprint shader program loaded successfully";
+        shaderLogged = true;
+    }
+
     // Render each footprint as a small quad
+    int quadCount = 0;
     for (const auto& footprint : mFootprints)
     {
         osg::ref_ptr<osg::Geometry> quad = createFootprintQuad(footprint);
@@ -532,6 +642,12 @@ void SnowDeformationManager::renderFootprintsToTexture()
         ss->addUniform(new osg::Uniform("footprintRadius", footprint.radius));
 
         mDeformationCamera->addChild(quad);
+        quadCount++;
+    }
+
+    if (shouldLog && quadCount > 0)
+    {
+        Log(Debug::Info) << "SnowDeformation: Added " << quadCount << " footprint quads to RTT camera";
     }
 }
 
