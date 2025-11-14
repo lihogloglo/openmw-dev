@@ -39,7 +39,6 @@ uniform vec2 deformationOffset;
 uniform float deformationScale;
 uniform int materialType;
 uniform float maxDisplacementDepth;
-uniform mat4 osg_ViewMatrixInverse;
 #endif
 
 void main(void)
@@ -48,12 +47,16 @@ void main(void)
     vec3 modelNormal = gl_Normal.xyz;
 
 #if @terrainDeformation
-    // Convert model position to world space for deformation texture sampling
-    vec4 worldPos4 = osg_ViewMatrixInverse * gl_ModelViewMatrix * modelPos;
-    vec3 worldPos = worldPos4.xyz;
+    // For terrain, gl_Vertex is already in world space (terrain chunks are not transformed)
+    // We just need to apply the model matrix to get the actual world position
+    vec4 worldPos4 = gl_ModelViewMatrix * modelPos;
+    // Extract world position by removing the view transform (approximate for terrain)
+    // Since terrain is generally flat and not rotated, we can use the vertex position directly
+    // The deformationOffset already accounts for player position tracking
+    vec2 worldPosXY = modelPos.xy;
 
     // Sample deformation texture
-    vec2 deformUV = (worldPos.xy + deformationOffset) / deformationScale;
+    vec2 deformUV = (worldPosXY + deformationOffset * 2560.0) / deformationScale;
     float deformValue = texture2D(terrainDeformationMap, deformUV).r;
 
     // Apply material-specific depth multiplier

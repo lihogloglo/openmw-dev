@@ -289,16 +289,23 @@ namespace MWRender
         {
             // Uniforms are already added by the terrain material system
             // We just need to bind the texture here
-            if (mDeformationTexture)
+            if (mDeformationTexture && mDeformationTexture.valid())
+            {
                 stateset->setTextureAttributeAndModes(3, mDeformationTexture, osg::StateAttribute::ON);
+            }
         }
 
         void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
         {
-            if (mDeformationTexture)
+            if (mDeformationTexture && mDeformationTexture.valid())
             {
-                stateset->getUniform("deformationOffset")->set(mDeformationOffset);
-                stateset->getUniform("materialType")->set(mMaterialType);
+                osg::Uniform* deformOffsetUniform = stateset->getUniform("deformationOffset");
+                osg::Uniform* materialTypeUniform = stateset->getUniform("materialType");
+
+                if (deformOffsetUniform)
+                    deformOffsetUniform->set(mDeformationOffset);
+                if (materialTypeUniform)
+                    materialTypeUniform->set(mMaterialType);
 
                 // Update eyePos for tessellation if the uniform exists
                 osg::Uniform* eyePosUniform = stateset->getUniform("eyePos");
@@ -560,6 +567,19 @@ namespace MWRender
         mPerViewUniformStateUpdater = new PerViewUniformStateUpdater(mResourceSystem->getSceneManager());
         rootNode->addCullCallback(mPerViewUniformStateUpdater);
 
+        // terrain deformation for interactive snow/sand/ash - MUST be created BEFORE terrain
+        if (Settings::shaders().mTerrainDeformation)
+        {
+            mTerrainDeformation = std::make_unique<TerrainDeformation>(mResourceSystem);
+            sceneRoot->addChild(mTerrainDeformation.get());
+
+            // Create and attach state set updater for terrain deformation
+            mTerrainDeformationStateSetUpdater = new TerrainDeformationStateSetUpdater();
+            mTerrainDeformationStateSetUpdater->setDeformationTexture(mTerrainDeformation->getColorTexture());
+            // Attach to root node so all terrain chunks inherit this state
+            rootNode->addCullCallback(mTerrainDeformationStateSetUpdater);
+        }
+
         mPostProcessor = new PostProcessor(*this, viewer, mRootNode, resourceSystem->getVFS());
         resourceSystem->getSceneManager()->setOpaqueDepthTex(
             mPostProcessor->getTexture(PostProcessor::Tex_OpaqueDepth, 0),
@@ -570,19 +590,6 @@ namespace MWRender
         // water goes after terrain for correct waterculling order
         mWater = std::make_unique<Water>(
             sceneRoot->getParent(0), sceneRoot, mResourceSystem, mViewer->getIncrementalCompileOperation());
-
-        // terrain deformation for interactive snow/sand/ash
-        if (Settings::shaders().mTerrainDeformation)
-        {
-            mTerrainDeformation = std::make_unique<TerrainDeformation>(mResourceSystem);
-            sceneRoot->addChild(mTerrainDeformation.get());
-
-            // Create and attach state set updater for terrain deformation
-            mTerrainDeformationStateSetUpdater = new TerrainDeformationStateSetUpdater();
-            mTerrainDeformationStateSetUpdater->setDeformationTexture(mTerrainDeformation->getColorTexture());
-            // Note: The updater needs to be attached to terrain chunks when they're created
-            // This will be done in getWorldspaceChunkMgr
-        }
 
         mCamera = std::make_unique<Camera>(mViewer->getCamera());
 
@@ -1598,14 +1605,6 @@ namespace MWRender
         float distanceMult = std::cos(osg::DegreesToRadians(std::min(mFieldOfView, 140.f)) / 2.f);
         newChunkMgr.mTerrain->setViewDistance(mViewDistance * (distanceMult ? 1.f / distanceMult : 1.f));
         newChunkMgr.mTerrain->enableHeightCullCallback(Settings::terrain().mWaterCulling);
-
-        // Attach terrain deformation state updater if enabled
-        if (mTerrainDeformationStateSetUpdater)
-        {
-            // Attach to the scene root so it applies to all terrain chunks
-            if (!mSceneRoot->getCullCallback())
-                mSceneRoot->addCullCallback(mTerrainDeformationStateSetUpdater);
-        }
 
         return mWorldspaceChunks.emplace(worldspace, std::move(newChunkMgr)).first->second;
     }
