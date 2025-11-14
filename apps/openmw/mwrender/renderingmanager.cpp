@@ -930,7 +930,18 @@ namespace MWRender
 
             // Update snow deformation
             if (mSnowDeformation)
+            {
                 mSnowDeformation->update(playerPos, dt);
+
+                // Update terrain system with latest deformation data
+                Terrain::setSnowDeformationData(
+                    mSnowDeformation->isEnabled(),
+                    mSnowDeformation->getDeformationTexture(),
+                    mSnowDeformation->getDeformationStrength(),
+                    mSnowDeformation->getTextureCenter(),
+                    mSnowDeformation->getWorldTextureSize()
+                );
+            }
         }
 
         updateNavMesh();
