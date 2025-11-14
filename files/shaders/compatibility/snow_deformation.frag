@@ -53,8 +53,8 @@ void main()
 
     // Fade out at edges based on distance from player
     float distToPlayer = length(worldPos.xy - playerPos.xy);
-    float fadeDist = 45.0; // Start fading at 45 units (near mesh edge at 50 unit radius)
-    float fadeWidth = 5.0; // Fade over 5 units for smooth transition
+    float fadeDist = 135.0; // Start fading at 135 units (near mesh edge at 150 unit radius)
+    float fadeWidth = 15.0; // Fade over 15 units for smooth transition
     float alpha = 1.0 - smoothstep(fadeDist, fadeDist + fadeWidth, distToPlayer);
 
     // Output

@@ -48,6 +48,7 @@
 
 #include <components/terrain/quadtreeworld.hpp>
 #include <components/terrain/terraingrid.hpp>
+#include <components/terrain/material.hpp>
 
 #include <components/esm3/loadcell.hpp>
 #include <components/esm4/loadcell.hpp>
@@ -488,6 +489,9 @@ namespace MWRender
 
         // Initialize snow deformation system
         mSnowDeformation = std::make_unique<SnowDeformationManager>(sceneRoot, mResourceSystem);
+
+        // Register snow deformation manager with terrain system for shader integration
+        Terrain::setSnowDeformationManager(mSnowDeformation.get());
 
         const std::string& normalMapPattern = Settings::shaders().mNormalMapPattern;
         const std::string& heightMapPattern = Settings::shaders().mNormalHeightMapPattern;

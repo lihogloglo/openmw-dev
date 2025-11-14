@@ -59,8 +59,9 @@ void SnowDeformationManager::initialize()
     // Create the camera that renders to the deformation texture
     createDeformationCamera();
 
-    // Create the dense mesh that will be displaced
-    createDeformationMesh();
+    // NOTE: Overlay mesh disabled - deformation now integrated into terrain shader
+    // The deformation texture is applied directly to terrain chunks via material.cpp
+    // createDeformationMesh();
 }
 
 void SnowDeformationManager::createDeformationTexture()
@@ -241,7 +242,7 @@ void SnowDeformationManager::update(const osg::Vec3f& playerPos, float dt)
         Footprint footprint;
         footprint.position = osg::Vec2f(playerPos.x(), playerPos.y());
         footprint.intensity = 0.8f;  // Much more visible intensity (0-1 range, will be multiplied by deformationStrength)
-        footprint.radius = 8.0f;     // 8 units ≈ 1.6m diameter - realistic for character footprint
+        footprint.radius = 24.0f;    // 24 units ≈ 4.8m diameter - large visible trail (3x increase)
         footprint.timestamp = 0.0f;
 
         mFootprints.push_back(footprint);
@@ -274,12 +275,12 @@ void SnowDeformationManager::update(const osg::Vec3f& playerPos, float dt)
     // Update deformation texture
     updateDeformationTexture(playerPos, dt);
 
-    // Update mesh position to follow player
-    updateMeshPosition(playerPos);
+    // NOTE: Mesh position update disabled - using terrain integration instead
+    // updateMeshPosition(playerPos);
 
-    // Update shader uniforms
-    mDeformationStateSet->getUniform("textureCenter")->set(mTextureCenter);
-    mDeformationStateSet->getUniform("deformationStrength")->set(mDeformationStrength);
+    // NOTE: Shader uniforms now set per-terrain-chunk in material.cpp
+    // mDeformationStateSet->getUniform("textureCenter")->set(mTextureCenter);
+    // mDeformationStateSet->getUniform("deformationStrength")->set(mDeformationStrength);
 
     mLastPlayerPos = playerPos;
 }
@@ -329,10 +330,11 @@ void SnowDeformationManager::updateMeshPosition(const osg::Vec3f& playerPos)
 void SnowDeformationManager::setEnabled(bool enabled)
 {
     mEnabled = enabled;
-    if (mDeformationMeshGroup)
-    {
-        mDeformationMeshGroup->setNodeMask(enabled ? Mask_Terrain : 0);
-    }
+    // NOTE: Mesh group disabled - terrain integration handles visibility via shader defines
+    // if (mDeformationMeshGroup)
+    // {
+    //     mDeformationMeshGroup->setNodeMask(enabled ? Mask_Terrain : 0);
+    // }
 }
 
 void SnowDeformationManager::setDeformationRadius(float radius)
