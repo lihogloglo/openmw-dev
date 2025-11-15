@@ -344,26 +344,27 @@ namespace Terrain
                                 Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] Vertex shader " << i << " length: " << source.length();
 
                                 // Check if hardcoded tests are present
-                                bool hasCollapseTest = source.find("gl_Position = vec4(0.0, 0.0, 0.0, 1.0)") != std::string::npos;
-                                bool hasDeformationUp = source.find("vertex.y += 100.0") != std::string::npos;
-                                bool hasDeformationDown = source.find("vertex.y -= 100.0") != std::string::npos;
+                                bool hasZRise = source.find("vertex.z += 100.0") != std::string::npos;
+                                bool hasZDrop = source.find("vertex.z -= 100.0") != std::string::npos;
+                                bool hasYModification = source.find("vertex.y += 100.0") != std::string::npos ||
+                                                       source.find("vertex.y -= 100.0") != std::string::npos;
                                 bool hasUniforms = source.find("snowDeformationMap") != std::string::npos;
 
-                                if (hasCollapseTest)
+                                if (hasZRise)
                                 {
-                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✓✓✓ COLLAPSE TEST FOUND - terrain should disappear to single point! ✓✓✓";
+                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✓✓✓ Z-AXIS RISE TEST (Z is up!) - terrain should rise 100 units ✓✓✓";
                                 }
-                                else if (hasDeformationUp)
+                                else if (hasZDrop)
                                 {
-                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✓ Hardcoded 100-unit RISE FOUND in shader " << i;
+                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✓✓✓ Z-AXIS DROP TEST (Z is up!) - terrain should drop 100 units ✓✓✓";
                                 }
-                                else if (hasDeformationDown)
+                                else if (hasYModification)
                                 {
-                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✓ Hardcoded 100-unit DROP FOUND in shader " << i;
+                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ⚠ Y-AXIS modification found (wrong axis - Y is horizontal, Z is up!)";
                                 }
                                 else
                                 {
-                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✗ No hardcoded test FOUND in shader " << i;
+                                    Log(Debug::Warning) << "[TERRAIN SHADER #" << programCount << "] ✗ No test modification found in shader " << i;
                                 }
 
                                 if (hasUniforms)

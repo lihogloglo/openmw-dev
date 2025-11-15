@@ -41,51 +41,44 @@ void main(void)
 {
     vec4 vertex = gl_Vertex;
 
-    // SNOW DEFORMATION DIAGNOSTIC TEST - MOVED TO BEFORE gl_Position ASSIGNMENT
-    // The tests were failing because gl_Position was being overwritten at line 99!
+    // SNOW DEFORMATION DIAGNOSTIC TEST
+    // CRITICAL FIX: Z is UP in OpenMW, not Y!
 
-    // TEST 1A: Try RAISING terrain (modify BEFORE transformation)
-    //vertex.y += 100.0;  // THIS SHOULD BE VISIBLE - terrain RISES ~1.4 meters
+    // TEST 1: Raise terrain vertically (Z is up!)
+    vertex.z += 100.0;  // Z is up - terrain should rise 100 units
 
-    // TEST 2: If TEST 1 works, comment it out and uncomment this to test the uniform
+    // TEST 2: If TEST 1 works, enable snow deformation with uniform check
     /*
     if (snowDeformationEnabled)
     {
-        // If you see terrain drop here, the uniform is being set
-        vertex.y -= 100.0;
-    }
-    */
-
-    // TEST 3: If TEST 2 works, comment it and uncomment this to test texture sampling
-    /*
-    if (snowDeformationEnabled)
-    {
+        // Sample test pattern at center of deformation texture
         vec2 testUV = vec2(0.5, 0.5);
         float deformationDepth = texture2D(snowDeformationMap, testUV).r;
 
-        // Debug: multiply by large value to see if we're reading ANYTHING
-        vertex.y -= deformationDepth * 2.0;  // Should be ~100 units at center
+        // Apply deformation (Z is up, so subtract to make depression)
+        vertex.z -= deformationDepth * 2.0;  // *2 to amplify the 50-unit test pattern
     }
     */
 
-    // TEST 4: If TEST 3 works, use calculated UV to follow player
+    // TEST 3: Full snow deformation system
     /*
     if (snowDeformationEnabled)
     {
-        vec3 worldPos = vertex.xyz;
-        vec2 relativePos = worldPos.xz - snowDeformationCenter;
+        // Convert model-space position to deformation texture UV
+        // Note: vertex is in model space, deformationCenter is in world space
+        // For terrain, model space IS world space (no parent transforms)
+        vec2 relativePos = vertex.xy - snowDeformationCenter;  // X,Y are horizontal
         vec2 deformUV = (relativePos / snowDeformationRadius) * 0.5 + 0.5;
+
+        // Sample deformation depth (R channel = depth, G channel = age)
         float deformationDepth = texture2D(snowDeformationMap, deformUV).r;
-        vertex.y -= deformationDepth;
+
+        // Apply deformation (Z is up, so subtract to create depression)
+        vertex.z -= deformationDepth;
     }
     */
 
     gl_Position = modelToClip(vertex);
-
-    // CRITICAL TEST: Modify gl_Position AFTER transformation to verify shader runs
-    // This should collapse ALL terrain to a single point at center of screen
-    // If this doesn't work, the shader is NOT running on the visible terrain!
-    gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
 
     vec4 viewPos = modelToView(vertex);
     gl_ClipVertex = viewPos;
