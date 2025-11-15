@@ -394,6 +394,15 @@ namespace Terrain
                 subdividedDrawable->setupWaterBoundingBox(-1, chunkSize * mStorage->getCellWorldSize(mWorldspace) / numVerts);
                 subdividedDrawable->createClusterCullingCallback();
 
+                // DEBUG: Color subdivided chunks bright red so they're visible
+                osg::ref_ptr<osg::StateSet> stateSet = new osg::StateSet(*subdividedDrawable->getStateSet(), osg::CopyOp::SHALLOW_COPY);
+                osg::ref_ptr<osg::Material> material = new osg::Material;
+                material->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1.0f, 0.0f, 0.0f, 1.0f)); // Bright red
+                material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.5f, 0.0f, 0.0f, 1.0f));
+                material->setColorMode(osg::Material::AMBIENT_AND_DIFFUSE);
+                stateSet->setAttributeAndModes(material, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+                subdividedDrawable->setStateSet(stateSet);
+
                 Log(Debug::Warning) << "[SNOW DEBUG] Successfully subdivided terrain chunk (distance: " << distance << ", level: " << subdivisionLevel << ")";
 
                 return subdividedDrawable;
