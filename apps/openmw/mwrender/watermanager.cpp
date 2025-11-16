@@ -14,12 +14,28 @@ namespace MWRender
         , mSceneRoot(sceneRoot)
         , mResourceSystem(resourceSystem)
         , mIncrementalCompileOperation(ico)
+        , mFFTOceanEnabled(true)  // Enable by default (can be configured via settings)
     {
         // For now, create the legacy water renderer
         // In the future, we'll create different renderers based on water type
         mWater = std::make_unique<Water>(parent, sceneRoot, resourceSystem, ico);
 
-        Log(Debug::Info) << "WaterManager initialized with legacy water renderer";
+        // Initialize FFT ocean simulation
+        mOceanFFT = std::make_unique<Ocean::OceanFFTSimulation>();
+        if (mFFTOceanEnabled)
+        {
+            if (mOceanFFT->initialize())
+            {
+                Log(Debug::Info) << "FFT Ocean simulation initialized successfully";
+            }
+            else
+            {
+                Log(Debug::Warning) << "FFT Ocean simulation initialization failed, falling back to legacy rendering";
+                mFFTOceanEnabled = false;
+            }
+        }
+
+        Log(Debug::Info) << "WaterManager initialized with legacy water renderer and FFT ocean system";
     }
 
     WaterManager::~WaterManager()
@@ -136,6 +152,16 @@ namespace MWRender
     {
         if (mWater)
             mWater->update(dt, paused);
+
+        // Update FFT ocean simulation
+        if (mFFTOceanEnabled && mOceanFFT && !paused)
+        {
+            // Only update for ocean cells
+            if (mCurrentWaterType == Ocean::WaterType::OCEAN)
+            {
+                mOceanFFT->update(dt);
+            }
+        }
     }
 
     osg::Vec3d WaterManager::getPosition() const
@@ -160,5 +186,18 @@ namespace MWRender
     Ocean::WaterType WaterManager::getWaterType(const MWWorld::CellStore* cell) const
     {
         return mWaterTypeClassifier.classifyCell(cell);
+    }
+
+    void WaterManager::setFFTOceanEnabled(bool enabled)
+    {
+        mFFTOceanEnabled = enabled;
+
+        if (enabled && mOceanFFT && !mOceanFFT->initialize())
+        {
+            Log(Debug::Warning) << "Failed to enable FFT ocean, compute shaders may not be supported";
+            mFFTOceanEnabled = false;
+        }
+
+        Log(Debug::Info) << "FFT Ocean waves " << (mFFTOceanEnabled ? "enabled" : "disabled");
     }
 }

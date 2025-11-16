@@ -3,12 +3,14 @@ set(OCEAN_HEADER
     watertypeclassifier.hpp
     watersubdivider.hpp
     watersubdivisiontracker.hpp
+    oceanfftsimulation.hpp
 )
 
 set(OCEAN_SOURCE
     watertypeclassifier.cpp
     watersubdivider.cpp
     watersubdivisiontracker.cpp
+    oceanfftsimulation.cpp
 )
 
 add_library(components_ocean OBJECT ${OCEAN_SOURCE} ${OCEAN_HEADER})

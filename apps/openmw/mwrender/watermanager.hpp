@@ -10,6 +10,7 @@
 
 #include <components/ocean/watertype.hpp>
 #include <components/ocean/watertypeclassifier.hpp>
+#include <components/ocean/oceanfftsimulation.hpp>
 #include <components/settings/settings.hpp>
 #include <components/vfs/pathutil.hpp>
 
@@ -84,12 +85,25 @@ namespace MWRender
         /// Get the water type for a cell
         Ocean::WaterType getWaterType(const MWWorld::CellStore* cell) const;
 
+        /// Get the FFT ocean simulation (if initialized)
+        Ocean::OceanFFTSimulation* getOceanFFTSimulation() { return mOceanFFT.get(); }
+
+        /// Enable/disable FFT ocean waves
+        void setFFTOceanEnabled(bool enabled);
+
+        /// Check if FFT ocean is enabled
+        bool isFFTOceanEnabled() const { return mFFTOceanEnabled; }
+
     private:
         // Legacy water renderer (for now, we'll use this for all water types)
         std::unique_ptr<Water> mWater;
 
         // Water type classifier
         Ocean::WaterTypeClassifier mWaterTypeClassifier;
+
+        // FFT ocean simulation
+        std::unique_ptr<Ocean::OceanFFTSimulation> mOceanFFT;
+        bool mFFTOceanEnabled;
 
         // Current cell information
         const MWWorld::CellStore* mCurrentCell{ nullptr };
