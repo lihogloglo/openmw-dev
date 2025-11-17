@@ -136,6 +136,8 @@ namespace MWRender
         {
             bool useOcean = (mCurrentWaterType == Ocean::WaterType::OCEAN) && mFFTOceanEnabled;
             mOceanRenderer->setEnabled(useOcean);
+            Log(Debug::Info) << "Ocean renderer " << (useOcean ? "ENABLED" : "DISABLED")
+                            << " for water type: " << Ocean::waterTypeToString(mCurrentWaterType);
         }
 
         // Update the legacy water renderer (use for non-ocean water)
