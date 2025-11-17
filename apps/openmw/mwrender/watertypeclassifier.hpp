@@ -21,6 +21,9 @@ namespace MWWorld
 
 namespace MWRender
 {
+    // Import Ocean::WaterType into MWRender namespace for easier use
+    using Ocean::WaterType;
+
     /// Automatic water type detection based on world data
     /// Implements Method 2 from the ocean implementation design document
     class WaterTypeClassifier
@@ -30,7 +33,7 @@ namespace MWRender
 
         /// Classify water type for a given cell
         /// This uses automatic detection based on cell properties and neighboring cells
-        Ocean::WaterType classifyCell(const MWWorld::CellStore* cell) const;
+        WaterType classifyCell(const MWWorld::CellStore* cell) const;
 
         /// Pre-classify cells in a region for performance
         /// Call this when loading a new region to cache water type classifications
@@ -40,7 +43,7 @@ namespace MWRender
         void clearCache();
 
         /// Get cached water type for a cell (returns INDOOR if not cached)
-        Ocean::WaterType getCachedType(const MWWorld::CellStore* cell) const;
+        WaterType getCachedType(const MWWorld::CellStore* cell) const;
 
     private:
         /// Check if a cell is connected to the world edge (ocean detection)
@@ -60,7 +63,7 @@ namespace MWRender
         std::vector<osg::Vec2i> getWaterNeighbors(osg::Vec2i cellCoords) const;
 
         /// Cache of classified cells
-        mutable std::map<const MWWorld::CellStore*, Ocean::WaterType> mClassificationCache;
+        mutable std::map<const MWWorld::CellStore*, WaterType> mClassificationCache;
     };
 }
 
