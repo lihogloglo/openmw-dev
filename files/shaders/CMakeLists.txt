@@ -57,6 +57,8 @@ set(SHADER_FILES
     compatibility/sky.frag
     compatibility/fullscreen_tri.vert
     compatibility/fullscreen_tri.frag
+    compatibility/ocean/ocean.vert
+    compatibility/ocean/ocean.frag
     compatibility/bs/default.vert
     compatibility/bs/default.frag
     compatibility/bs/nolighting.vert
@@ -70,8 +72,6 @@ set(SHADER_FILES
     core/ocean/fft_update_spectrum.comp
     core/ocean/fft_butterfly.comp
     core/ocean/fft_generate_displacement.comp
-    core/ocean/ocean.vert
-    core/ocean/ocean.frag
 )
 
 copy_all_resource_files(${CMAKE_CURRENT_SOURCE_DIR} ${OPENMW_RESOURCES_ROOT} ${DDIRRELATIVE} "${SHADER_FILES}")
