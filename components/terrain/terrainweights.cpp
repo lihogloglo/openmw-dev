@@ -37,6 +37,19 @@ namespace Terrain
         if (!vertices || vertices->empty())
             return nullptr;
 
+        // DEBUG: Log chunk information
+        static int chunkCounter = 0;
+        if (chunkCounter++ % 100 == 0)
+        {
+            Log(Debug::Info) << "[TERRAIN WEIGHTS] Computing weights for chunk at ("
+                            << chunkCenter.x() << ", " << chunkCenter.y()
+                            << ") size=" << chunkSize
+                            << " | Layers=" << layerList.size()
+                            << " | Blendmaps=" << blendmaps.size()
+                            << " | Vertices=" << vertices->size()
+                            << " | cellWorldSize=" << cellWorldSize;
+        }
+
         osg::ref_ptr<osg::Vec4Array> weights = new osg::Vec4Array;
         weights->reserve(vertices->size());
 
@@ -150,7 +163,24 @@ namespace Terrain
                                << totalWeight.x() << " snow, "
                                << totalWeight.y() << " ash, "
                                << totalWeight.z() << " mud, "
-                               << totalWeight.w() << " rock)";
+                               << totalWeight.w() << " rock)"
+                               << " | Layers: " << layerList.size()
+                               << " | Blendmaps: " << blendmaps.size();
+
+            // Log if we have a truly blended weight (not binary)
+            bool isBinary = (totalWeight.x() < 0.01f || totalWeight.x() > 0.99f) &&
+                           (totalWeight.y() < 0.01f || totalWeight.y() > 0.99f) &&
+                           (totalWeight.z() < 0.01f || totalWeight.z() > 0.99f) &&
+                           (totalWeight.w() < 0.01f || totalWeight.w() > 0.99f);
+
+            if (!isBinary)
+            {
+                Log(Debug::Info) << "[TERRAIN WEIGHTS] FOUND BLENDED WEIGHT! ("
+                                << totalWeight.x() << ", "
+                                << totalWeight.y() << ", "
+                                << totalWeight.z() << ", "
+                                << totalWeight.w() << ")";
+            }
         }
 
         return totalWeight;
@@ -205,18 +235,30 @@ namespace Terrain
         // Blendmaps typically store weight in alpha channel or as grayscale
         int bytesPerPixel = blendmap->getPixelSizeInBits() / 8;
 
+        float blendValue = 0.0f;
         if (bytesPerPixel >= 4)
         {
             // RGBA format - use alpha channel
-            return pixel[3] / 255.0f;
+            blendValue = pixel[3] / 255.0f;
         }
         else if (bytesPerPixel >= 1)
         {
             // Grayscale - use red channel
-            return pixel[0] / 255.0f;
+            blendValue = pixel[0] / 255.0f;
         }
 
-        return 0.0f;
+        // DEBUG: Log blendmap sampling (only occasionally to avoid spam)
+        static int sampleCounter = 0;
+        if (sampleCounter++ % 10000 == 0)
+        {
+            Log(Debug::Verbose) << "[TERRAIN WEIGHTS] Blendmap sample at UV(" << u << ", " << v
+                               << ") pixel(" << x << ", " << y
+                               << ") = " << blendValue
+                               << " | Blendmap size: " << blendmap->s() << "x" << blendmap->t()
+                               << " | Bytes/pixel: " << bytesPerPixel;
+        }
+
+        return blendValue;
     }
 
     osg::Vec4f TerrainWeights::interpolateWeights(const osg::Vec4f& w0, const osg::Vec4f& w1)
