@@ -349,6 +349,8 @@ add_component_dir (terrain
     quadtreeworld quadtreenode viewdata cellborder view heightcull terrainsubdivider subdivisiontracker snowdetection snowdeformation snowdeformationupdater terrainweights
     )
 
+add_subdirectory (ocean)
+
 add_component_dir (loadinglistener
     loadinglistener asynclistener
     )
@@ -567,7 +569,7 @@ include_directories(${BULLET_INCLUDE_DIRS} ${CMAKE_CURRENT_BINARY_DIR})
 
 find_package(SQLite3 REQUIRED)
 
-add_library(components STATIC ${COMPONENT_FILES})
+add_library(components STATIC ${COMPONENT_FILES} $<TARGET_OBJECTS:components_ocean>)
 
 if (ANDROID)
     set_property(TARGET components PROPERTY POSITION_INDEPENDENT_CODE ON)
