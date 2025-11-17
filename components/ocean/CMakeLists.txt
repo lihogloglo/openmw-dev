@@ -1,13 +1,11 @@
 set(OCEAN_HEADER
     watertype.hpp
-    watertypeclassifier.hpp
     watersubdivider.hpp
     watersubdivisiontracker.hpp
     oceanfftsimulation.hpp
 )
 
 set(OCEAN_SOURCE
-    watertypeclassifier.cpp
     watersubdivider.cpp
     watersubdivisiontracker.cpp
     oceanfftsimulation.cpp

@@ -20,6 +20,37 @@
 
 namespace MWRender
 {
+    OceanFFTUpdateCallback::OceanFFTUpdateCallback(Ocean::OceanFFTSimulation* fftSimulation)
+        : mFFTSimulation(fftSimulation)
+        , mLastFrameNumber(0)
+    {
+    }
+
+    void OceanFFTUpdateCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
+    {
+        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+        if (cv)
+        {
+            unsigned int frameNumber = cv->getFrameStamp() ? cv->getFrameStamp()->getFrameNumber() : 0;
+
+            // Only dispatch compute shaders once per frame
+            if (mFFTSimulation && frameNumber != mLastFrameNumber)
+            {
+                osg::State* state = cv->getRenderStage()->getStateSet()
+                    ? cv->getState()
+                    : nullptr;
+
+                if (state)
+                {
+                    mFFTSimulation->dispatchCompute(state);
+                    mLastFrameNumber = frameNumber;
+                }
+            }
+        }
+
+        traverse(node, nv);
+    }
+
     OceanWaterRenderer::OceanWaterRenderer(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
                                           Ocean::OceanFFTSimulation* fftSimulation)
         : mParent(parent)

@@ -10,6 +10,8 @@
 #include <random>
 
 #include <components/debug/debuglog.hpp>
+#include <components/resource/resourcesystem.hpp>
+#include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/glextensions.hpp>
 #include <components/shader/shadermanager.hpp>
 
@@ -166,7 +168,7 @@ namespace Ocean
         if (!ext)
             return;
 
-        const std::size_t contextID = state->getContextID();
+        const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
 
         // Helper lambda to bind texture as image
         auto bindImage = [&](osg::Texture2D* texture, GLuint index, GLenum access) {

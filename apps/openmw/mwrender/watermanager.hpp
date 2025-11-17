@@ -9,8 +9,9 @@
 #include <osg/ref_ptr>
 
 #include <components/ocean/watertype.hpp>
-#include <components/ocean/watertypeclassifier.hpp>
 #include <components/ocean/oceanfftsimulation.hpp>
+
+#include "watertypeclassifier.hpp"
 #include <components/settings/settings.hpp>
 #include <components/vfs/pathutil.hpp>
 
@@ -103,7 +104,7 @@ namespace MWRender
         std::unique_ptr<OceanWaterRenderer> mOceanRenderer;
 
         // Water type classifier
-        Ocean::WaterTypeClassifier mWaterTypeClassifier;
+        WaterTypeClassifier mWaterTypeClassifier;
 
         // FFT ocean simulation
         std::unique_ptr<Ocean::OceanFFTSimulation> mOceanFFT;

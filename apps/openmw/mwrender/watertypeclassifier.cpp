@@ -3,12 +3,12 @@
 #include <components/esm3/loadcell.hpp>
 #include <components/misc/constants.hpp>
 
-#include "../../apps/openmw/mwworld/cellstore.hpp"
+#include "../mwworld/cellstore.hpp"
 
 #include <algorithm>
 #include <queue>
 
-namespace Ocean
+namespace MWRender
 {
     WaterTypeClassifier::WaterTypeClassifier()
     {
@@ -106,7 +106,7 @@ namespace Ocean
         int depth = 0;
         while (!toVisit.empty() && depth < maxDepth)
         {
-            int levelSize = toVisit.size();
+            int levelSize = static_cast<int>(toVisit.size());
             for (int i = 0; i < levelSize; ++i)
             {
                 osg::Vec2i current = toVisit.front();

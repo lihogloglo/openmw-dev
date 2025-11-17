@@ -1,7 +1,7 @@
-#ifndef OPENMW_COMPONENTS_OCEAN_WATERTYPECLASSIFIER_H
-#define OPENMW_COMPONENTS_OCEAN_WATERTYPECLASSIFIER_H
+#ifndef OPENMW_MWRENDER_WATERTYPECLASSIFIER_H
+#define OPENMW_MWRENDER_WATERTYPECLASSIFIER_H
 
-#include "watertype.hpp"
+#include <components/ocean/watertype.hpp>
 
 #include <map>
 #include <set>
@@ -19,7 +19,7 @@ namespace MWWorld
     class CellStore;
 }
 
-namespace Ocean
+namespace MWRender
 {
     /// Automatic water type detection based on world data
     /// Implements Method 2 from the ocean implementation design document
