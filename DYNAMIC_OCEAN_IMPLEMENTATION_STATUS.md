@@ -19,11 +19,11 @@ This document tracks the implementation of the FFT-based dynamic ocean wave syst
 ## Current Status: 🔨 BUILD FIXES IN PROGRESS
 
 ### Latest Commit
-- `e8ab5cf9` - Fix WaterType namespace and Cell type errors
+- `ec11cb14` - Use 'using' declaration to fix MSVC namespace resolution
 - **Status**: Pushed to remote, awaiting local build test
 
 ### Build Status
-- **MSVC (Windows)**: ⚠️ Compiling (errors being fixed iteratively)
+- **MSVC (Windows)**: ⚠️ Compiling (Round 3 of fixes applied)
 - **GCC/Clang (Linux)**: ⏸️ Not tested yet
 - **macOS**: ⏸️ Not tested yet
 
@@ -158,6 +158,22 @@ This document tracks the implementation of the FFT-based dynamic ocean wave syst
 2. ❌ Cannot convert MWWorld::Cell* to ESM::Cell*
    - ✅ Changed variable type to `const MWWorld::Cell*`
    - ✅ Updated in classifyCell() and cellHasWater()
+
+### Round 3: MSVC Namespace Resolution Issues
+**Commit**: `ec11cb14` - Use 'using' declaration to fix MSVC namespace resolution
+
+**Issues Fixed**:
+1. ❌ MSVC still reporting "Ocean::WaterType" as unknown override specifier
+   - Problem: MSVC has stricter namespace resolution than GCC/Clang
+   - Qualified names (Ocean::WaterType) in declarations caused parsing issues
+   - ✅ Added `using Ocean::WaterType;` in MWRender namespace
+   - ✅ Changed all `Ocean::WaterType` back to `WaterType` (now unqualified)
+   - Benefits: Cleaner code, better MSVC compatibility, maintained type safety
+
+**Technical Note**:
+The `using` declaration imports Ocean::WaterType into the MWRender namespace scope,
+allowing unqualified use while still maintaining the connection to the Ocean namespace.
+This is a standard C++ pattern for bringing external types into a namespace for convenience.
 
 ---
 
@@ -331,6 +347,8 @@ Test Cases:
 ## Commit History 📝
 
 ```
+ec11cb14 - Use 'using' declaration to fix MSVC namespace resolution
+c7acf151 - Add comprehensive ocean implementation status document
 e8ab5cf9 - Fix WaterType namespace and Cell type errors
 04a2b74f - Fix build errors in ocean wave system
 dcc5f0ed - Integrate FFT ocean compute shaders into rendering pipeline
