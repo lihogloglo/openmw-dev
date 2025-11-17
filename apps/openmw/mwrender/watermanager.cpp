@@ -21,7 +21,7 @@ namespace MWRender
         mWater = std::make_unique<Water>(parent, sceneRoot, resourceSystem, ico);
 
         // Initialize FFT ocean simulation
-        mOceanFFT = std::make_unique<Ocean::OceanFFTSimulation>();
+        mOceanFFT = std::make_unique<Ocean::OceanFFTSimulation>(resourceSystem);
         if (mFFTOceanEnabled)
         {
             if (mOceanFFT->initialize())

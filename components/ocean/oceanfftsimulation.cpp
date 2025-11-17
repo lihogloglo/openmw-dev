@@ -3,12 +3,15 @@
 #include <osg/Image>
 #include <osg/Texture2D>
 #include <osg/Program>
+#include <osg/State>
 
 #include <cmath>
 #include <complex>
 #include <random>
 
 #include <components/debug/debuglog.hpp>
+#include <components/sceneutil/glextensions.hpp>
+#include <components/shader/shadermanager.hpp>
 
 namespace Ocean
 {
@@ -66,8 +69,9 @@ namespace Ocean
         }
     }
 
-    OceanFFTSimulation::OceanFFTSimulation()
-        : mWindSpeed(10.0f)
+    OceanFFTSimulation::OceanFFTSimulation(Resource::ResourceSystem* resourceSystem)
+        : mResourceSystem(resourceSystem)
+        , mWindSpeed(10.0f)
         , mWindDirection(1.0f, 0.0f)
         , mFetchDistance(100000.0f)
         , mWaterDepth(1000.0f)
@@ -96,6 +100,13 @@ namespace Ocean
             return false;
         }
 
+        // Load shader programs
+        if (!loadShaderPrograms())
+        {
+            Log(Debug::Error) << "Failed to load ocean FFT shaders";
+            return false;
+        }
+
         // Initialize cascades based on performance preset
         initializeCascades();
 
@@ -103,6 +114,142 @@ namespace Ocean
         Log(Debug::Info) << "OceanFFTSimulation initialized with " << mCascades.size() << " cascades";
 
         return true;
+    }
+
+    bool OceanFFTSimulation::loadShaderPrograms()
+    {
+        if (!mResourceSystem)
+        {
+            Log(Debug::Error) << "No resource system available for loading shaders";
+            return false;
+        }
+
+        auto& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
+
+        // Load compute shaders
+        osg::ref_ptr<osg::Shader> spectrumShader =
+            shaderManager.getShader("ocean/fft_update_spectrum.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> butterflyShader =
+            shaderManager.getShader("ocean/fft_butterfly.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> displacementShader =
+            shaderManager.getShader("ocean/fft_generate_displacement.comp", {}, osg::Shader::COMPUTE);
+
+        if (!spectrumShader || !butterflyShader || !displacementShader)
+        {
+            Log(Debug::Error) << "Failed to load ocean FFT compute shaders";
+            return false;
+        }
+
+        // Create shader programs
+        mSpectrumGeneratorProgram = shaderManager.getProgram(nullptr, spectrumShader);
+        mFFTHorizontalProgram = shaderManager.getProgram(nullptr, butterflyShader);
+        mFFTVerticalProgram = shaderManager.getProgram(nullptr, butterflyShader);  // Same shader, different uniform
+        mDisplacementProgram = shaderManager.getProgram(nullptr, displacementShader);
+
+        if (!mSpectrumGeneratorProgram || !mFFTHorizontalProgram ||
+            !mFFTVerticalProgram || !mDisplacementProgram)
+        {
+            Log(Debug::Error) << "Failed to create ocean FFT shader programs";
+            return false;
+        }
+
+        Log(Debug::Info) << "Successfully loaded ocean FFT shader programs";
+        return true;
+    }
+
+    void OceanFFTSimulation::dispatchCompute(osg::State* state)
+    {
+        if (!mInitialized || !state)
+            return;
+
+        osg::GLExtensions* ext = state->get<osg::GLExtensions>();
+        if (!ext)
+            return;
+
+        const std::size_t contextID = state->getContextID();
+
+        // Helper lambda to bind texture as image
+        auto bindImage = [&](osg::Texture2D* texture, GLuint index, GLenum access) {
+            if (!texture)
+                return;
+
+            osg::Texture::TextureObject* to = texture->getTextureObject(contextID);
+            if (!to || texture->isDirty(contextID))
+            {
+                state->applyTextureAttribute(index, texture);
+                to = texture->getTextureObject(contextID);
+            }
+
+            if (to)
+            {
+                ext->glBindImageTexture(index, to->id(), 0, GL_FALSE, 0, access, GL_RGBA32F_ARB);
+            }
+        };
+
+        // Process each cascade
+        for (auto& cascade : mCascades)
+        {
+            int res = cascade.textureResolution;
+
+            // 1. Update spectrum
+            state->applyAttribute(mSpectrumGeneratorProgram.get());
+            bindImage(cascade.spectrumTexture.get(), 0, GL_READ_ONLY_ARB);
+            bindImage(cascade.fftTemp1.get(), 1, GL_WRITE_ONLY_ARB);
+
+            // Set uniforms
+            mSpectrumGeneratorProgram->apply(*state);
+
+            ext->glDispatchCompute(res / 16, res / 16, 1);
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+            // 2. Horizontal FFT pass
+            int stages = static_cast<int>(std::log2(res));
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                state->applyAttribute(mFFTHorizontalProgram.get());
+
+                bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
+                bindImage(cascade.fftTemp2.get(), 1, GL_WRITE_ONLY_ARB);
+
+                // Bind butterfly texture
+                auto butterflyIt = mButterflyTextures.find(res);
+                if (butterflyIt != mButterflyTextures.end())
+                {
+                    state->applyTextureAttribute(2, butterflyIt->second.get());
+                }
+
+                ext->glDispatchCompute(res / 16, res / 16, 1);
+                ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+                // Swap buffers
+                std::swap(cascade.fftTemp1, cascade.fftTemp2);
+            }
+
+            // 3. Vertical FFT pass
+            for (int stage = 0; stage < stages; ++stage)
+            {
+                state->applyAttribute(mFFTVerticalProgram.get());
+
+                bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
+                bindImage(cascade.fftTemp2.get(), 1, GL_WRITE_ONLY_ARB);
+
+                ext->glDispatchCompute(res / 16, res / 16, 1);
+                ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+                std::swap(cascade.fftTemp1, cascade.fftTemp2);
+            }
+
+            // 4. Generate displacement and normals
+            state->applyAttribute(mDisplacementProgram.get());
+
+            bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
+            bindImage(cascade.displacementTexture.get(), 1, GL_WRITE_ONLY_ARB);
+            bindImage(cascade.normalTexture.get(), 2, GL_WRITE_ONLY_ARB);
+            bindImage(cascade.foamTexture.get(), 3, GL_WRITE_ONLY_ARB);
+
+            ext->glDispatchCompute(res / 16, res / 16, 1);
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+        }
     }
 
     void OceanFFTSimulation::update(float dt)
@@ -171,9 +318,16 @@ namespace Ocean
 
     bool OceanFFTSimulation::supportsComputeShaders()
     {
-        // TODO: Proper OpenGL capability check
-        // For now, assume compute shaders are available (OpenGL 4.3+)
-        return true;
+        // Check for OpenGL 4.3+ (required for compute shaders)
+#ifdef __APPLE__
+        // Apple platform compute shader support is unreliable
+        return false;
+#else
+        constexpr float minimumGLVersionRequiredForCompute = 4.3f;
+        osg::GLExtensions& exts = SceneUtil::getGLExtensions();
+        return exts.glVersion >= minimumGLVersionRequiredForCompute
+            && exts.glslLanguageVersion >= minimumGLVersionRequiredForCompute;
+#endif
     }
 
     void OceanFFTSimulation::loadParameters(const OceanParams& params)

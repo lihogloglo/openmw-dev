@@ -14,6 +14,12 @@ namespace osg
 {
     class Program;
     class Camera;
+    class State;
+}
+
+namespace Resource
+{
+    class ResourceSystem;
 }
 
 namespace Ocean
@@ -49,12 +55,16 @@ namespace Ocean
             {}
         };
 
-        OceanFFTSimulation();
+        OceanFFTSimulation(Resource::ResourceSystem* resourceSystem);
         ~OceanFFTSimulation();
 
         /// Initialize the FFT simulation system
         /// @return true if initialization succeeded
         bool initialize();
+
+        /// Dispatch compute shaders (called during rendering)
+        /// @param state The current OpenGL state
+        void dispatchCompute(osg::State* state);
 
         /// Update the simulation
         /// @param dt Delta time in seconds
@@ -96,6 +106,9 @@ namespace Ocean
         void loadParameters(const OceanParams& params);
 
     private:
+        /// Load compute shader programs
+        bool loadShaderPrograms();
+
         /// Initialize wave cascades
         void initializeCascades();
 
@@ -144,6 +157,9 @@ namespace Ocean
 
         /// Whether the simulation is initialized
         bool mInitialized;
+
+        /// Resource system for shader loading
+        Resource::ResourceSystem* mResourceSystem;
 
         /// Performance preset (determines cascade count and resolution)
         enum class PerformancePreset
