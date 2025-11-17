@@ -102,19 +102,33 @@ namespace Terrain
         if (layerList.empty())
             return DEFAULT_ROCK_WEIGHT;
 
-        // Calculate UV coordinates for vertex within chunk
-        // vertexPos is in chunk-local coordinates (relative to chunk center)
-        // Convert to UV [0,1] for blendmap sampling
+        // Calculate UV coordinates using WORLD-SPACE position
+        // This ensures vertices at chunk boundaries sample the same blendmap position
         //
-        // IMPORTANT: We clamp UV to slightly inside [0,1] to ensure consistent
-        // sampling at chunk boundaries. Adjacent chunks will sample the same
-        // blendmap values at their shared edges, preventing seams.
-        float halfSize = (chunkSize * cellWorldSize) * 0.5f;
-        float u = (vertexPos.x() + halfSize) / (chunkSize * cellWorldSize);
-        float v = (vertexPos.y() + halfSize) / (chunkSize * cellWorldSize);
+        // OLD APPROACH (chunk-local, caused seams):
+        //   UV = (vertexPos + halfSize) / chunkSize  → [0,1] per chunk
+        //   Problem: Adjacent chunks sample different blendmap positions
+        //
+        // NEW APPROACH (world-space, seamless):
+        //   Convert to world position, then to cell-space UV
+        //   Vertices at same world position always get same UV, regardless of chunk
 
-        // Clamp to [0, 1] to ensure we don't sample outside the blendmap
-        // This is especially important at chunk boundaries
+        // Convert chunk-local vertex position to world-space
+        // chunkCenter is in cell coordinates (e.g., 0.5, 1.5)
+        // cellWorldSize is world units per cell (e.g., 8192 for Morrowind)
+        float worldX = chunkCenter.x() * cellWorldSize + vertexPos.x();
+        float worldY = chunkCenter.y() * cellWorldSize + vertexPos.y();
+
+        // Convert world position to cell-space UV [0,1] per cell
+        // This makes UVs consistent across chunk boundaries
+        float cellX = worldX / cellWorldSize;
+        float cellY = worldY / cellWorldSize;
+
+        // Extract fractional part for UV (wraps at cell boundaries)
+        float u = cellX - std::floor(cellX);
+        float v = cellY - std::floor(cellY);
+
+        // Clamp to [0, 1] to handle floating-point edge cases
         u = std::max(0.0f, std::min(1.0f, u));
         v = std::max(0.0f, std::min(1.0f, v));
 
@@ -164,8 +178,10 @@ namespace Terrain
                                << totalWeight.y() << " ash, "
                                << totalWeight.z() << " mud, "
                                << totalWeight.w() << " rock)"
-                               << " | Layers: " << layerList.size()
-                               << " | Blendmaps: " << blendmaps.size();
+                               << " | World UV: (" << uv.x() << ", " << uv.y() << ")"
+                               << " | World pos: (" << worldX << ", " << worldY << ")"
+                               << " | Chunk: (" << chunkCenter.x() << ", " << chunkCenter.y() << ")"
+                               << " | Layers: " << layerList.size();
 
             // Log if we have a truly blended weight (not binary)
             bool isBinary = (totalWeight.x() < 0.01f || totalWeight.x() > 0.99f) &&
@@ -179,7 +195,8 @@ namespace Terrain
                                 << totalWeight.x() << ", "
                                 << totalWeight.y() << ", "
                                 << totalWeight.z() << ", "
-                                << totalWeight.w() << ")";
+                                << totalWeight.w() << ")"
+                                << " at world (" << worldX << ", " << worldY << ")";
             }
         }
 
