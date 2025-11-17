@@ -149,11 +149,14 @@ namespace Terrain
         int startTexelY = static_cast<int>(std::floor(origin.y() * LAND_TEXTURE_SIZE));
 
         // Calculate how many texels the blendmap covers
-        float blendmapTexelCount = chunkSize * LAND_TEXTURE_SIZE;
+        // CRITICAL: Blendmaps include +1 for boundary overlap (see gridsampling.hpp:getBlendmapSize)
+        // This ensures adjacent chunks share boundary texels!
+        float blendmapTexelCount = chunkSize * LAND_TEXTURE_SIZE + 1.0f;
 
         // UV coordinates within the chunk's blendmap [0, 1]
-        float u = static_cast<float>(snappedTexelX - startTexelX) / blendmapTexelCount;
-        float v = static_cast<float>(snappedTexelY - startTexelY) / blendmapTexelCount;
+        // For a 0.125 chunk: blendmapTexelCount = 3, so texels map to: 0→0.0, 1→0.5, 2→1.0
+        float u = static_cast<float>(snappedTexelX - startTexelX) / (blendmapTexelCount - 1.0f);
+        float v = static_cast<float>(snappedTexelY - startTexelY) / (blendmapTexelCount - 1.0f);
 
         // Clamp to [0, 1] to handle edge cases
         u = std::max(0.0f, std::min(1.0f, u));
