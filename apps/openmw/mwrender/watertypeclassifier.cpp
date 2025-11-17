@@ -19,7 +19,7 @@ namespace MWRender
         if (!cell)
             return WaterType::INDOOR;
 
-        const ESM::Cell* cellData = cell->getCell();
+        const MWWorld::Cell* cellData = cell->getCell();
         if (!cellData)
             return WaterType::INDOOR;
 
@@ -180,7 +180,7 @@ namespace MWRender
         if (!cell || !cell->getCell())
             return false;
 
-        const ESM::Cell* cellData = cell->getCell();
+        const MWWorld::Cell* cellData = cell->getCell();
         return cellData->hasWater() && cellData->isExterior();
     }
 

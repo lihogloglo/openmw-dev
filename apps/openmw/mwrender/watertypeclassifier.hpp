@@ -21,6 +21,9 @@ namespace MWWorld
 
 namespace MWRender
 {
+    // Import Ocean::WaterType into MWRender namespace for easier use
+    using Ocean::WaterType;
+
     /// Automatic water type detection based on world data
     /// Implements Method 2 from the ocean implementation design document
     class WaterTypeClassifier
