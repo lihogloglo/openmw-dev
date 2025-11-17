@@ -14,22 +14,22 @@ namespace MWRender
     {
     }
 
-    WaterType WaterTypeClassifier::classifyCell(const MWWorld::CellStore* cell) const
+    Ocean::WaterType WaterTypeClassifier::classifyCell(const MWWorld::CellStore* cell) const
     {
         if (!cell)
-            return WaterType::INDOOR;
+            return Ocean::WaterType::INDOOR;
 
-        const ESM::Cell* cellData = cell->getCell();
+        const MWWorld::Cell* cellData = cell->getCell();
         if (!cellData)
-            return WaterType::INDOOR;
+            return Ocean::WaterType::INDOOR;
 
         // Interior cells always have static indoor water
         if (!cellData->isExterior())
-            return WaterType::INDOOR;
+            return Ocean::WaterType::INDOOR;
 
         // Check if cell has water at all
         if (!cellData->hasWater())
-            return WaterType::POND; // Treat as pond (will not be rendered anyway)
+            return Ocean::WaterType::POND; // Treat as pond (will not be rendered anyway)
 
         // Check cache first
         auto it = mClassificationCache.find(cell);
@@ -43,21 +43,21 @@ namespace MWRender
         bool isOcean = isConnectedToWorldEdge(cell, visited);
         if (isOcean)
         {
-            mClassificationCache[cell] = WaterType::OCEAN;
-            return WaterType::OCEAN;
+            mClassificationCache[cell] = Ocean::WaterType::OCEAN;
+            return Ocean::WaterType::OCEAN;
         }
 
         // Count connected water cells for lake classification
         visited.clear();
         int waterCellCount = countConnectedWaterCells(cell, visited);
 
-        WaterType type;
+        Ocean::WaterType type;
         if (waterCellCount > 100)
-            type = WaterType::LARGE_LAKE;
+            type = Ocean::WaterType::LARGE_LAKE;
         else if (waterCellCount > 10)
-            type = WaterType::SMALL_LAKE;
+            type = Ocean::WaterType::SMALL_LAKE;
         else
-            type = WaterType::POND;
+            type = Ocean::WaterType::POND;
 
         mClassificationCache[cell] = type;
         return type;
@@ -77,12 +77,12 @@ namespace MWRender
         mClassificationCache.clear();
     }
 
-    WaterType WaterTypeClassifier::getCachedType(const MWWorld::CellStore* cell) const
+    Ocean::WaterType WaterTypeClassifier::getCachedType(const MWWorld::CellStore* cell) const
     {
         auto it = mClassificationCache.find(cell);
         if (it != mClassificationCache.end())
             return it->second;
-        return WaterType::INDOOR;
+        return Ocean::WaterType::INDOOR;
     }
 
     bool WaterTypeClassifier::isConnectedToWorldEdge(const MWWorld::CellStore* cell,
@@ -180,7 +180,7 @@ namespace MWRender
         if (!cell || !cell->getCell())
             return false;
 
-        const ESM::Cell* cellData = cell->getCell();
+        const MWWorld::Cell* cellData = cell->getCell();
         return cellData->hasWater() && cellData->isExterior();
     }
 
