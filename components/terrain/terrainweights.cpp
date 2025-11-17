@@ -221,41 +221,56 @@ namespace Terrain
         float u = std::max(0.0f, std::min(1.0f, uv.x()));
         float v = std::max(0.0f, std::min(1.0f, uv.y()));
 
-        // Convert to pixel coordinates
-        int x = static_cast<int>(u * (blendmap->s() - 1));
-        int y = static_cast<int>(v * (blendmap->t() - 1));
+        // BILINEAR INTERPOLATION
+        // This creates smooth gradients even from binary blendmaps (0/1)
+        // Instead of nearest-neighbor sampling, we interpolate between 4 pixels
 
-        // Clamp to image bounds
-        x = std::max(0, std::min(x, blendmap->s() - 1));
-        y = std::max(0, std::min(y, blendmap->t() - 1));
+        // Convert UV to continuous pixel coordinates
+        float fx = u * (blendmap->s() - 1);
+        float fy = v * (blendmap->t() - 1);
 
-        // Get pixel data
-        const unsigned char* pixel = blendmap->data(x, y);
+        // Get integer coordinates of 4 surrounding pixels
+        int x0 = static_cast<int>(std::floor(fx));
+        int y0 = static_cast<int>(std::floor(fy));
+        int x1 = std::min(x0 + 1, blendmap->s() - 1);
+        int y1 = std::min(y0 + 1, blendmap->t() - 1);
 
-        // Blendmaps typically store weight in alpha channel or as grayscale
-        int bytesPerPixel = blendmap->getPixelSizeInBits() / 8;
+        // Calculate interpolation weights
+        float wx = fx - x0;  // Weight for x1 vs x0
+        float wy = fy - y0;  // Weight for y1 vs y0
 
-        float blendValue = 0.0f;
-        if (bytesPerPixel >= 4)
-        {
-            // RGBA format - use alpha channel
-            blendValue = pixel[3] / 255.0f;
-        }
-        else if (bytesPerPixel >= 1)
-        {
-            // Grayscale - use red channel
-            blendValue = pixel[0] / 255.0f;
-        }
+        // Sample 4 corner pixels
+        auto getPixelValue = [&](int x, int y) -> float {
+            const unsigned char* pixel = blendmap->data(x, y);
+            int bytesPerPixel = blendmap->getPixelSizeInBits() / 8;
+
+            if (bytesPerPixel >= 4)
+                return pixel[3] / 255.0f;  // RGBA - use alpha
+            else if (bytesPerPixel >= 1)
+                return pixel[0] / 255.0f;  // Grayscale
+            return 0.0f;
+        };
+
+        float v00 = getPixelValue(x0, y0);  // Top-left
+        float v10 = getPixelValue(x1, y0);  // Top-right
+        float v01 = getPixelValue(x0, y1);  // Bottom-left
+        float v11 = getPixelValue(x1, y1);  // Bottom-right
+
+        // Bilinear interpolation
+        float top = v00 * (1.0f - wx) + v10 * wx;      // Interpolate top edge
+        float bottom = v01 * (1.0f - wx) + v11 * wx;   // Interpolate bottom edge
+        float blendValue = top * (1.0f - wy) + bottom * wy;  // Interpolate vertically
 
         // DEBUG: Log blendmap sampling (only occasionally to avoid spam)
         static int sampleCounter = 0;
         if (sampleCounter++ % 10000 == 0)
         {
             Log(Debug::Verbose) << "[TERRAIN WEIGHTS] Blendmap sample at UV(" << u << ", " << v
-                               << ") pixel(" << x << ", " << y
-                               << ") = " << blendValue
+                               << ") pixel(" << fx << ", " << fy
+                               << ") corners=(" << v00 << "," << v10 << "," << v01 << "," << v11 << ")"
+                               << " → blended=" << blendValue
                                << " | Blendmap size: " << blendmap->s() << "x" << blendmap->t()
-                               << " | Bytes/pixel: " << bytesPerPixel;
+                               << " | Bytes/pixel: " << (blendmap->getPixelSizeInBits() / 8);
         }
 
         return blendValue;
