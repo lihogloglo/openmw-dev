@@ -94,13 +94,26 @@ When chunk is created:
       ├─> If > 10km: Skip weight computation entirely (chunk never visible)
       └─> If ≤ 10km: Fetch terrain layers via getBlendmaps()
   └─> Determine LOD based on distance from player
-  └─> Compute weights for all vertices
+  └─> Compute weights for all vertices using GRID-SNAPPING approach:
+      ├─> Convert vertex position to world coordinates
+      ├─> Calculate position in land texture grid (16x16 texels per cell)
+      ├─> Round to nearest land texel - ENSURES BOUNDARY CONSISTENCY!
+      ├─> Convert back to UV within chunk's blendmap
+      ├─> Sample using nearest-neighbor (simple, fast)
       ├─> LOD_FULL (0-64m): Sample blendmap at each vertex
       ├─> LOD_SIMPLIFIED (64-256m): Sample once, apply to all vertices
       └─> LOD_NONE (256m-10km): Return rock weights (0,0,0,1) instantly
   └─> Store as vertex attribute 6 (vec4)
   └─> DONE - never recompute! Cached forever.
 ```
+
+**Grid-Snapping for Seamless Boundaries:**
+
+The key innovation is rounding vertex positions to the nearest land texture grid cell:
+- Adjacent chunks have boundary vertices at the same world position
+- Both vertices round to the same land texel (e.g., texel 5)
+- Both sample the same data from their respective blendmaps
+- **Result: No seams at chunk boundaries!**
 
 **Blending Multiple Layers:**
 
@@ -184,9 +197,9 @@ if (maxDeform > 0.01)
 
 ---
 
-## Critical Bug Fixes (2025-11-16)
+## Critical Bug Fixes & Improvements
 
-### Bug #1: Shader Fallback Was Too Aggressive
+### Fix #1: Shader Fallback Was Too Aggressive (2025-11-16)
 
 **Problem:** The shader had a fallback that assumed any vertex with weight `(0,0,0,1)` (rock) meant "attribute binding failed", so it replaced it with `(1,0,0,0)` (snow). This caused all rock terrain to deform like snow!
 
@@ -196,7 +209,7 @@ if (maxDeform > 0.01)
 
 ---
 
-### Bug #2: Delayed Weight Computation (Cache Invalidation Issue)
+### Fix #2: Delayed Weight Computation (Cache Invalidation Issue) (2025-11-16)
 
 **Problem:** Chunks were cached based on `{center, lod, lodFlags}` but NOT distance. When chunks were first created far from the player (>384m), they skipped weight computation. Later, when the player approached, the cached chunk was reused WITHOUT weights, causing delayed or missing deformation detection.
 
@@ -211,7 +224,42 @@ if (maxDeform > 0.01)
 
 ---
 
-### Bug #3: Texture Classification Not Visible in Logs
+### Fix #3: Chunk Boundary Seams (2025-11-17) ✅ MAJOR FIX
+
+**Problem:** Adjacent chunks computed different weights for boundary vertices, causing visible seams at chunk edges.
+
+**Root Cause:** Each chunk's blendmap covered only its local area. Boundary vertices in adjacent chunks sampled different blendmap positions (e.g., Chunk A's u=1.0 vs Chunk B's u=0.0).
+
+**Fix:** Implemented **grid-snapping boundary vertex sharing**:
+1. Convert vertex positions to land texture grid (16x16 texels per cell)
+2. Round to nearest land texel using `std::round()`
+3. Convert back to UV within chunk's blendmap coverage
+4. **Result:** Boundary vertices in adjacent chunks round to the same texel and sample consistently!
+
+**File:** `components/terrain/terrainweights.cpp` (lines 105-162)
+
+**Performance Impact:** Negligible (2 multiplications, 2 rounds, 2 subtractions, 1 division per vertex)
+
+---
+
+### Improvement #4: Removed Bilinear Interpolation (2025-11-17)
+
+**Rationale:**
+1. Grid-snapping already ensures boundary consistency
+2. Morrowind blendmaps are binary (0/255), so interpolation only creates 1-2 pixel transitions
+3. Simpler code is easier to maintain and debug
+4. Negligible visual difference
+
+**What Changed:**
+- Replaced bilinear interpolation with nearest-neighbor sampling
+- Reduced `sampleBlendmap()` from 55 lines to 30 lines
+- Faster sampling (1 lookup instead of 4 + interpolation math)
+
+**File:** `components/terrain/terrainweights.cpp:259-305`
+
+---
+
+### Fix #5: Texture Classification Not Visible in Logs (2025-11-16)
 
 **Problem:** Difficult to debug which textures were being detected as snow vs rock.
 

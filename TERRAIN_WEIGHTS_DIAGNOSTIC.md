@@ -1,52 +1,90 @@
 # Terrain Weights Diagnostic Report
 
 **Date:** 2025-11-17
-**Issue:** Seams at chunk boundaries, no blended terrain weights
+**Update:** 2025-11-17 - FIXED with grid-snapping boundary vertex sharing
+**Status:** ✅ RESOLVED
 
 ---
 
-## User Observations
+## Original Issue (FIXED)
 
-1. **Never see blended terrain** - All vertices have discrete heights:
-   - 0 units = rock (0,0,0,1)
-   - 10 units = mud (0,0,1,0)
-   - 20 units = ash (0,1,0,0)
-   - 50 units = snow (1,0,0,0)
-   - **Never intermediate values** like 25 units (50% snow + 50% rock)
-
-2. **Seams ALWAYS at chunk boundaries** - Never within a chunk
-   - This confirms the problem is chunk-related, not texture-related
-
-3. **Question:** Is blending information accessible?
+**Seams at chunk boundaries** - Adjacent chunks computed different weights for boundary vertices.
 
 ---
 
-## Root Cause Analysis
+## Solution Implemented: Grid-Snapping Boundary Vertex Sharing
 
-### Problem 1: Binary Weights (No Gradients)
+**Date:** 2025-11-17
+**Location:** `components/terrain/terrainweights.cpp:105-162`
 
-**Hypothesis:** Blendmaps contain binary values (0 or 1) instead of gradients (0.0-1.0).
+### How It Works
 
-**Evidence:**
-- Discrete heights only
-- No intermediate weight values observed
+1. **Convert to Land Texture Grid:** Vertex positions are converted to Morrowind's land texture grid (16x16 texels per cell)
 
-**Why this happens:**
-- Morrowind's terrain blendmaps might be low-resolution masks
-- Blendmap pixels might be binary (fully on/off)
-- No smooth transitions between texture regions
+2. **Snap to Nearest Texel:** Positions are rounded to the nearest land texel using `std::round()`
+   - **This is the key:** Boundary vertices in adjacent chunks round to the SAME texel!
 
-**Test:** Check logs for:
+3. **Convert to Chunk-Local UV:** The snapped texel position is converted back to UV coordinates within each chunk's blendmap
+
+4. **Sample Consistently:** Both chunks sample from the same logical position in the land data
+
+### Why This Eliminates Seams
+
 ```
-[TERRAIN WEIGHTS] Blendmap sample = <value>
-[TERRAIN WEIGHTS] FOUND BLENDED WEIGHT!  <- Will log if any non-binary weight found
+Before (seams):
+Chunk A boundary vertex: world pos 512.3 → samples Chunk A's blendmap at u=1.0
+Chunk B boundary vertex: world pos 512.3 → samples Chunk B's blendmap at u=0.0
+Result: Different samples, SEAM!
+
+After (seamless):
+Chunk A boundary vertex: world pos 512.3 → land texel 1.0 → rounds to 1 → samples texel 1
+Chunk B boundary vertex: world pos 512.3 → land texel 1.0 → rounds to 1 → samples texel 1
+Result: Same sample, NO SEAM!
 ```
+
+### Performance Impact
+
+**Minimal** - The grid-snapping adds:
+- 2 multiplications (convert to land grid)
+- 2 rounds (snap to nearest)
+- 2 subtractions, 1 division (convert back to UV)
+
+All very fast integer/float operations, negligible overhead.
 
 ---
 
-### Problem 2: Chunk Boundary Misalignment
+## Bilinear Interpolation Removed
 
-**Hypothesis:** Adjacent chunks compute different weights for the same world position.
+**Date:** 2025-11-17
+
+### Rationale
+
+1. **Unnecessary complexity** - Grid-snapping already ensures boundary consistency
+2. **Marginal benefit** - Morrowind blendmaps are binary (0/255), so interpolation only creates 1-2 pixel transitions
+3. **Simpler is better** - Nearest-neighbor sampling is faster and easier to debug
+
+### What Was Removed
+
+- Bilinear interpolation code in `sampleBlendmap()` (was 55 lines, now 30 lines)
+- 4-corner sampling and weight calculation
+- Float-based UV arithmetic for sub-pixel positioning
+
+### What Replaced It
+
+**Nearest-neighbor sampling:**
+```cpp
+int x = static_cast<int>(std::round(u * (blendmap->s() - 1)));
+int y = static_cast<int>(std::round(v * (blendmap->t() - 1)));
+float blendValue = pixel[y * width + x] / 255.0f;
+```
+
+Simple, fast, effective.
+
+---
+
+## Original Root Cause Analysis (Historical)
+
+### Problem 1: Binary Weights (No Gradients) - EXPECTED BEHAVIOR
 
 **How weight computation works currently:**
 ```

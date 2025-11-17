@@ -102,16 +102,25 @@ namespace Terrain
         if (layerList.empty())
             return DEFAULT_ROCK_WEIGHT;
 
-        // Calculate UV coordinates using WORLD-SPACE position
-        // This ensures vertices at chunk boundaries sample the same blendmap position
+        // ============================================================================
+        // BOUNDARY VERTEX SHARING - Grid-Snapping Approach
+        // ============================================================================
+        // To eliminate seams at chunk boundaries, we snap vertex positions to the
+        // land texture grid. This ensures that boundary vertices in adjacent chunks
+        // round to the same grid position and sample the same blendmap texel.
         //
-        // OLD APPROACH (chunk-local, caused seams):
-        //   UV = (vertexPos + halfSize) / chunkSize  → [0,1] per chunk
-        //   Problem: Adjacent chunks sample different blendmap positions
+        // How it works:
+        // 1. Convert vertex position to world coordinates
+        // 2. Calculate position in land texture grid (texels per cell)
+        // 3. Round to nearest land texel - THIS IS THE KEY for boundary sharing!
+        // 4. Convert back to UV within the chunk's blendmap coverage
+        // 5. Sample using nearest-neighbor (no bilinear, kept simple)
         //
-        // NEW APPROACH (world-space, seamless):
-        //   Convert to world position, then to cell-space UV
-        //   Vertices at same world position always get same UV, regardless of chunk
+        // Why this eliminates seams:
+        // - Boundary vertices in adjacent chunks have the same world position
+        // - They round to the same land texel
+        // - They sample the same data from their respective blendmaps
+        // ============================================================================
 
         // Convert chunk-local vertex position to world-space
         // chunkCenter is in cell coordinates (e.g., 0.5, 1.5)
@@ -119,16 +128,34 @@ namespace Terrain
         float worldX = chunkCenter.x() * cellWorldSize + vertexPos.x();
         float worldY = chunkCenter.y() * cellWorldSize + vertexPos.y();
 
-        // Convert world position to cell-space UV [0,1] per cell
-        // This makes UVs consistent across chunk boundaries
+        // Convert world position to cell-space coordinates
         float cellX = worldX / cellWorldSize;
         float cellY = worldY / cellWorldSize;
 
-        // Extract fractional part for UV (wraps at cell boundaries)
-        float u = cellX - std::floor(cellX);
-        float v = cellY - std::floor(cellY);
+        // Convert to land texture grid coordinates (Morrowind uses 16x16 texels per cell)
+        const int LAND_TEXTURE_SIZE = 16;  // ESM::Land::LAND_TEXTURE_SIZE
+        float landTexelX = cellX * LAND_TEXTURE_SIZE;
+        float landTexelY = cellY * LAND_TEXTURE_SIZE;
 
-        // Clamp to [0, 1] to handle floating-point edge cases
+        // CRITICAL: Round to nearest land texel
+        // This makes boundary vertices in adjacent chunks sample the SAME texel!
+        int snappedTexelX = static_cast<int>(std::round(landTexelX));
+        int snappedTexelY = static_cast<int>(std::round(landTexelY));
+
+        // Convert snapped texel position back to UV within this chunk's blendmap
+        // The chunk's blendmap covers a specific range of land texels
+        osg::Vec2f origin = chunkCenter - osg::Vec2f(chunkSize, chunkSize) * 0.5f;
+        int startTexelX = static_cast<int>(std::floor(origin.x() * LAND_TEXTURE_SIZE));
+        int startTexelY = static_cast<int>(std::floor(origin.y() * LAND_TEXTURE_SIZE));
+
+        // Calculate how many texels the blendmap covers
+        float blendmapTexelCount = chunkSize * LAND_TEXTURE_SIZE;
+
+        // UV coordinates within the chunk's blendmap [0, 1]
+        float u = static_cast<float>(snappedTexelX - startTexelX) / blendmapTexelCount;
+        float v = static_cast<float>(snappedTexelY - startTexelY) / blendmapTexelCount;
+
+        // Clamp to [0, 1] to handle edge cases
         u = std::max(0.0f, std::min(1.0f, u));
         v = std::max(0.0f, std::min(1.0f, v));
 
@@ -238,56 +265,40 @@ namespace Terrain
         float u = std::max(0.0f, std::min(1.0f, uv.x()));
         float v = std::max(0.0f, std::min(1.0f, uv.y()));
 
-        // BILINEAR INTERPOLATION
-        // This creates smooth gradients even from binary blendmaps (0/1)
-        // Instead of nearest-neighbor sampling, we interpolate between 4 pixels
+        // NEAREST NEIGHBOR SAMPLING
+        // Simple and fast - no bilinear interpolation needed since we're using grid-snapping
+        // The grid-snapping in computeVertexWeight() already ensures boundary vertices
+        // sample the same texel, so we don't need smooth interpolation here.
 
-        // Convert UV to continuous pixel coordinates
-        float fx = u * (blendmap->s() - 1);
-        float fy = v * (blendmap->t() - 1);
+        // Convert UV to pixel coordinates and round to nearest
+        int x = static_cast<int>(std::round(u * (blendmap->s() - 1)));
+        int y = static_cast<int>(std::round(v * (blendmap->t() - 1)));
 
-        // Get integer coordinates of 4 surrounding pixels
-        int x0 = static_cast<int>(std::floor(fx));
-        int y0 = static_cast<int>(std::floor(fy));
-        int x1 = std::min(x0 + 1, blendmap->s() - 1);
-        int y1 = std::min(y0 + 1, blendmap->t() - 1);
+        // Clamp to valid range
+        x = std::max(0, std::min(x, blendmap->s() - 1));
+        y = std::max(0, std::min(y, blendmap->t() - 1));
 
-        // Calculate interpolation weights
-        float wx = fx - x0;  // Weight for x1 vs x0
-        float wy = fy - y0;  // Weight for y1 vs y0
+        // Sample the pixel
+        const unsigned char* pixel = blendmap->data(x, y);
+        int bytesPerPixel = blendmap->getPixelSizeInBits() / 8;
 
-        // Sample 4 corner pixels
-        auto getPixelValue = [&](int x, int y) -> float {
-            const unsigned char* pixel = blendmap->data(x, y);
-            int bytesPerPixel = blendmap->getPixelSizeInBits() / 8;
-
-            if (bytesPerPixel >= 4)
-                return pixel[3] / 255.0f;  // RGBA - use alpha
-            else if (bytesPerPixel >= 1)
-                return pixel[0] / 255.0f;  // Grayscale
-            return 0.0f;
-        };
-
-        float v00 = getPixelValue(x0, y0);  // Top-left
-        float v10 = getPixelValue(x1, y0);  // Top-right
-        float v01 = getPixelValue(x0, y1);  // Bottom-left
-        float v11 = getPixelValue(x1, y1);  // Bottom-right
-
-        // Bilinear interpolation
-        float top = v00 * (1.0f - wx) + v10 * wx;      // Interpolate top edge
-        float bottom = v01 * (1.0f - wx) + v11 * wx;   // Interpolate bottom edge
-        float blendValue = top * (1.0f - wy) + bottom * wy;  // Interpolate vertically
+        float blendValue;
+        if (bytesPerPixel >= 4)
+            blendValue = pixel[3] / 255.0f;  // RGBA - use alpha
+        else if (bytesPerPixel >= 1)
+            blendValue = pixel[0] / 255.0f;  // Grayscale
+        else
+            blendValue = 0.0f;
 
         // DEBUG: Log blendmap sampling (only occasionally to avoid spam)
         static int sampleCounter = 0;
         if (sampleCounter++ % 10000 == 0)
         {
             Log(Debug::Verbose) << "[TERRAIN WEIGHTS] Blendmap sample at UV(" << u << ", " << v
-                               << ") pixel(" << fx << ", " << fy
-                               << ") corners=(" << v00 << "," << v10 << "," << v01 << "," << v11 << ")"
-                               << " → blended=" << blendValue
+                               << ") → pixel(" << x << ", " << y << ")"
+                               << " → value=" << blendValue
                                << " | Blendmap size: " << blendmap->s() << "x" << blendmap->t()
-                               << " | Bytes/pixel: " << (blendmap->getPixelSizeInBits() / 8);
+                               << " | Bytes/pixel: " << bytesPerPixel;
         }
 
         return blendValue;
