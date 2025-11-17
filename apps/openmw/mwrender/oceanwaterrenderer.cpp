@@ -5,6 +5,7 @@
 #include <osg/Geometry>
 #include <osg/Material>
 #include <osg/Texture2D>
+#include <osgUtil/CullVisitor>
 
 #include <components/debug/debuglog.hpp>
 #include <components/misc/constants.hpp>
@@ -31,6 +32,9 @@ namespace MWRender
         mOceanNode = new osg::Group;
         mOceanNode->setName("Ocean Water");
         mOceanNode->setNodeMask(Mask_Water);
+
+        // Attach cull callback to dispatch FFT compute shaders once per frame
+        mOceanNode->setCullCallback(new OceanFFTUpdateCallback(fftSimulation));
 
         // Setup ocean shader
         setupOceanShader();

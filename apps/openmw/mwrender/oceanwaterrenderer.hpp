@@ -24,6 +24,46 @@ namespace Resource
 
 namespace MWRender
 {
+    /// Cull callback to dispatch FFT compute shaders once per frame before rendering ocean
+    class OceanFFTUpdateCallback : public osg::NodeCallback
+    {
+    public:
+        OceanFFTUpdateCallback(Ocean::OceanFFTSimulation* fftSimulation)
+            : mFFTSimulation(fftSimulation)
+            , mLastFrameNumber(0)
+        {
+        }
+
+        void operator()(osg::Node* node, osg::NodeVisitor* nv) override
+        {
+            osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+            if (cv)
+            {
+                unsigned int frameNumber = cv->getFrameStamp() ? cv->getFrameStamp()->getFrameNumber() : 0;
+
+                // Only dispatch compute shaders once per frame
+                if (mFFTSimulation && frameNumber != mLastFrameNumber)
+                {
+                    osg::State* state = cv->getRenderStage()->getStateSet()
+                        ? cv->getState()
+                        : nullptr;
+
+                    if (state)
+                    {
+                        mFFTSimulation->dispatchCompute(state);
+                        mLastFrameNumber = frameNumber;
+                    }
+                }
+            }
+
+            traverse(node, nv);
+        }
+
+    private:
+        Ocean::OceanFFTSimulation* mFFTSimulation;
+        mutable unsigned int mLastFrameNumber;
+    };
+
     /// Renders ocean water with FFT-based waves and character-centered subdivision
     class OceanWaterRenderer
     {
