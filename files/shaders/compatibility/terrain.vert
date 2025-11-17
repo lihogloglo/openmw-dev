@@ -50,8 +50,14 @@ uniform vec3 chunkWorldOffset;             // Chunk's world position (for local-
 uniform float ashDeformationDepth;         // Ash deformation depth (default 20)
 uniform float mudDeformationDepth;         // Mud deformation depth (default 10)
 
+// Debug visualization
+uniform bool terrainWeightsDebugVisualization;  // Show weights as vertex colors
+
 // Terrain weight vertex attribute (snow, ash, mud, rock) - per vertex
 attribute vec4 terrainWeights;             // x=snow, y=ash, z=mud, w=rock
+
+// Output to fragment shader for debug visualization
+varying vec4 debugWeights;
 
 void main(void)
 {
@@ -63,17 +69,20 @@ void main(void)
     // Loop through footprint positions, apply weighted deformation
     // Vertices have per-terrain weights for smooth transitions
     // ========================================================================
+
+    // Read terrain weights for this vertex
+    // Note: We need to distinguish between "attribute not bound" vs "genuine rock weight"
+    // The CPU-side code always binds the attribute for chunks within deformation distance.
+    // Pure rock (0,0,0,1) means the terrain should NOT deform.
+    vec4 weights = terrainWeights;
+
+    // Store for debug visualization
+    debugWeights = weights;
+
     if (snowDeformationEnabled && snowFootprintCount > 0)
     {
         // Convert vertex from chunk-local to world space
         vec3 worldPos = vertex.xyz + chunkWorldOffset;
-
-        // Read terrain weights for this vertex
-        // Note: We need to distinguish between "attribute not bound" vs "genuine rock weight"
-        // The CPU-side code always binds the attribute for chunks within deformation distance.
-        // So if we're here (snowDeformationEnabled && snowFootprintCount > 0), we can trust
-        // the attribute value. Pure rock (0,0,0,1) means the terrain should NOT deform.
-        vec4 weights = terrainWeights;
 
         // Calculate terrain-specific lift and max deformation based on weights
         // Each terrain type has different deformation characteristics:

@@ -62,6 +62,7 @@ namespace Terrain
         mMudDeformationDepthUniform = new osg::Uniform("mudDeformationDepth", Settings::terrain().mMudDeformationDepth.get());
         mCurrentTimeUniform = new osg::Uniform("snowCurrentTime", 0.0f);
         mDecayTimeUniform = new osg::Uniform("snowDecayTime", mDecayTime);
+        mDebugVisualizationUniform = new osg::Uniform("terrainWeightsDebugVisualization", Settings::terrain().mTerrainWeightsDebugVisualization.get());
     }
 
     SnowDeformationManager::~SnowDeformationManager()

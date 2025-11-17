@@ -34,6 +34,10 @@ centroid varying vec3 shadowSpecularLighting;
 varying vec3 passViewPos;
 varying vec3 passNormal;
 
+// Debug visualization
+uniform bool terrainWeightsDebugVisualization;
+varying vec4 debugWeights;
+
 uniform vec2 screenRes;
 uniform float far;
 
@@ -95,6 +99,43 @@ void main()
 
     clampLightingResult(lighting);
     gl_FragData[0].xyz = gl_FragData[0].xyz * lighting + specular;
+
+    // ========================================================================
+    // DEBUG VISUALIZATION: Show terrain weights as vertex colors
+    // ========================================================================
+    // This completely overrides normal rendering to show weight distribution
+    // - Red = Snow weight (deforms deeply)
+    // - Green = Ash weight (medium deformation)
+    // - Blue = Mud weight (shallow deformation)
+    // - White/Gray = Rock weight (no deformation)
+    // Use this to diagnose seams and texture sampling issues
+    // ========================================================================
+    if (terrainWeightsDebugVisualization)
+    {
+        // Map weights directly to RGB channels
+        // x=snow->R, y=ash->G, z=mud->B, w=rock->grayscale
+        vec3 debugColor;
+
+        // If mostly rock (w > 0.5), show as grayscale
+        if (debugWeights.w > 0.5)
+        {
+            // Rock shows as gray (brightness = rock weight)
+            debugColor = vec3(debugWeights.w);
+        }
+        else
+        {
+            // Show deformable terrain types as RGB
+            debugColor = vec3(debugWeights.x,    // Red = Snow
+                             debugWeights.y,    // Green = Ash
+                             debugWeights.z);   // Blue = Mud
+        }
+
+        // Boost brightness for visibility (multiply by 1.5, clamp to 1.0)
+        debugColor = min(debugColor * 1.5, vec3(1.0));
+
+        // Override the color completely, with full opacity
+        gl_FragData[0] = vec4(debugColor, 1.0);
+    }
 
     gl_FragData[0] = applyFogAtDist(gl_FragData[0], euclideanDepth, linearDepth, far);
 
