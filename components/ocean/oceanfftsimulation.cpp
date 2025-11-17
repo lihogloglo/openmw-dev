@@ -130,11 +130,11 @@ namespace Ocean
 
         // Load compute shaders
         osg::ref_ptr<osg::Shader> spectrumShader =
-            shaderManager.getShader("ocean/fft_update_spectrum.comp", {}, osg::Shader::COMPUTE);
+            shaderManager.getShader("core/ocean/fft_update_spectrum.comp", {}, osg::Shader::COMPUTE);
         osg::ref_ptr<osg::Shader> butterflyShader =
-            shaderManager.getShader("ocean/fft_butterfly.comp", {}, osg::Shader::COMPUTE);
+            shaderManager.getShader("core/ocean/fft_butterfly.comp", {}, osg::Shader::COMPUTE);
         osg::ref_ptr<osg::Shader> displacementShader =
-            shaderManager.getShader("ocean/fft_generate_displacement.comp", {}, osg::Shader::COMPUTE);
+            shaderManager.getShader("core/ocean/fft_generate_displacement.comp", {}, osg::Shader::COMPUTE);
 
         if (!spectrumShader || !butterflyShader || !displacementShader)
         {
