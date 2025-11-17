@@ -4,14 +4,10 @@
 // Applies wave displacement from FFT simulation
 
 #if @useUBO
-    #define UNIFORM(NAME) NAME
-#else
-    #define UNIFORM(NAME) gl_##NAME
+    #extension GL_ARB_uniform_buffer_object : require
 #endif
 
-attribute vec3 aPosition;
-attribute vec2 aTexCoord;
-attribute vec3 aNormal;
+#include "lib/core/vertex.h.glsl"
 
 varying vec3 vWorldPos;
 varying vec3 vDisplacedPos;
@@ -36,11 +32,6 @@ uniform float uCascadeTileSize2;
 
 uniform bool uEnableOceanWaves;  // Enable/disable FFT waves
 uniform float uWaveAmplitude;     // Global wave amplitude multiplier
-
-// Transform matrices
-uniform mat4 uModelViewMatrix;
-uniform mat4 uProjectionMatrix;
-uniform mat4 uViewMatrix;
 
 // Sample displacement with cascades
 vec3 sampleDisplacement(vec2 worldPosXY)
@@ -86,24 +77,27 @@ vec3 sampleNormal(vec2 worldPosXY)
 
 void main()
 {
-    // World position
-    vWorldPos = aPosition;
-    vTexCoord = aTexCoord;
+    // World position (using gl_Vertex from OpenMW)
+    vec4 worldPos = gl_Vertex;
+    vWorldPos = worldPos.xyz;
+    vTexCoord = gl_MultiTexCoord0.xy;
 
     // Sample displacement from FFT
-    vec3 displacement = sampleDisplacement(aPosition.xy);
+    vec3 displacement = sampleDisplacement(worldPos.xy);
 
     // Apply displacement
-    vec3 displacedPos = aPosition + displacement;
+    vec3 displacedPos = worldPos.xyz + displacement;
     vDisplacedPos = displacedPos;
 
     // Sample normal from FFT
-    vec3 displacedNormal = sampleNormal(aPosition.xy);
+    vec3 displacedNormal = sampleNormal(worldPos.xy);
     vNormal = displacedNormal;
 
-    // Transform to view space
-    vViewPos = uModelViewMatrix * vec4(displacedPos, 1.0);
+    // Transform to view space using OpenMW's standard system
+    vec4 displacedVertex = vec4(displacedPos, 1.0);
+    vViewPos = modelToView(displacedVertex);
 
     // Final position
-    gl_Position = uProjectionMatrix * vViewPos;
+    gl_Position = modelToClip(displacedVertex);
+    gl_ClipVertex = vViewPos;
 }

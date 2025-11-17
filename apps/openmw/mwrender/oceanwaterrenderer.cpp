@@ -89,12 +89,16 @@ namespace MWRender
         // Update subdivision tracker
         mSubdivisionTracker.update(osg::Vec2f(playerPos.x(), playerPos.y()));
 
-        // Check if player moved significantly
+        // Check if player moved significantly OR if chunks haven't been created yet
         float distMoved = (playerPos - mLastPlayerPos).length();
-        if (distMoved > 512.0f) // Update chunks every 512 units
+        bool needsChunkUpdate = (distMoved > 512.0f) || mChunks.empty();
+
+        if (needsChunkUpdate)
         {
             updateChunks(playerPos);
             mLastPlayerPos = playerPos;
+            Log(Debug::Info) << "Ocean chunks updated: " << mChunks.size() << " chunks active at player pos ("
+                            << playerPos.x() << ", " << playerPos.y() << ", " << playerPos.z() << ")";
         }
 
         // Update FFT textures
@@ -269,45 +273,53 @@ namespace MWRender
 
         // Load ocean shaders
         osg::ref_ptr<osg::Shader> vertexShader =
-            shaderManager.getShader("ocean/ocean.vert", {}, osg::Shader::VERTEX);
+            shaderManager.getShader("compatibility/ocean/ocean.vert", {}, osg::Shader::VERTEX);
         osg::ref_ptr<osg::Shader> fragmentShader =
-            shaderManager.getShader("ocean/ocean.frag", {}, osg::Shader::FRAGMENT);
+            shaderManager.getShader("compatibility/ocean/ocean.frag", {}, osg::Shader::FRAGMENT);
 
-        if (vertexShader && fragmentShader)
+        if (!vertexShader)
         {
-            mOceanProgram = shaderManager.getProgram(vertexShader, fragmentShader);
-
-            if (mOceanProgram)
-            {
-                mOceanStateSet = new osg::StateSet;
-                mOceanStateSet->setAttributeAndModes(mOceanProgram, osg::StateAttribute::ON);
-
-                // Add uniforms for FFT textures
-                mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade0", 0));
-                mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade1", 1));
-                mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade2", 2));
-                mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade0", 3));
-                mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade1", 4));
-                mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade2", 5));
-                mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade0", 6));
-                mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade1", 7));
-
-                // Wave parameters
-                mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-                mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));
-
-                // Water appearance
-                mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
-                mOceanStateSet->addUniform(new osg::Uniform("uShallowWaterColor", osg::Vec3f(0.0f, 0.4f, 0.5f)));
-                mOceanStateSet->addUniform(new osg::Uniform("uWaterAlpha", 0.8f));
-
-                Log(Debug::Info) << "Ocean shaders loaded successfully";
-            }
+            Log(Debug::Error) << "Failed to load ocean vertex shader: compatibility/ocean/ocean.vert";
+            return;
         }
-        else
+
+        if (!fragmentShader)
         {
-            Log(Debug::Warning) << "Failed to load ocean shaders, using default water";
+            Log(Debug::Error) << "Failed to load ocean fragment shader: compatibility/ocean/ocean.frag";
+            return;
         }
+
+        mOceanProgram = shaderManager.getProgram(vertexShader, fragmentShader);
+
+        if (!mOceanProgram)
+        {
+            Log(Debug::Error) << "Failed to create ocean shader program";
+            return;
+        }
+
+        mOceanStateSet = new osg::StateSet;
+        mOceanStateSet->setAttributeAndModes(mOceanProgram, osg::StateAttribute::ON);
+
+        // Add uniforms for FFT textures
+        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade0", 0));
+        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade1", 1));
+        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade2", 2));
+        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade0", 3));
+        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade1", 4));
+        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade2", 5));
+        mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade0", 6));
+        mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade1", 7));
+
+        // Wave parameters
+        mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));
+
+        // Water appearance
+        mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
+        mOceanStateSet->addUniform(new osg::Uniform("uShallowWaterColor", osg::Vec3f(0.0f, 0.4f, 0.5f)));
+        mOceanStateSet->addUniform(new osg::Uniform("uWaterAlpha", 0.8f));
+
+        Log(Debug::Info) << "Ocean shaders loaded successfully";
     }
 
     void OceanWaterRenderer::updateFFTTextures()
