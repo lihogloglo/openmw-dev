@@ -67,6 +67,9 @@ namespace Settings
             makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mMudDecayTime{ mIndex, "Terrain", "mud decay time",
             makeMaxStrictSanitizerFloat(1.0f) };
+
+        // Debug visualization settings
+        SettingValue<bool> mTerrainWeightsDebugVisualization{ mIndex, "Terrain", "terrain weights debug visualization" };
     };
 }
 

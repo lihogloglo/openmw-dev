@@ -78,6 +78,7 @@ namespace Terrain
         osg::Uniform* getMudDeformationDepthUniform() const { return mMudDeformationDepthUniform.get(); }
         osg::Uniform* getCurrentTimeUniform() const { return mCurrentTimeUniform.get(); }
         osg::Uniform* getDecayTimeUniform() const { return mDecayTimeUniform.get(); }
+        osg::Uniform* getDebugVisualizationUniform() const { return mDebugVisualizationUniform.get(); }
 
     private:
         /// Stamp a new footprint at player position
@@ -110,6 +111,7 @@ namespace Terrain
         osg::ref_ptr<osg::Uniform> mMudDeformationDepthUniform;    // float (mud depth)
         osg::ref_ptr<osg::Uniform> mCurrentTimeUniform;            // float
         osg::ref_ptr<osg::Uniform> mDecayTimeUniform;              // float
+        osg::ref_ptr<osg::Uniform> mDebugVisualizationUniform;     // bool (debug mode)
 
         // Footprint parameters
         float mFootprintRadius;

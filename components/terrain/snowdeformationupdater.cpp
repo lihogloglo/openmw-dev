@@ -30,6 +30,7 @@ namespace Terrain
         stateset->addUniform(manager->getMudDeformationDepthUniform());
         stateset->addUniform(manager->getCurrentTimeUniform());
         stateset->addUniform(manager->getDecayTimeUniform());
+        stateset->addUniform(manager->getDebugVisualizationUniform());
 
         // Create and add the enabled uniform (defaults to true for testing)
         osg::ref_ptr<osg::Uniform> enabledUniform = new osg::Uniform("snowDeformationEnabled", true);
