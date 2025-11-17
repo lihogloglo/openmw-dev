@@ -67,6 +67,11 @@ set(SHADER_FILES
     core/ripples_simulate.comp
     core/gui.frag
     core/gui.vert
+    ocean/fft_update_spectrum.comp
+    ocean/fft_butterfly.comp
+    ocean/fft_generate_displacement.comp
+    ocean/ocean.vert
+    ocean/ocean.frag
 )
 
 copy_all_resource_files(${CMAKE_CURRENT_SOURCE_DIR} ${OPENMW_RESOURCES_ROOT} ${DDIRRELATIVE} "${SHADER_FILES}")
