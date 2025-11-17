@@ -1,10 +1,12 @@
 #include "watermanager.hpp"
 
+#include "oceanwaterrenderer.hpp"
 #include "water.hpp"
 
 #include <components/debug/debuglog.hpp>
 
 #include "../mwworld/cellstore.hpp"
+#include "../mwmechanics/actorutil.hpp"
 
 namespace MWRender
 {
@@ -27,6 +29,10 @@ namespace MWRender
             if (mOceanFFT->initialize())
             {
                 Log(Debug::Info) << "FFT Ocean simulation initialized successfully";
+
+                // Create ocean renderer
+                mOceanRenderer = std::make_unique<OceanWaterRenderer>(
+                    parent, resourceSystem, mOceanFFT.get());
             }
             else
             {
@@ -125,7 +131,14 @@ namespace MWRender
             mCurrentWaterType = Ocean::WaterType::INDOOR;
         }
 
-        // Update the water renderer
+        // Enable/disable ocean renderer based on water type
+        if (mOceanRenderer)
+        {
+            bool useOcean = (mCurrentWaterType == Ocean::WaterType::OCEAN) && mFFTOceanEnabled;
+            mOceanRenderer->setEnabled(useOcean);
+        }
+
+        // Update the legacy water renderer (use for non-ocean water)
         if (mWater)
             mWater->changeCell(store);
     }
@@ -134,6 +147,9 @@ namespace MWRender
     {
         if (mWater)
             mWater->setHeight(height);
+
+        if (mOceanRenderer)
+            mOceanRenderer->setWaterHeight(height);
     }
 
     void WaterManager::setRainIntensity(const float rainIntensity)
@@ -153,13 +169,24 @@ namespace MWRender
         if (mWater)
             mWater->update(dt, paused);
 
-        // Update FFT ocean simulation
+        // Update FFT ocean simulation and renderer
         if (mFFTOceanEnabled && mOceanFFT && !paused)
         {
             // Only update for ocean cells
             if (mCurrentWaterType == Ocean::WaterType::OCEAN)
             {
                 mOceanFFT->update(dt);
+
+                // Update ocean renderer with player position
+                if (mOceanRenderer)
+                {
+                    MWWorld::Ptr player = MWMechanics::getPlayer();
+                    if (!player.isEmpty())
+                    {
+                        osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
+                        mOceanRenderer->update(dt, playerPos);
+                    }
+                }
             }
         }
     }

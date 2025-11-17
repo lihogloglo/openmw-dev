@@ -39,6 +39,7 @@ namespace MWWorld
 namespace MWRender
 {
     class Water; // Legacy water renderer
+    class OceanWaterRenderer;
 
     /// Manages multiple water renderers for different water types
     /// This class coordinates ocean, lake, and static water rendering
@@ -95,8 +96,11 @@ namespace MWRender
         bool isFFTOceanEnabled() const { return mFFTOceanEnabled; }
 
     private:
-        // Legacy water renderer (for now, we'll use this for all water types)
+        // Legacy water renderer (for non-ocean water)
         std::unique_ptr<Water> mWater;
+
+        // Ocean water renderer (with FFT waves and subdivision)
+        std::unique_ptr<OceanWaterRenderer> mOceanRenderer;
 
         // Water type classifier
         Ocean::WaterTypeClassifier mWaterTypeClassifier;
