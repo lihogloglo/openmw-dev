@@ -48,7 +48,7 @@ void main()
     {
         imageStore(uDisplacementMap, coord, vec4(0.0));
         imageStore(uNormalMap, coord, vec4(0.0, 0.0, 1.0, 0.0));
-        imageStore(uFoamMap, coord, vec4(0.0));
+        imageStore(uTempFoamMap, coord, vec4(0.0));
         return;
     }
 
