@@ -191,20 +191,23 @@ namespace Ocean
             }
         };
 
-        // Helper lambda to set uniforms for compute shaders
-        auto setUniform = [&](const char* name, float value) {
-            osg::Uniform* uniform = new osg::Uniform(name, value);
-            state->applyUniform(uniform);
+        // Helper lambda to set uniforms using direct GL calls
+        auto setUniform = [&](osg::Program* program, const char* name, float value) {
+            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            if (location >= 0)
+                ext->glUniform1f(location, value);
         };
 
-        auto setUniformInt = [&](const char* name, int value) {
-            osg::Uniform* uniform = new osg::Uniform(name, value);
-            state->applyUniform(uniform);
+        auto setUniformInt = [&](osg::Program* program, const char* name, int value) {
+            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            if (location >= 0)
+                ext->glUniform1i(location, value);
         };
 
-        auto setUniformBool = [&](const char* name, bool value) {
-            osg::Uniform* uniform = new osg::Uniform(name, value);
-            state->applyUniform(uniform);
+        auto setUniformBool = [&](osg::Program* program, const char* name, bool value) {
+            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            if (location >= 0)
+                ext->glUniform1i(location, value ? 1 : 0);
         };
 
         // Process each cascade
@@ -217,12 +220,12 @@ namespace Ocean
             bindImage(cascade.spectrumTexture.get(), 0, GL_READ_ONLY_ARB);
             bindImage(cascade.fftTemp1.get(), 1, GL_WRITE_ONLY_ARB);
 
-            // Set uniforms for spectrum update
-            setUniform("uTime", mSimulationTime);
-            setUniform("uTileSize", cascade.tileSize);
-            setUniform("uGravity", GRAVITY);
-
             mSpectrumGeneratorProgram->apply(*state);
+
+            // Set uniforms for spectrum update
+            setUniform(mSpectrumGeneratorProgram.get(), "uTime", mSimulationTime);
+            setUniform(mSpectrumGeneratorProgram.get(), "uTileSize", cascade.tileSize);
+            setUniform(mSpectrumGeneratorProgram.get(), "uGravity", GRAVITY);
 
             ext->glDispatchCompute(res / 16, res / 16, 1);
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -243,9 +246,11 @@ namespace Ocean
                     state->applyTextureAttribute(2, butterflyIt->second.get());
                 }
 
+                mFFTHorizontalProgram->apply(*state);
+
                 // Set uniforms for butterfly shader
-                setUniformInt("uStage", stage);
-                setUniformBool("uHorizontal", true);
+                setUniformInt(mFFTHorizontalProgram.get(), "uStage", stage);
+                setUniformBool(mFFTHorizontalProgram.get(), "uHorizontal", true);
 
                 ext->glDispatchCompute(res / 16, res / 16, 1);
                 ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -269,9 +274,11 @@ namespace Ocean
                     state->applyTextureAttribute(2, butterflyIt->second.get());
                 }
 
+                mFFTVerticalProgram->apply(*state);
+
                 // Set uniforms for vertical butterfly shader
-                setUniformInt("uStage", stage);
-                setUniformBool("uHorizontal", false);
+                setUniformInt(mFFTVerticalProgram.get(), "uStage", stage);
+                setUniformBool(mFFTVerticalProgram.get(), "uHorizontal", false);
 
                 ext->glDispatchCompute(res / 16, res / 16, 1);
                 ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -287,10 +294,12 @@ namespace Ocean
             bindImage(cascade.normalTexture.get(), 2, GL_WRITE_ONLY_ARB);
             bindImage(cascade.tempFoamTexture.get(), 3, GL_WRITE_ONLY_ARB);
 
+            mDisplacementProgram->apply(*state);
+
             // Set uniforms for displacement generation
-            setUniform("uTileSize", cascade.tileSize);
-            setUniform("uChoppiness", mChoppiness);
-            setUniformInt("uN", res);
+            setUniform(mDisplacementProgram.get(), "uTileSize", cascade.tileSize);
+            setUniform(mDisplacementProgram.get(), "uChoppiness", mChoppiness);
+            setUniformInt(mDisplacementProgram.get(), "uN", res);
 
             ext->glDispatchCompute(res / 16, res / 16, 1);
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -301,10 +310,12 @@ namespace Ocean
             bindImage(cascade.tempFoamTexture.get(), 0, GL_READ_ONLY_ARB);
             bindImage(cascade.foamTexture.get(), 1, GL_READ_WRITE_ARB);
 
+            mFoamPersistenceProgram->apply(*state);
+
             // Set uniforms for foam persistence
-            setUniform("uDeltaTime", cascade.updateInterval);  // Use update interval as dt
-            setUniform("uFoamGrowthRate", 0.3f);   // Moderate foam growth
-            setUniform("uFoamDecayRate", 0.92f);   // ~8% decay per second
+            setUniform(mFoamPersistenceProgram.get(), "uDeltaTime", cascade.updateInterval);  // Use update interval as dt
+            setUniform(mFoamPersistenceProgram.get(), "uFoamGrowthRate", 0.3f);   // Moderate foam growth
+            setUniform(mFoamPersistenceProgram.get(), "uFoamDecayRate", 0.92f);   // ~8% decay per second
 
             ext->glDispatchCompute(res / 16, res / 16, 1);
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
