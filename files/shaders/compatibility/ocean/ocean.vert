@@ -15,6 +15,10 @@ varying vec2 vTexCoord;
 varying vec3 vNormal;
 varying vec4 vViewPos;
 
+// Required by water.frag-based system
+varying vec4 position;
+varying float linearDepth;
+
 // Displacement textures from FFT cascades
 uniform sampler2D uDisplacementCascade0;
 uniform sampler2D uDisplacementCascade1;
@@ -105,4 +109,8 @@ void main()
     // Final position
     gl_Position = modelToClip(displacedVertex);
     gl_ClipVertex = vViewPos;
+
+    // Required outputs for water system integration
+    position = vec4(displacedPos, 1.0);  // World position
+    linearDepth = gl_Position.z;  // Linear depth for fog calculations
 }

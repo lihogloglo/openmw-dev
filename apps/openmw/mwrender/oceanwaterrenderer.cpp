@@ -312,9 +312,12 @@ namespace MWRender
         );
         mOceanStateSet->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
-        // Enable depth testing but disable depth writing for transparency
+        // Enable depth testing AND depth writing
+        // Water should write to depth buffer to properly occlude underwater objects
+        // But render in TRANSPARENT_BIN so it renders after opaque geometry
         osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-        depth->setWriteMask(false);  // Don't write to depth buffer
+        depth->setWriteMask(true);  // Write to depth buffer
+        depth->setFunction(osg::Depth::LEQUAL);
         mOceanStateSet->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
         // Add uniforms for FFT textures
@@ -337,7 +340,7 @@ namespace MWRender
 
         // Wave parameters
         mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 140.0f));  // Realistic amplitude (~2 feet)
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));  // Amplitude multiplier (1.0 = default wave scale)
 
         // Water appearance
         mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
