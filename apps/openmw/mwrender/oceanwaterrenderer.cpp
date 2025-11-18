@@ -336,7 +336,7 @@ namespace MWRender
 
         // Wave parameters
         mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 2.0f));  // Realistic amplitude (~2 feet)
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 140.0f));  // Realistic amplitude (~2 feet)
 
         // Water appearance
         mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
