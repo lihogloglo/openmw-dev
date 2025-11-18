@@ -4,6 +4,7 @@
 #include <osg/Geode>
 #include <osg/Geometry>
 #include <osg/Group>
+#include <osg/PositionAttitudeTransform>
 #include <osg/Program>
 #include <osg/ref_ptr>
 
@@ -72,6 +73,7 @@ namespace MWRender
             int subdivisionLevel;             // 0-3
             osg::ref_ptr<osg::Geometry> geometry;
             osg::ref_ptr<osg::Geode> geode;
+            osg::ref_ptr<osg::PositionAttitudeTransform> transform;  // Transform for chunk positioning
         };
 
         /// Create a water chunk with given subdivision level
