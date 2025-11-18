@@ -165,13 +165,27 @@ namespace Ocean
     void OceanFFTSimulation::dispatchCompute(osg::State* state)
     {
         if (!mInitialized || !state)
+        {
+            if (!mInitialized)
+                Log(Debug::Warning) << "[OCEAN FFT] dispatchCompute called but not initialized";
             return;
+        }
 
         osg::GLExtensions* ext = state->get<osg::GLExtensions>();
         if (!ext)
+        {
+            Log(Debug::Warning) << "[OCEAN FFT] No GL extensions available";
             return;
+        }
 
         const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
+
+        static bool firstDispatch = true;
+        if (firstDispatch)
+        {
+            Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - FFT simulation is running";
+            firstDispatch = false;
+        }
 
         // Helper lambda to bind texture as image
         auto bindImage = [&](osg::Texture2D* texture, GLuint index, GLenum access) {
