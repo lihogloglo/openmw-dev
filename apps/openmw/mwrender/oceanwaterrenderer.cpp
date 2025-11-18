@@ -300,6 +300,22 @@ namespace MWRender
         mOceanStateSet = new osg::StateSet;
         mOceanStateSet->setAttributeAndModes(mOceanProgram, osg::StateAttribute::ON);
 
+        // Enable alpha blending for water transparency
+        mOceanStateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+        mOceanStateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+        // Configure blend function for proper transparency
+        osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc(
+            osg::BlendFunc::SRC_ALPHA,
+            osg::BlendFunc::ONE_MINUS_SRC_ALPHA
+        );
+        mOceanStateSet->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
+
+        // Enable depth testing but disable depth writing for transparency
+        osg::ref_ptr<osg::Depth> depth = new osg::Depth;
+        depth->setWriteMask(false);  // Don't write to depth buffer
+        mOceanStateSet->setAttributeAndModes(depth, osg::StateAttribute::ON);
+
         // Add uniforms for FFT textures
         mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade0", 0));
         mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade1", 1));
@@ -310,16 +326,24 @@ namespace MWRender
         mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade0", 6));
         mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade1", 7));
 
+        // Initialize cascade tile size uniforms immediately
+        for (int i = 0; i < 3; ++i)
+        {
+            float tileSize = mFFTSimulation ? mFFTSimulation->getCascadeTileSize(i) : 50.0f * std::pow(4.0f, i);
+            std::string uniformName = "uCascadeTileSize" + std::to_string(i);
+            mOceanStateSet->addUniform(new osg::Uniform(uniformName.c_str(), tileSize));
+        }
+
         // Wave parameters
         mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 100.0f));  // Increased for visibility
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 2.0f));  // Realistic amplitude (~2 feet)
 
         // Water appearance
         mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
         mOceanStateSet->addUniform(new osg::Uniform("uShallowWaterColor", osg::Vec3f(0.0f, 0.4f, 0.5f)));
         mOceanStateSet->addUniform(new osg::Uniform("uWaterAlpha", 0.8f));
 
-        Log(Debug::Info) << "Ocean shaders loaded successfully";
+        Log(Debug::Info) << "Ocean shaders loaded successfully with alpha blending and realistic wave amplitude";
     }
 
     void OceanWaterRenderer::updateFFTTextures()

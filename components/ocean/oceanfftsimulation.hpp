@@ -41,7 +41,8 @@ namespace Ocean
             osg::ref_ptr<osg::Texture2D> spectrumTexture;     // H(k) initial spectrum
             osg::ref_ptr<osg::Texture2D> displacementTexture; // xyz displacement
             osg::ref_ptr<osg::Texture2D> normalTexture;       // Normal vectors
-            osg::ref_ptr<osg::Texture2D> foamTexture;         // Jacobian-based foam
+            osg::ref_ptr<osg::Texture2D> foamTexture;         // Persistent foam (accumulated)
+            osg::ref_ptr<osg::Texture2D> tempFoamTexture;     // Temporary foam from Jacobian
 
             // FFT working textures (ping-pong buffers)
             osg::ref_ptr<osg::Texture2D> fftTemp1;
@@ -151,6 +152,7 @@ namespace Ocean
         osg::ref_ptr<osg::Program> mFFTHorizontalProgram;
         osg::ref_ptr<osg::Program> mFFTVerticalProgram;
         osg::ref_ptr<osg::Program> mDisplacementProgram;
+        osg::ref_ptr<osg::Program> mFoamPersistenceProgram;
 
         /// Global simulation time
         float mSimulationTime;

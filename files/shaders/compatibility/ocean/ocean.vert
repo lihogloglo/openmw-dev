@@ -69,10 +69,11 @@ vec3 sampleNormal(vec2 worldPosXY)
     vec3 normal1 = texture2D(uNormalCascade1, uv1).xyz * 2.0 - 1.0;
     vec3 normal2 = texture2D(uNormalCascade2, uv2).xyz * 2.0 - 1.0;
 
-    // Blend and normalize
-    vec3 blendedNormal = normalize(normal0 + normal1 * 0.5 + normal2 * 0.25);
+    // Blend cascades with proper weighting
+    vec3 blendedNormal = normal0 + normal1 * 0.5 + normal2 * 0.25;
 
-    return blendedNormal;
+    // Normalize after blending
+    return normalize(blendedNormal);
 }
 
 void main()
@@ -89,9 +90,13 @@ void main()
     vec3 displacedPos = worldPos.xyz + displacement;
     vDisplacedPos = displacedPos;
 
-    // Sample normal from FFT
-    vec3 displacedNormal = sampleNormal(worldPos.xy);
-    vNormal = displacedNormal;
+    // Sample normal from FFT (in world space)
+    vec3 worldNormal = sampleNormal(worldPos.xy);
+
+    // Transform normal to view space for proper lighting
+    // OpenMW's gl_NormalMatrix transforms from model space to view space
+    // Since our normal is already in world space, we use the normal matrix directly
+    vNormal = gl_NormalMatrix * worldNormal;
 
     // Transform to view space using OpenMW's standard system
     vec4 displacedVertex = vec4(displacedPos, 1.0);

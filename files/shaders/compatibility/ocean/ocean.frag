@@ -1,7 +1,7 @@
 #version 120
 
 // Ocean Fragment Shader
-// Renders ocean with FFT-based waves
+// Renders ocean with FFT-based waves and improved lighting
 
 varying vec3 vWorldPos;
 varying vec3 vDisplacedPos;
@@ -20,13 +20,14 @@ uniform sampler2D uFoamCascade1;
 uniform float uCascadeTileSize0;
 uniform float uCascadeTileSize1;
 
-// Fresnel effect
+// Schlick's Fresnel approximation with better parameterization
 float fresnelSchlick(float cosTheta, float F0)
 {
-    return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    float fresnel = F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+    return fresnel;
 }
 
-// Sample foam
+// Sample foam with better blending
 float sampleFoam(vec2 worldPosXY)
 {
     vec2 uv0 = worldPosXY / uCascadeTileSize0;
@@ -35,7 +36,15 @@ float sampleFoam(vec2 worldPosXY)
     float foam0 = texture2D(uFoamCascade0, uv0).r;
     float foam1 = texture2D(uFoamCascade1, uv1).r;
 
+    // Blend cascades with proper weighting
     return max(foam0, foam1 * 0.5);
+}
+
+// Improved specular using Blinn-Phong for sharper highlights
+float blinnPhongSpecular(vec3 normal, vec3 lightDir, vec3 viewDir, float shininess)
+{
+    vec3 halfDir = normalize(lightDir + viewDir);
+    return pow(max(dot(normal, halfDir), 0.0), shininess);
 }
 
 void main()
@@ -43,38 +52,61 @@ void main()
     // Normalize interpolated normal
     vec3 normal = normalize(vNormal);
 
-    // View direction (camera is at origin in view space)
+    // View direction (from fragment to camera)
     vec3 viewDir = normalize(-vViewPos.xyz);
 
-    // Fresnel
+    // Sun direction (slightly tilted for better lighting)
+    vec3 sunDir = normalize(vec3(0.3, 0.3, 1.0));
+    vec3 sunColor = vec3(1.0, 0.95, 0.85);
+
+    // Fresnel effect (water has F0 ~0.02 at normal incidence)
     float fresnel = fresnelSchlick(max(dot(normal, viewDir), 0.0), 0.02);
 
-    // Water color (deep vs shallow - simplified, no depth map for now)
-    vec3 waterColor = mix(uShallowWaterColor, uDeepWaterColor, 0.7);
+    // Sky color for reflection (approximate)
+    vec3 skyColor = vec3(0.5, 0.7, 1.0);
 
-    // Simple directional light from above (sun-like)
-    vec3 sunDir = normalize(vec3(0.5, 0.5, 1.0));
-    vec3 sunColor = vec3(1.0, 0.95, 0.8);
+    // Water color with depth approximation (darker when looking down)
+    float viewAngle = dot(normal, viewDir);
+    float depthFactor = smoothstep(0.0, 1.0, 1.0 - viewAngle);
+    vec3 waterColor = mix(uShallowWaterColor, uDeepWaterColor, depthFactor * 0.8);
 
-    // Specular highlight (sun reflection)
-    vec3 reflectDir = reflect(-sunDir, normal);
-    float spec = pow(max(dot(viewDir, reflectDir), 0.0), 128.0);
-    vec3 specular = sunColor * spec;
+    // Ambient lighting (underwater and sky)
+    vec3 ambient = waterColor * 0.4 + vec3(0.2, 0.25, 0.3);
 
-    // Simple ambient lighting
-    vec3 ambient = vec3(0.3, 0.3, 0.4);
+    // Diffuse lighting from sun
+    float diffuse = max(dot(normal, sunDir), 0.0);
+    vec3 diffuseColor = waterColor * sunColor * diffuse * 0.6;
+
+    // Specular highlight using Blinn-Phong
+    float specularStrength = blinnPhongSpecular(normal, sunDir, viewDir, 256.0);
+    vec3 specular = sunColor * specularStrength * 1.5;
+
+    // Subsurface scattering approximation (light through waves)
+    float subsurface = max(dot(normal, sunDir), 0.0) * 0.3;
+    vec3 subsurfaceColor = uShallowWaterColor * subsurface;
 
     // Foam
     float foam = sampleFoam(vWorldPos.xy);
     vec3 foamColor = vec3(1.0, 1.0, 1.0);
 
-    // Combine
-    vec3 finalColor = waterColor * ambient + specular;
-    finalColor = mix(finalColor, foamColor, foam * 0.8);
+    // Make foam more prominent at wave crests
+    float foamHighlight = foam * 0.9;
 
-    // Add some fresnel-based brightness
-    finalColor = mix(finalColor, sunColor * 0.5, fresnel * 0.3);
+    // Combine all lighting components
+    vec3 finalColor = ambient + diffuseColor + subsurfaceColor;
 
-    // Output
-    gl_FragColor = vec4(finalColor, uWaterAlpha);
+    // Add specular highlights
+    finalColor += specular;
+
+    // Mix in sky reflection based on Fresnel
+    finalColor = mix(finalColor, skyColor, fresnel * 0.6);
+
+    // Add foam on top
+    finalColor = mix(finalColor, foamColor, foamHighlight);
+
+    // Depth-based alpha (more transparent when viewing at grazing angles)
+    float alpha = mix(uWaterAlpha * 0.7, uWaterAlpha, viewAngle);
+
+    // Output with proper alpha
+    gl_FragColor = vec4(finalColor, alpha);
 }

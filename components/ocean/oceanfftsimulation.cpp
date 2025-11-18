@@ -135,8 +135,10 @@ namespace Ocean
             shaderManager.getShader("core/ocean/fft_butterfly.comp", {}, osg::Shader::COMPUTE);
         osg::ref_ptr<osg::Shader> displacementShader =
             shaderManager.getShader("core/ocean/fft_generate_displacement.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> foamPersistenceShader =
+            shaderManager.getShader("core/ocean/fft_update_foam.comp", {}, osg::Shader::COMPUTE);
 
-        if (!spectrumShader || !butterflyShader || !displacementShader)
+        if (!spectrumShader || !butterflyShader || !displacementShader || !foamPersistenceShader)
         {
             Log(Debug::Error) << "Failed to load ocean FFT compute shaders";
             return false;
@@ -147,9 +149,10 @@ namespace Ocean
         mFFTHorizontalProgram = shaderManager.getProgram(nullptr, butterflyShader);
         mFFTVerticalProgram = shaderManager.getProgram(nullptr, butterflyShader);  // Same shader, different uniform
         mDisplacementProgram = shaderManager.getProgram(nullptr, displacementShader);
+        mFoamPersistenceProgram = shaderManager.getProgram(nullptr, foamPersistenceShader);
 
         if (!mSpectrumGeneratorProgram || !mFFTHorizontalProgram ||
-            !mFFTVerticalProgram || !mDisplacementProgram)
+            !mFFTVerticalProgram || !mDisplacementProgram || !mFoamPersistenceProgram)
         {
             Log(Debug::Error) << "Failed to create ocean FFT shader programs";
             return false;
@@ -188,6 +191,22 @@ namespace Ocean
             }
         };
 
+        // Helper lambda to set uniforms for compute shaders
+        auto setUniform = [&](const char* name, float value) {
+            osg::Uniform* uniform = new osg::Uniform(name, value);
+            state->applyUniform(uniform);
+        };
+
+        auto setUniformInt = [&](const char* name, int value) {
+            osg::Uniform* uniform = new osg::Uniform(name, value);
+            state->applyUniform(uniform);
+        };
+
+        auto setUniformBool = [&](const char* name, bool value) {
+            osg::Uniform* uniform = new osg::Uniform(name, value);
+            state->applyUniform(uniform);
+        };
+
         // Process each cascade
         for (auto& cascade : mCascades)
         {
@@ -198,7 +217,11 @@ namespace Ocean
             bindImage(cascade.spectrumTexture.get(), 0, GL_READ_ONLY_ARB);
             bindImage(cascade.fftTemp1.get(), 1, GL_WRITE_ONLY_ARB);
 
-            // Set uniforms
+            // Set uniforms for spectrum update
+            setUniform("uTime", mSimulationTime);
+            setUniform("uTileSize", cascade.tileSize);
+            setUniform("uGravity", GRAVITY);
+
             mSpectrumGeneratorProgram->apply(*state);
 
             ext->glDispatchCompute(res / 16, res / 16, 1);
@@ -220,6 +243,10 @@ namespace Ocean
                     state->applyTextureAttribute(2, butterflyIt->second.get());
                 }
 
+                // Set uniforms for butterfly shader
+                setUniformInt("uStage", stage);
+                setUniformBool("uHorizontal", true);
+
                 ext->glDispatchCompute(res / 16, res / 16, 1);
                 ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
@@ -235,6 +262,17 @@ namespace Ocean
                 bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
                 bindImage(cascade.fftTemp2.get(), 1, GL_WRITE_ONLY_ARB);
 
+                // Bind butterfly texture for vertical pass
+                auto butterflyIt = mButterflyTextures.find(res);
+                if (butterflyIt != mButterflyTextures.end())
+                {
+                    state->applyTextureAttribute(2, butterflyIt->second.get());
+                }
+
+                // Set uniforms for vertical butterfly shader
+                setUniformInt("uStage", stage);
+                setUniformBool("uHorizontal", false);
+
                 ext->glDispatchCompute(res / 16, res / 16, 1);
                 ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
@@ -247,7 +285,26 @@ namespace Ocean
             bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
             bindImage(cascade.displacementTexture.get(), 1, GL_WRITE_ONLY_ARB);
             bindImage(cascade.normalTexture.get(), 2, GL_WRITE_ONLY_ARB);
-            bindImage(cascade.foamTexture.get(), 3, GL_WRITE_ONLY_ARB);
+            bindImage(cascade.tempFoamTexture.get(), 3, GL_WRITE_ONLY_ARB);
+
+            // Set uniforms for displacement generation
+            setUniform("uTileSize", cascade.tileSize);
+            setUniform("uChoppiness", mChoppiness);
+            setUniformInt("uN", res);
+
+            ext->glDispatchCompute(res / 16, res / 16, 1);
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+            // 5. Update foam persistence
+            state->applyAttribute(mFoamPersistenceProgram.get());
+
+            bindImage(cascade.tempFoamTexture.get(), 0, GL_READ_ONLY_ARB);
+            bindImage(cascade.foamTexture.get(), 1, GL_READ_WRITE_ARB);
+
+            // Set uniforms for foam persistence
+            setUniform("uDeltaTime", cascade.updateInterval);  // Use update interval as dt
+            setUniform("uFoamGrowthRate", 0.3f);   // Moderate foam growth
+            setUniform("uFoamDecayRate", 0.92f);   // ~8% decay per second
 
             ext->glDispatchCompute(res / 16, res / 16, 1);
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
@@ -390,12 +447,13 @@ namespace Ocean
         cascade.spectrumTexture = createFloatTexture(res, res, 4);
         cascade.displacementTexture = createFloatTexture(res, res, 4);
         cascade.normalTexture = createFloatTexture(res, res, 4);
-        cascade.foamTexture = createFloatTexture(res, res, 1);
+        cascade.foamTexture = createFloatTexture(res, res, 1);          // Persistent foam
+        cascade.tempFoamTexture = createFloatTexture(res, res, 1);      // Temporary foam from Jacobian
         cascade.fftTemp1 = createFloatTexture(res, res, 4);
         cascade.fftTemp2 = createFloatTexture(res, res, 4);
 
         if (!cascade.spectrumTexture || !cascade.displacementTexture ||
-            !cascade.normalTexture || !cascade.foamTexture)
+            !cascade.normalTexture || !cascade.foamTexture || !cascade.tempFoamTexture)
         {
             return false;
         }

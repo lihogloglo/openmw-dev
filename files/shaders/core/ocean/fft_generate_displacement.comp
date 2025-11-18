@@ -11,7 +11,7 @@ layout(binding = 0, rgba32f) uniform image2D uHeightFFT;
 // Outputs
 layout(binding = 1, rgba32f) uniform image2D uDisplacementMap;  // xyz displacement
 layout(binding = 2, rgba32f) uniform image2D uNormalMap;        // Normal vectors
-layout(binding = 3, r32f) uniform image2D uFoamMap;            // Foam (Jacobian)
+layout(binding = 3, r32f) uniform image2D uTempFoamMap;         // Temporary foam from Jacobian
 
 // Uniforms
 uniform float uTileSize;      // Physical tile size in meters
@@ -94,5 +94,5 @@ void main()
     // Store results
     imageStore(uDisplacementMap, coord, vec4(displacement, 1.0));
     imageStore(uNormalMap, coord, vec4(normal * 0.5 + 0.5, 1.0));  // Encode normal to [0,1]
-    imageStore(uFoamMap, coord, vec4(foam, 0.0, 0.0, 0.0));
+    imageStore(uTempFoamMap, coord, vec4(foam, 0.0, 0.0, 0.0));  // Temporary foam for accumulation
 }
