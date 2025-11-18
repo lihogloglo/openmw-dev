@@ -181,10 +181,19 @@ namespace Ocean
         const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
 
         static bool firstDispatch = true;
+        static int dispatchCount = 0;
         if (firstDispatch)
         {
             Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - FFT simulation is running";
             firstDispatch = false;
+        }
+        dispatchCount++;
+
+        // Log every 100 dispatches to monitor FFT is still running
+        if (dispatchCount % 100 == 0)
+        {
+            Log(Debug::Verbose) << "[OCEAN FFT] Compute dispatch #" << dispatchCount
+                               << " - Time: " << mSimulationTime << "s";
         }
 
         // Helper lambda to bind texture as image
@@ -529,8 +538,11 @@ namespace Ocean
                 float P = phillipsSpectrum(k, mWindSpeed, mWindDirection);
 
                 // Random Gaussian samples
-                std::complex<float> h0 = gaussianRandom(gen) * std::sqrt(P * 0.5f);
-                std::complex<float> h0conj = std::conj(gaussianRandom(gen) * std::sqrt(P * 0.5f));
+                // Scale up the spectrum amplitude significantly for visible ocean waves
+                // The factor of 1000 accounts for the typical small values from Phillips spectrum
+                float amplitudeScale = 1000.0f;
+                std::complex<float> h0 = gaussianRandom(gen) * std::sqrt(P * 0.5f * amplitudeScale);
+                std::complex<float> h0conj = std::conj(gaussianRandom(gen) * std::sqrt(P * 0.5f * amplitudeScale));
 
                 // Store in texture (real, imag, realConj, imagConj)
                 int idx = (y * res + x) * 4;

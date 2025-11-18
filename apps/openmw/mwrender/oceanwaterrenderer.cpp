@@ -137,6 +137,11 @@ namespace MWRender
 
     void OceanWaterRenderer::setWaterHeight(float height)
     {
+        if (std::abs(height - mWaterHeight) > 0.01f)
+        {
+            Log(Debug::Info) << "[OCEAN] Water height changed from " << mWaterHeight << " to " << height;
+        }
+
         mWaterHeight = height;
 
         // Update all chunk positions
@@ -455,7 +460,7 @@ namespace MWRender
 
         // Wave parameters
         mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 100.0f));  // Amplitude multiplier - increased for visibility
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));  // Amplitude multiplier (FFT already in world units)
 
         // Water appearance
         mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
