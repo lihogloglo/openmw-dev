@@ -68,6 +68,10 @@ float sampleFoam(vec2 worldPosXY)
 
 void main(void)
 {
+    // TEMPORARY DEBUG: Make ocean bright red to verify this shader is being used
+    gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0);  // BRIGHT RED
+    return;
+
     // Use the FFT-generated normal (already interpolated from vertex shader)
     vec3 normal = normalize(vNormal);
 
