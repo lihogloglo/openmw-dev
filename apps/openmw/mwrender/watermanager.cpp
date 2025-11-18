@@ -62,15 +62,26 @@ namespace MWRender
 
     void WaterManager::setEnabled(bool enabled)
     {
+        mWaterEnabled = enabled;
+
+        // Update renderers based on current water type and master enabled state
+        bool useOcean = enabled && mFFTOceanEnabled && (mCurrentWaterType == Ocean::WaterType::OCEAN);
+
+        if (mOceanRenderer)
+            mOceanRenderer->setEnabled(useOcean);
+
         if (mWater)
-            mWater->setEnabled(enabled);
+            mWater->setEnabled(enabled && !useOcean);
     }
 
     bool WaterManager::toggle()
     {
-        if (mWater)
-            return mWater->toggle();
-        return false;
+        mWaterEnabled = !mWaterEnabled;
+
+        // Update renderers based on new state
+        setEnabled(mWaterEnabled);
+
+        return mWaterEnabled;
     }
 
     bool WaterManager::isUnderwater(const osg::Vec3f& pos) const
@@ -131,18 +142,42 @@ namespace MWRender
             mCurrentWaterType = Ocean::WaterType::INDOOR;
         }
 
-        // Enable/disable ocean renderer based on water type
-        if (mOceanRenderer)
+        // Enable/disable ocean renderer based on water type and master enabled state
+        bool useOcean = false;
+        if (mOceanRenderer && mWaterEnabled)
         {
-            bool useOcean = (mCurrentWaterType == Ocean::WaterType::OCEAN) && mFFTOceanEnabled;
+            useOcean = (mCurrentWaterType == Ocean::WaterType::OCEAN) && mFFTOceanEnabled;
             mOceanRenderer->setEnabled(useOcean);
             Log(Debug::Info) << "Ocean renderer " << (useOcean ? "ENABLED" : "DISABLED")
                             << " for water type: " << Ocean::waterTypeToString(mCurrentWaterType);
         }
+        else if (mOceanRenderer)
+        {
+            mOceanRenderer->setEnabled(false);
+        }
 
         // Update the legacy water renderer (use for non-ocean water)
         if (mWater)
+        {
+            // Disable legacy water when using ocean renderer to avoid double rendering
+            // Also respect master enabled state
+            bool useLegacy = mWaterEnabled && !useOcean;
+            mWater->setEnabled(useLegacy);
             mWater->changeCell(store);
+
+            if (useLegacy)
+            {
+                Log(Debug::Verbose) << "Legacy water renderer active";
+            }
+            else if (useOcean)
+            {
+                Log(Debug::Verbose) << "Legacy water renderer disabled (using ocean)";
+            }
+            else
+            {
+                Log(Debug::Verbose) << "Legacy water renderer disabled (water globally disabled)";
+            }
+        }
     }
 
     void WaterManager::setHeight(const float height)

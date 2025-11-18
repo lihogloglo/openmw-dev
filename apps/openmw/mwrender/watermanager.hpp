@@ -114,6 +114,9 @@ namespace MWRender
         const MWWorld::CellStore* mCurrentCell{ nullptr };
         Ocean::WaterType mCurrentWaterType{ Ocean::WaterType::INDOOR };
 
+        // Master water enabled state
+        bool mWaterEnabled{ true };
+
         // Resource references
         osg::ref_ptr<osg::Group> mParent;
         osg::ref_ptr<osg::Group> mSceneRoot;
