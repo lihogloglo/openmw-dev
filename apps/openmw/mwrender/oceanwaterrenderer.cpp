@@ -277,26 +277,21 @@ namespace MWRender
             baseGeom->setUseVertexBufferObjects(true);
             baseGeom->setDataVariance(osg::Object::STATIC);
 
-            // Position the chunk
+            // Keep vertices in LOCAL space (don't bake world coordinates)
+            // The transform node will handle positioning
             osg::Vec3Array* verts = dynamic_cast<osg::Vec3Array*>(baseGeom->getVertexArray());
             if (verts)
             {
-                float offsetX = gridPos.x() * CHUNK_SIZE;
-                float offsetY = gridPos.y() * CHUNK_SIZE;
-
+                // Set Z to water height (in local space, this is the base height)
                 for (size_t i = 0; i < verts->size(); ++i)
                 {
-                    (*verts)[i].x() += offsetX;
-                    (*verts)[i].y() += offsetY;
                     (*verts)[i].z() = mWaterHeight;
                 }
                 verts->dirty();
-
-                // Force bounding box recomputation after vertex modification
                 baseGeom->dirtyBound();
 
                 Log(Debug::Verbose) << "Created water chunk at (" << gridPos.x() << ", " << gridPos.y()
-                                   << ") with " << verts->size() << " vertices";
+                                   << ") with " << verts->size() << " vertices in local space";
             }
             else
             {
@@ -338,9 +333,9 @@ namespace MWRender
 
         for (const auto& key : toRemove)
         {
-            if (mChunks[key].geode)
+            if (mChunks[key].transform)
             {
-                mOceanNode->removeChild(mChunks[key].geode);
+                mOceanNode->removeChild(mChunks[key].transform);
             }
             mChunks.erase(key);
         }
@@ -368,18 +363,27 @@ namespace MWRender
 
                 if (chunk.geometry)
                 {
+                    // Create geode to hold geometry
                     chunk.geode = new osg::Geode;
                     chunk.geode->addDrawable(chunk.geometry);
                     chunk.geode->setStateSet(mOceanStateSet);
 
-                    mOceanNode->addChild(chunk.geode);
+                    // Create transform node to position chunk in world space
+                    chunk.transform = new osg::PositionAttitudeTransform;
+                    float offsetX = gridPos.x() * CHUNK_SIZE;
+                    float offsetY = gridPos.y() * CHUNK_SIZE;
+                    chunk.transform->setPosition(osg::Vec3f(offsetX, offsetY, 0.0f));
+                    chunk.transform->addChild(chunk.geode);
+
+                    mOceanNode->addChild(chunk.transform);
                     mChunks[chunkKey] = chunk;
 
                     // Track in subdivision tracker
                     mSubdivisionTracker.markChunkSubdivided(chunkCenter, subdivLevel);
 
                     Log(Debug::Verbose) << "Created ocean chunk at (" << gridPos.x() << ", " << gridPos.y()
-                                       << ") with subdivision level " << subdivLevel;
+                                       << ") with subdivision level " << subdivLevel
+                                       << " at world pos (" << offsetX << ", " << offsetY << ")";
                 }
             }
         }

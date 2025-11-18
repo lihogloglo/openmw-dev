@@ -82,31 +82,27 @@ vec3 sampleNormal(vec2 worldPosXY)
 
 void main()
 {
-    // World position (using gl_Vertex from OpenMW)
-    vec4 worldPos = gl_Vertex;
-    vWorldPos = worldPos.xyz;
+    // gl_Vertex is in LOCAL chunk space (0 to CHUNK_SIZE)
+    // The PositionAttitudeTransform node positions the chunk in world space
+    vec4 localPos = gl_Vertex;
     vTexCoord = gl_MultiTexCoord0.xy;
 
-    // Sample displacement from FFT
-    vec3 displacement = sampleDisplacement(worldPos.xy);
+    // Calculate world position (transform will be applied by ModelView matrix)
+    // For now, we'll get world position from the model matrix diagonal
+    vec4 worldPos = gl_ModelViewMatrix * localPos;
+    vWorldPos = worldPos.xyz;
 
-    // TEMPORARY DEBUG: Add a large sine wave to test if displacement works at all
-    float debugWave = sin(worldPos.x * 0.01) * sin(worldPos.y * 0.01) * 500.0;  // 500 unit waves
-    displacement.z += debugWave;
+    // TEMPORARY DEBUG: Add huge vertical displacement to test vertex shader
+    vec3 displacedPos = localPos.xyz;
+    displacedPos.z += 1000.0;  // Should create massive waves if this works
 
-    // Apply displacement
-    vec3 displacedPos = worldPos.xyz + displacement;
     vDisplacedPos = displacedPos;
 
-    // Sample normal from FFT (in world space)
-    vec3 worldNormal = sampleNormal(worldPos.xy);
-
-    // Transform normal to view space for proper lighting
-    // OpenMW's gl_NormalMatrix transforms from model space to view space
-    // Since our normal is already in world space, we use the normal matrix directly
+    // Sample normal (use world position for sampling)
+    vec3 worldNormal = vec3(0.0, 0.0, 1.0);  // Flat normal for now
     vNormal = gl_NormalMatrix * worldNormal;
 
-    // Transform to view space using OpenMW's standard system
+    // Transform displaced position
     vec4 displacedVertex = vec4(displacedPos, 1.0);
     vViewPos = modelToView(displacedVertex);
 
@@ -115,6 +111,6 @@ void main()
     gl_ClipVertex = vViewPos;
 
     // Required outputs for water system integration
-    position = vec4(displacedPos, 1.0);  // World position
-    linearDepth = gl_Position.z;  // Linear depth for fog calculations
+    position = displacedVertex;
+    linearDepth = gl_Position.z;
 }
