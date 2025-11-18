@@ -237,13 +237,31 @@ namespace MWRender
         // Create base geometry
         osg::ref_ptr<osg::Geometry> baseGeom = createBaseWaterGeometry(CHUNK_SIZE);
 
+        if (!baseGeom || !baseGeom->getVertexArray() || baseGeom->getVertexArray()->getNumElements() == 0)
+        {
+            Log(Debug::Error) << "Failed to create base water geometry for chunk at ("
+                             << gridPos.x() << ", " << gridPos.y() << ")";
+            return nullptr;
+        }
+
+        Log(Debug::Verbose) << "Base geometry created with " << baseGeom->getVertexArray()->getNumElements()
+                           << " vertices for chunk at (" << gridPos.x() << ", " << gridPos.y() << ")";
+
         // Apply subdivision if needed
         if (subdivisionLevel > 0 && baseGeom)
         {
             osg::ref_ptr<osg::Geometry> subdivided = Ocean::WaterSubdivider::subdivide(baseGeom.get(), subdivisionLevel);
-            if (subdivided)
+            if (subdivided && subdivided->getVertexArray() && subdivided->getVertexArray()->getNumElements() > 0)
             {
+                Log(Debug::Verbose) << "Subdivision level " << subdivisionLevel << " produced "
+                                   << subdivided->getVertexArray()->getNumElements() << " vertices";
                 baseGeom = subdivided;
+            }
+            else
+            {
+                Log(Debug::Warning) << "Subdivision level " << subdivisionLevel
+                                   << " failed or produced empty geometry at grid pos ("
+                                   << gridPos.x() << ", " << gridPos.y() << "), using base geometry";
             }
         }
 
@@ -268,6 +286,17 @@ namespace MWRender
                     (*verts)[i].z() = mWaterHeight;
                 }
                 verts->dirty();
+
+                // Force bounding box recomputation after vertex modification
+                baseGeom->dirtyBound();
+
+                Log(Debug::Verbose) << "Created water chunk at (" << gridPos.x() << ", " << gridPos.y()
+                                   << ") with " << verts->size() << " vertices";
+            }
+            else
+            {
+                Log(Debug::Error) << "Failed to get vertex array for water chunk at ("
+                                 << gridPos.x() << ", " << gridPos.y() << ")";
             }
         }
 
