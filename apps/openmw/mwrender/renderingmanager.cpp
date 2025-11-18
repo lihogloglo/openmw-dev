@@ -85,7 +85,7 @@
 #include "terrainstorage.hpp"
 #include "util.hpp"
 #include "vismask.hpp"
-#include "watermanager.hpp"
+#include "water.hpp"
 
 namespace MWRender
 {
@@ -516,7 +516,7 @@ namespace MWRender
         resourceSystem->getSceneManager()->setWeatherParticleOcclusion(Settings::shaders().mWeatherParticleOcclusion);
 
         // water goes after terrain for correct waterculling order
-        mWater = std::make_unique<WaterManager>(
+        mWater = std::make_unique<Water>(
             sceneRoot->getParent(0), sceneRoot, mResourceSystem, mViewer->getIncrementalCompileOperation());
 
         mCamera = std::make_unique<Camera>(mViewer->getCamera());
