@@ -193,19 +193,19 @@ namespace Ocean
 
         // Helper lambda to set uniforms using direct GL calls
         auto setUniform = [&](osg::Program* program, const char* name, float value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
             if (location >= 0)
                 ext->glUniform1f(location, value);
         };
 
         auto setUniformInt = [&](osg::Program* program, const char* name, int value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
             if (location >= 0)
                 ext->glUniform1i(location, value);
         };
 
         auto setUniformBool = [&](osg::Program* program, const char* name, bool value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(contextID)->getHandle(), name);
+            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
             if (location >= 0)
                 ext->glUniform1i(location, value ? 1 : 0);
         };

@@ -1,5 +1,6 @@
 #include "oceanwaterrenderer.hpp"
 
+#include <osg/BlendFunc>
 #include <osg/Depth>
 #include <osg/Geode>
 #include <osg/Geometry>
