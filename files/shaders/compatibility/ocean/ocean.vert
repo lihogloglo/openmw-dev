@@ -90,6 +90,10 @@ void main()
     // Sample displacement from FFT
     vec3 displacement = sampleDisplacement(worldPos.xy);
 
+    // TEMPORARY DEBUG: Add a large sine wave to test if displacement works at all
+    float debugWave = sin(worldPos.x * 0.01) * sin(worldPos.y * 0.01) * 500.0;  // 500 unit waves
+    displacement.z += debugWave;
+
     // Apply displacement
     vec3 displacedPos = worldPos.xyz + displacement;
     vDisplacedPos = displacedPos;
