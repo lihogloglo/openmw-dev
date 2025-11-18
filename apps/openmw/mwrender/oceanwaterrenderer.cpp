@@ -467,13 +467,21 @@ namespace MWRender
         mOceanStateSet->addUniform(new osg::Uniform("uShallowWaterColor", osg::Vec3f(0.0f, 0.4f, 0.5f)));
         mOceanStateSet->addUniform(new osg::Uniform("uWaterAlpha", 0.8f));
 
-        Log(Debug::Info) << "Ocean shaders loaded successfully with alpha blending and realistic wave amplitude";
+        Log(Debug::Info) << "Ocean shaders loaded successfully";
+        Log(Debug::Info) << "[OCEAN DEBUG] uEnableOceanWaves=true, uWaveAmplitude=1.0";
     }
 
     void OceanWaterRenderer::updateFFTTextures()
     {
         if (!mFFTSimulation || !mOceanStateSet)
             return;
+
+        static bool logged = false;
+        if (!logged)
+        {
+            Log(Debug::Info) << "[OCEAN DEBUG] updateFFTTextures called - binding displacement textures";
+            logged = true;
+        }
 
         // Bind displacement textures
         for (int i = 0; i < 3; ++i)
@@ -491,11 +499,16 @@ namespace MWRender
                 {
                     uniform = new osg::Uniform(uniformName.c_str(), tileSize);
                     mOceanStateSet->addUniform(uniform);
+                    Log(Debug::Info) << "[OCEAN DEBUG] Added uniform " << uniformName << " = " << tileSize;
                 }
                 else
                 {
                     uniform->set(tileSize);
                 }
+            }
+            else
+            {
+                Log(Debug::Warning) << "[OCEAN DEBUG] Displacement texture " << i << " is NULL!";
             }
         }
 
