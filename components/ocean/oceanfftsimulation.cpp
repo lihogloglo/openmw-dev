@@ -73,14 +73,14 @@ namespace Ocean
 
     OceanFFTSimulation::OceanFFTSimulation(Resource::ResourceSystem* resourceSystem)
         : mResourceSystem(resourceSystem)
-        , mWindSpeed(10.0f)
+        , mWindSpeed(15.0f)  // Increased for more dramatic waves
         , mWindDirection(1.0f, 0.0f)
         , mFetchDistance(100000.0f)
         , mWaterDepth(1000.0f)
-        , mChoppiness(1.5f)
+        , mChoppiness(2.5f)  // Increased for sharper wave crests
         , mSimulationTime(0.0f)
         , mInitialized(false)
-        , mPreset(PerformancePreset::MEDIUM)
+        , mPreset(PerformancePreset::HIGH)  // Use HIGH preset for 3 cascades
     {
     }
 
