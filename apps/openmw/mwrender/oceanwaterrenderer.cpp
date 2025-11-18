@@ -21,35 +21,42 @@
 
 namespace MWRender
 {
-    OceanFFTUpdateCallback::OceanFFTUpdateCallback(Ocean::OceanFFTSimulation* fftSimulation)
+    OceanComputeDrawable::OceanComputeDrawable()
+        : mFFTSimulation(nullptr)
+        , mLastFrameNumber(0)
+    {
+        setSupportsDisplayList(false);
+    }
+
+    OceanComputeDrawable::OceanComputeDrawable(Ocean::OceanFFTSimulation* fftSimulation)
         : mFFTSimulation(fftSimulation)
         , mLastFrameNumber(0)
     {
+        setSupportsDisplayList(false);
     }
 
-    void OceanFFTUpdateCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
+    OceanComputeDrawable::OceanComputeDrawable(const OceanComputeDrawable& copy, const osg::CopyOp& copyop)
+        : osg::Drawable(copy, copyop)
+        , mFFTSimulation(copy.mFFTSimulation)
+        , mLastFrameNumber(copy.mLastFrameNumber)
     {
-        osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
-        if (cv)
+    }
+
+    void OceanComputeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
+    {
+        unsigned int frameNumber = renderInfo.getState()->getFrameStamp()->getFrameNumber();
+
+        // Only dispatch compute shaders once per frame
+        if (mFFTSimulation && frameNumber != mLastFrameNumber)
         {
-            unsigned int frameNumber = cv->getFrameStamp() ? cv->getFrameStamp()->getFrameNumber() : 0;
-
-            // Only dispatch compute shaders once per frame
-            if (mFFTSimulation && frameNumber != mLastFrameNumber)
-            {
-                osg::State* state = cv->getRenderStage()->getStateSet()
-                    ? cv->getState()
-                    : nullptr;
-
-                if (state)
-                {
-                    mFFTSimulation->dispatchCompute(state);
-                    mLastFrameNumber = frameNumber;
-                }
-            }
+            mFFTSimulation->dispatchCompute(renderInfo.getState());
+            mLastFrameNumber = frameNumber;
         }
+    }
 
-        traverse(node, nv);
+    osg::BoundingBox OceanComputeDrawable::computeBoundingBox() const
+    {
+        return osg::BoundingBox(-100000.0f, -100000.0f, -10000.0f, 100000.0f, 100000.0f, 10000.0f);
     }
 
     OceanWaterRenderer::OceanWaterRenderer(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
@@ -65,8 +72,18 @@ namespace MWRender
         mOceanNode->setName("Ocean Water");
         mOceanNode->setNodeMask(Mask_Water);
 
-        // Attach cull callback to dispatch FFT compute shaders once per frame
-        mOceanNode->setCullCallback(new OceanFFTUpdateCallback(fftSimulation));
+        // Create a drawable to dispatch compute shaders during the Draw traversal
+        // This ensures we have a valid OpenGL context
+        mComputeGeode = new osg::Geode;
+        mComputeGeode->setName("Ocean FFT Compute");
+        mComputeGeode->addDrawable(new OceanComputeDrawable(fftSimulation));
+        mComputeGeode->setCullingActive(false); // Always draw to ensure update happens
+
+        // Set render bin to 0 (default/opaque) to ensure it runs before water rendering (bin 9/10)
+        osg::StateSet* computeStateSet = mComputeGeode->getOrCreateStateSet();
+        computeStateSet->setRenderBinDetails(0, "RenderBin");
+
+        mOceanNode->addChild(mComputeGeode);
 
         // Setup ocean shader
         setupOceanShader();
@@ -98,8 +115,20 @@ namespace MWRender
         {
             updateChunks(playerPos);
             mLastPlayerPos = playerPos;
-            Log(Debug::Info) << "Ocean chunks updated: " << mChunks.size() << " chunks active at player pos ("
+            Log(Debug::Info) << "[OCEAN DEBUG] Ocean chunks updated: " << mChunks.size() << " chunks active at player pos ("
                             << playerPos.x() << ", " << playerPos.y() << ", " << playerPos.z() << ")";
+            
+            if (!mChunks.empty()) {
+                auto firstChunk = mChunks.begin();
+                osg::Vec2i gridPos = firstChunk->second.gridPos;
+                Log(Debug::Info) << "[OCEAN DEBUG] First chunk grid pos: (" << gridPos.x() << ", " << gridPos.y() << ")";
+                if (firstChunk->second.geode) {
+                     const osg::BoundingBox& bbox = firstChunk->second.geode->getBoundingBox();
+                     Log(Debug::Info) << "[OCEAN DEBUG] First chunk bbox: " 
+                         << bbox.xMin() << "," << bbox.yMin() << "," << bbox.zMin() << " -> "
+                         << bbox.xMax() << "," << bbox.yMax() << "," << bbox.zMax();
+                }
+            }
         }
 
         // Update FFT textures
@@ -140,10 +169,67 @@ namespace MWRender
 
     osg::ref_ptr<osg::Geometry> OceanWaterRenderer::createBaseWaterGeometry(float chunkSize)
     {
-        // Create a simple quad grid (40x40 quads like the original water)
+        // Create a simple grid of triangles (40x40 segments)
+        // We implement this manually instead of using SceneUtil::createWaterGeometry
+        // because we need GL_TRIANGLES for the subdivider, but SceneUtil uses QUADS.
         constexpr int segments = 40;
+        const float step = chunkSize / segments;
+        const float textureRepeats = chunkSize / segments; // 1 repeat per segment
+        const float texCoordStep = textureRepeats / segments;
 
-        return SceneUtil::createWaterGeometry(chunkSize, segments, chunkSize / segments);
+        osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+        osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
+        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(GL_TRIANGLES);
+
+        // Generate vertices
+        for (int y = 0; y <= segments; ++y)
+        {
+            for (int x = 0; x <= segments; ++x)
+            {
+                float xPos = -chunkSize / 2.0f + x * step;
+                float yPos = -chunkSize / 2.0f + y * step;
+                verts->push_back(osg::Vec3f(xPos, yPos, 0.0f));
+
+                float u = x * texCoordStep;
+                float v = y * texCoordStep;
+                texcoords->push_back(osg::Vec2f(u, v));
+            }
+        }
+
+        // Generate indices for triangles
+        for (int y = 0; y < segments; ++y)
+        {
+            for (int x = 0; x < segments; ++x)
+            {
+                // Grid vertex indices
+                unsigned int i00 = y * (segments + 1) + x;
+                unsigned int i10 = y * (segments + 1) + (x + 1);
+                unsigned int i01 = (y + 1) * (segments + 1) + x;
+                unsigned int i11 = (y + 1) * (segments + 1) + (x + 1);
+
+                // Triangle 1 (00, 10, 11)
+                indices->push_back(i00);
+                indices->push_back(i10);
+                indices->push_back(i11);
+
+                // Triangle 2 (00, 11, 01)
+                indices->push_back(i00);
+                indices->push_back(i11);
+                indices->push_back(i01);
+            }
+        }
+
+        osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
+        geometry->setVertexArray(verts);
+        geometry->setTexCoordArray(0, texcoords);
+        
+        osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
+        normals->push_back(osg::Vec3f(0, 0, 1));
+        geometry->setNormalArray(normals, osg::Array::BIND_OVERALL);
+
+        geometry->addPrimitiveSet(indices);
+        
+        return geometry;
     }
 
     osg::ref_ptr<osg::Geometry> OceanWaterRenderer::createWaterChunk(const osg::Vec2i& gridPos, int subdivisionLevel)

@@ -5,9 +5,9 @@
 namespace Ocean
 {
     WaterSubdivisionTracker::WaterSubdivisionTracker()
-        : mNearDistance(512.0f)
-        , mMidDistance(1536.0f)
-        , mFarDistance(4096.0f)
+        : mNearDistance(12000.0f)  // Increased to cover immediate 8km chunk + neighbors
+        , mMidDistance(20000.0f)
+        , mFarDistance(40000.0f)
         , mPlayerPosition(0.0f, 0.0f)
     {
     }

@@ -31,8 +31,9 @@ namespace MWRender
                 Log(Debug::Info) << "FFT Ocean simulation initialized successfully";
 
                 // Create ocean renderer
+                // Attach to scene root so it doesn't follow player/camera position
                 mOceanRenderer = std::make_unique<OceanWaterRenderer>(
-                    parent, resourceSystem, mOceanFFT.get());
+                    mSceneRoot, resourceSystem, mOceanFFT.get());
             }
             else
             {

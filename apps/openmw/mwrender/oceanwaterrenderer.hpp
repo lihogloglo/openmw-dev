@@ -24,13 +24,20 @@ namespace Resource
 
 namespace MWRender
 {
-    /// Cull callback to dispatch FFT compute shaders once per frame before rendering ocean
-    class OceanFFTUpdateCallback : public osg::NodeCallback
+    /// Drawable that dispatches FFT compute shaders during the Draw traversal
+    class OceanComputeDrawable : public osg::Drawable
     {
     public:
-        OceanFFTUpdateCallback(Ocean::OceanFFTSimulation* fftSimulation);
+        OceanComputeDrawable();
+        OceanComputeDrawable(Ocean::OceanFFTSimulation* fftSimulation);
 
-        void operator()(osg::Node* node, osg::NodeVisitor* nv) override;
+        OceanComputeDrawable(const OceanComputeDrawable& copy, const osg::CopyOp& copyop = osg::CopyOp::SHALLOW_COPY);
+
+        META_Object(MWRender, OceanComputeDrawable)
+
+        void drawImplementation(osg::RenderInfo& renderInfo) const override;
+
+        osg::BoundingBox computeBoundingBox() const override;
 
     private:
         Ocean::OceanFFTSimulation* mFFTSimulation;
@@ -85,6 +92,7 @@ namespace MWRender
         // Scene structure
         osg::ref_ptr<osg::Group> mParent;
         osg::ref_ptr<osg::Group> mOceanNode;
+        osg::ref_ptr<osg::Geode> mComputeGeode;
 
         // Resources
         Resource::ResourceSystem* mResourceSystem;

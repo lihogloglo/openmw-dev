@@ -43,9 +43,9 @@ const float SPEC_BRIGHTNESS = 2.0;
 
 #define PER_PIXEL_LIGHTING 0
 
-#include "shadows_fragment.glsl"
+#include "../shadows_fragment.glsl"
 #include "lib/light/lighting.glsl"
-#include "fog.glsl"
+#include "../fog.glsl"
 
 // Schlick's Fresnel approximation
 float fresnelSchlick(float cosTheta, float F0)
