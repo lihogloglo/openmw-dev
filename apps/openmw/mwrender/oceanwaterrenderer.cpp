@@ -288,7 +288,16 @@ namespace MWRender
                     (*verts)[i].z() = mWaterHeight;
                 }
                 verts->dirty();
-                baseGeom->dirtyBound();
+
+                // CRITICAL FIX: Set a custom bounding box that accounts for wave displacement
+                // The vertex shader displaces vertices, but the default bounding box is computed
+                // from the CPU-side vertices (all at mWaterHeight), causing frustum culling issues
+                // Max wave amplitude should be ~10m in production, but using 100m for safety
+                const float MAX_WAVE_AMPLITUDE = 100.0f;
+                osg::BoundingBox bbox;
+                bbox.set(-CHUNK_SIZE/2.0f, -CHUNK_SIZE/2.0f, mWaterHeight - MAX_WAVE_AMPLITUDE,
+                          CHUNK_SIZE/2.0f,  CHUNK_SIZE/2.0f, mWaterHeight + MAX_WAVE_AMPLITUDE);
+                baseGeom->setInitialBound(bbox);
 
                 Log(Debug::Verbose) << "Created water chunk at (" << gridPos.x() << ", " << gridPos.y()
                                    << ") with " << verts->size() << " vertices in local space";

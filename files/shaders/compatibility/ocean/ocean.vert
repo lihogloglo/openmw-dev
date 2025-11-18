@@ -87,19 +87,24 @@ void main()
     vec4 localPos = gl_Vertex;
     vTexCoord = gl_MultiTexCoord0.xy;
 
-    // Calculate world position (transform will be applied by ModelView matrix)
-    // For now, we'll get world position from the model matrix diagonal
-    vec4 worldPos = gl_ModelViewMatrix * localPos;
-    vWorldPos = worldPos.xyz;
+    // Calculate world position
+    // We need the world XY for FFT texture sampling, but ModelViewMatrix includes the view transform
+    // For now, use the model transform to get world position
+    // TODO: Pass world position more explicitly via uniform or vertex attribute
+    vec4 modelPos = gl_ModelViewMatrix * localPos;
 
-    // TEMPORARY DEBUG: Add huge vertical displacement to test vertex shader
-    vec3 displacedPos = localPos.xyz;
-    displacedPos.z += 1000.0;  // Should create massive waves if this works
+    // Sample FFT displacement using world-space XY coordinates
+    // The transform node positions chunks, so we approximate world XY from model space
+    vec2 worldPosXY = modelPos.xy;
+    vWorldPos = vec3(worldPosXY, localPos.z);
 
+    // Sample displacement and apply it
+    vec3 displacement = sampleDisplacement(worldPosXY);
+    vec3 displacedPos = localPos.xyz + displacement;
     vDisplacedPos = displacedPos;
 
-    // Sample normal (use world position for sampling)
-    vec3 worldNormal = vec3(0.0, 0.0, 1.0);  // Flat normal for now
+    // Sample normal from FFT (use world position for sampling)
+    vec3 worldNormal = sampleNormal(worldPosXY);
     vNormal = gl_NormalMatrix * worldNormal;
 
     // Transform displaced position
