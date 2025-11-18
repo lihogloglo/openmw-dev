@@ -72,6 +72,7 @@ set(SHADER_FILES
     core/ocean/fft_update_spectrum.comp
     core/ocean/fft_butterfly.comp
     core/ocean/fft_generate_displacement.comp
+    core/ocean/fft_update_foam.comp
 )
 
 copy_all_resource_files(${CMAKE_CURRENT_SOURCE_DIR} ${OPENMW_RESOURCES_ROOT} ${DDIRRELATIVE} "${SHADER_FILES}")
