@@ -1,0 +1,45 @@
+#version 430 core
+
+// Foam Persistence and Dissipation Shader
+// Accumulates foam from breaking waves and applies exponential decay
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+// Input: Current foam from Jacobian
+layout(binding = 0, r32f) uniform image2D uNewFoam;
+
+// Input/Output: Persistent foam texture
+layout(binding = 1, r32f) uniform image2D uPersistentFoam;
+
+// Uniforms
+uniform float uDeltaTime;       // Time since last update (seconds)
+uniform float uFoamGrowthRate;  // How fast foam forms (0.0 - 1.0)
+uniform float uFoamDecayRate;   // Exponential decay per second (0.0 - 1.0)
+
+void main()
+{
+    ivec2 coord = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(uPersistentFoam);
+
+    if (coord.x >= size.x || coord.y >= size.y)
+        return;
+
+    // Read current persistent foam
+    float oldFoam = imageLoad(uPersistentFoam, coord).r;
+
+    // Read new foam from wave breaking (Jacobian)
+    float newFoam = imageLoad(uNewFoam, coord).r;
+
+    // Exponential decay
+    float decayFactor = pow(uFoamDecayRate, uDeltaTime);
+    float decayedFoam = oldFoam * decayFactor;
+
+    // Accumulate new foam
+    float accumulatedFoam = decayedFoam + newFoam * uFoamGrowthRate;
+
+    // Clamp to [0, 1]
+    accumulatedFoam = clamp(accumulatedFoam, 0.0, 1.0);
+
+    // Store updated foam
+    imageStore(uPersistentFoam, coord, vec4(accumulatedFoam, 0.0, 0.0, 0.0));
+}
