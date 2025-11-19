@@ -4,10 +4,14 @@
 #include <osg/Texture2D>
 #include <osg/Program>
 #include <osg/State>
+#include <osg/StateSet>
+#include <osg/BufferObject>
+#include <osg/Array>
+#include <osg/GLExtensions>
+#include <osg/Uniform>
+#include <osg/Vec2i>
 
 #include <cmath>
-#include <complex>
-#include <random>
 
 #include <components/debug/debuglog.hpp>
 #include <components/resource/resourcesystem.hpp>
@@ -21,66 +25,29 @@ namespace Ocean
     {
         constexpr float GRAVITY = 9.81f; // m/s^2
         constexpr float PI = 3.14159265359f;
-
-        /// Phillips spectrum for initial wave spectrum
-        float phillipsSpectrum(const osg::Vec2f& k, float windSpeed, const osg::Vec2f& windDir)
-        {
-            float kLength = k.length();
-            if (kLength < 0.0001f)
-                return 0.0f;
-
-            float kLength2 = kLength * kLength;
-            float kLength4 = kLength2 * kLength2;
-
-            // Wind speed at 10m height
-            float V = windSpeed;
-            float V2 = V * V;
-
-            // Largest possible wave from this wind
-            float L = V2 / GRAVITY;
-            float L2 = L * L;
-
-            // Damping for small waves
-            float l = L / 1000.0f;
-            float l2 = l * l;
-
-            // Direction alignment
-            osg::Vec2f kNorm = k / kLength;
-            float kdotw = kNorm * windDir;
-            float kdotw2 = kdotw * kdotw;
-
-            // Phillips spectrum
-            float phillips = std::exp(-1.0f / (kLength2 * L2)) / kLength4;
-            phillips *= std::exp(-kLength2 * l2); // Damping
-            phillips *= kdotw2; // Directional
-
-            return phillips;
-        }
-
-        /// Generate random Gaussian number (Box-Muller transform)
-        std::complex<float> gaussianRandom(std::mt19937& gen)
-        {
-            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-            float u1 = dist(gen);
-            float u2 = dist(gen);
-
-            float r = std::sqrt(-2.0f * std::log(u1));
-            float theta = 2.0f * PI * u2;
-
-            return std::complex<float>(r * std::cos(theta), r * std::sin(theta));
-        }
+        constexpr unsigned int NUM_SPECTRA = 4u; // Number of packed wave spectra
     }
 
     OceanFFTSimulation::OceanFFTSimulation(Resource::ResourceSystem* resourceSystem)
         : mResourceSystem(resourceSystem)
-        , mWindSpeed(15.0f)  // Increased for more dramatic waves
+        , mWindSpeed(15.0f)
         , mWindDirection(1.0f, 0.0f)
+        , mWindAngle(0.0f)
         , mFetchDistance(100000.0f)
         , mWaterDepth(1000.0f)
-        , mChoppiness(2.5f)  // Increased for sharper wave crests
+        , mAlpha(0.0081f)
+        , mPeakFrequency(0.855f * GRAVITY / 15.0f) // Calculated from wind speed
+        , mSwell(0.3f)
+        , mDetail(0.8f)
+        , mSpread(0.5f)
+        , mWhitecap(0.5f)
+        , mFoamGrowRate(0.3f)
+        , mFoamDecayRate(0.1f)
         , mSimulationTime(0.0f)
         , mInitialized(false)
-        , mPreset(PerformancePreset::HIGH)  // Use HIGH preset for 3 cascades
+        , mNeedsSpectrumRegeneration(true)
+        , mPreset(PerformancePreset::HIGH)
+        , mRandomSeed(42, 17)
     {
     }
 
@@ -93,19 +60,19 @@ namespace Ocean
         if (mInitialized)
             return true;
 
-        Log(Debug::Info) << "Initializing OceanFFTSimulation...";
+        Log(Debug::Info) << "[OCEAN FFT] Initializing GodotOceanWaves pipeline...";
 
         // Check for compute shader support
         if (!supportsComputeShaders())
         {
-            Log(Debug::Warning) << "Compute shaders not supported, ocean FFT simulation disabled";
+            Log(Debug::Warning) << "[OCEAN FFT] Compute shaders not supported, ocean FFT simulation disabled";
             return false;
         }
 
-        // Load shader programs
+        // Load shader programs (6 shaders for GodotOceanWaves)
         if (!loadShaderPrograms())
         {
-            Log(Debug::Error) << "Failed to load ocean FFT shaders";
+            Log(Debug::Error) << "[OCEAN FFT] Failed to load ocean FFT shaders";
             return false;
         }
 
@@ -113,7 +80,7 @@ namespace Ocean
         initializeCascades();
 
         mInitialized = true;
-        Log(Debug::Info) << "OceanFFTSimulation initialized with " << mCascades.size() << " cascades";
+        Log(Debug::Info) << "[OCEAN FFT] Initialized with " << mCascades.size() << " cascades";
 
         return true;
     }
@@ -122,23 +89,29 @@ namespace Ocean
     {
         if (!mResourceSystem)
         {
-            Log(Debug::Error) << "No resource system available for loading shaders";
+            Log(Debug::Error) << "[OCEAN FFT] No resource system available for loading shaders";
             return false;
         }
 
         auto& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
 
-        // Load compute shaders
-        osg::ref_ptr<osg::Shader> spectrumShader =
-            shaderManager.getShader("core/ocean/fft_update_spectrum.comp", {}, osg::Shader::COMPUTE);
-        osg::ref_ptr<osg::Shader> butterflyShader =
-            shaderManager.getShader("core/ocean/fft_butterfly.comp", {}, osg::Shader::COMPUTE);
-        osg::ref_ptr<osg::Shader> displacementShader =
-            shaderManager.getShader("core/ocean/fft_generate_displacement.comp", {}, osg::Shader::COMPUTE);
-        osg::ref_ptr<osg::Shader> foamPersistenceShader =
-            shaderManager.getShader("core/ocean/fft_update_foam.comp", {}, osg::Shader::COMPUTE);
+        Log(Debug::Info) << "[OCEAN FFT] Loading 6 compute shaders for GodotOceanWaves pipeline...";
 
-        // Debug: Check shader source is not empty
+        // Load the 6 compute shaders for GodotOceanWaves
+        osg::ref_ptr<osg::Shader> spectrumComputeShader =
+            shaderManager.getShader("core/ocean/spectrum_compute.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> spectrumModulateShader =
+            shaderManager.getShader("core/ocean/spectrum_modulate.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> butterflyFactorsShader =
+            shaderManager.getShader("core/ocean/fft_butterfly_factors.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> fftStockhamShader =
+            shaderManager.getShader("core/ocean/fft_stockham.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> fftTransposeShader =
+            shaderManager.getShader("core/ocean/fft_transpose.comp", {}, osg::Shader::COMPUTE);
+        osg::ref_ptr<osg::Shader> fftUnpackShader =
+            shaderManager.getShader("core/ocean/fft_unpack.comp", {}, osg::Shader::COMPUTE);
+
+        // Check all shaders loaded successfully
         auto checkShaderSource = [](osg::Shader* shader, const char* name) {
             if (!shader)
             {
@@ -151,58 +124,212 @@ namespace Ocean
                 Log(Debug::Error) << "[OCEAN FFT] Shader " << name << " has empty source";
                 return false;
             }
-            Log(Debug::Info) << "[OCEAN FFT] Shader " << name << " loaded (" << source.length() << " bytes)";
+            Log(Debug::Info) << "[OCEAN FFT] Loaded " << name << " (" << source.length() << " bytes)";
             return true;
         };
 
-        if (!checkShaderSource(spectrumShader.get(), "fft_update_spectrum.comp") ||
-            !checkShaderSource(butterflyShader.get(), "fft_butterfly.comp") ||
-            !checkShaderSource(displacementShader.get(), "fft_generate_displacement.comp") ||
-            !checkShaderSource(foamPersistenceShader.get(), "fft_update_foam.comp"))
+        if (!checkShaderSource(spectrumComputeShader.get(), "spectrum_compute.comp") ||
+            !checkShaderSource(spectrumModulateShader.get(), "spectrum_modulate.comp") ||
+            !checkShaderSource(butterflyFactorsShader.get(), "fft_butterfly_factors.comp") ||
+            !checkShaderSource(fftStockhamShader.get(), "fft_stockham.comp") ||
+            !checkShaderSource(fftTransposeShader.get(), "fft_transpose.comp") ||
+            !checkShaderSource(fftUnpackShader.get(), "fft_unpack.comp"))
         {
-            Log(Debug::Error) << "Failed to load ocean FFT compute shaders - one or more shaders are null or empty";
+            Log(Debug::Error) << "[OCEAN FFT] Failed to load one or more compute shaders";
             return false;
         }
 
-        // Create shader programs (using compute-only program function)
-        mSpectrumGeneratorProgram = shaderManager.getComputeProgram(spectrumShader);
-        mFFTHorizontalProgram = shaderManager.getComputeProgram(butterflyShader);
-        mFFTVerticalProgram = shaderManager.getComputeProgram(butterflyShader);  // Same shader, different uniform
-        mDisplacementProgram = shaderManager.getComputeProgram(displacementShader);
-        mFoamPersistenceProgram = shaderManager.getComputeProgram(foamPersistenceShader);
+        // Create shader programs
+        mSpectrumComputeProgram = shaderManager.getComputeProgram(spectrumComputeShader);
+        mSpectrumModulateProgram = shaderManager.getComputeProgram(spectrumModulateShader);
+        mButterflyFactorsProgram = shaderManager.getComputeProgram(butterflyFactorsShader);
+        mFFTStockhamProgram = shaderManager.getComputeProgram(fftStockhamShader);
+        mFFTTransposeProgram = shaderManager.getComputeProgram(fftTransposeShader);
+        mFFTUnpackProgram = shaderManager.getComputeProgram(fftUnpackShader);
 
-        if (!mSpectrumGeneratorProgram || !mFFTHorizontalProgram ||
-            !mFFTVerticalProgram || !mDisplacementProgram || !mFoamPersistenceProgram)
+        if (!mSpectrumComputeProgram || !mSpectrumModulateProgram ||
+            !mButterflyFactorsProgram || !mFFTStockhamProgram ||
+            !mFFTTransposeProgram || !mFFTUnpackProgram)
         {
-            Log(Debug::Error) << "Failed to create ocean FFT shader programs";
+            Log(Debug::Error) << "[OCEAN FFT] Failed to create one or more shader programs";
             return false;
         }
 
-        Log(Debug::Info) << "Successfully loaded ocean FFT shader programs";
+        Log(Debug::Info) << "[OCEAN FFT] Successfully loaded all 6 compute shader programs";
         return true;
+    }
+
+    void OceanFFTSimulation::initializeCascades()
+    {
+        PresetConfig config = getPresetConfig();
+
+        mCascades.clear();
+        mCascades.resize(config.cascadeCount);
+
+        // Configure cascades with increasing tile sizes
+        // Each cascade covers 4x the area of the previous one
+        float baseSize = 50.0f; // 50 meters for finest cascade
+
+        for (int i = 0; i < config.cascadeCount; ++i)
+        {
+            WaveCascade& cascade = mCascades[i];
+            cascade.tileSize = baseSize * std::pow(4.0f, static_cast<float>(i));
+            cascade.textureResolution = config.resolution;
+            cascade.updateInterval = config.updateInterval;
+            cascade.timeSinceUpdate = 0.0f;
+
+            if (!initializeCascade(cascade))
+            {
+                Log(Debug::Error) << "[OCEAN FFT] Failed to initialize cascade " << i;
+                mCascades.clear();
+                return;
+            }
+
+            Log(Debug::Info) << "[OCEAN FFT] Cascade " << i << ": tile size = " << cascade.tileSize
+                           << "m, resolution = " << cascade.textureResolution;
+        }
+    }
+
+    bool OceanFFTSimulation::initializeCascade(WaveCascade& cascade)
+    {
+        int res = cascade.textureResolution;
+
+        // Create output textures
+        cascade.spectrumTexture = createFloatTexture(res, res, GL_RGBA16F_ARB);
+        cascade.displacementTexture = createFloatTexture(res, res, GL_RGBA16F_ARB);
+        cascade.normalTexture = createFloatTexture(res, res, GL_RGBA16F_ARB);
+
+        if (!cascade.spectrumTexture || !cascade.displacementTexture || !cascade.normalTexture)
+        {
+            Log(Debug::Error) << "[OCEAN FFT] Failed to create output textures";
+            return false;
+        }
+
+        // Create FFT buffers (SSBOs)
+        if (!createFFTBuffers(cascade))
+        {
+            Log(Debug::Error) << "[OCEAN FFT] Failed to create FFT buffers";
+            return false;
+        }
+
+        // Create butterfly buffer if not already created for this resolution
+        if (mButterflyBuffers.find(res) == mButterflyBuffers.end())
+        {
+            if (!createButterflyBuffer(res))
+            {
+                Log(Debug::Error) << "[OCEAN FFT] Failed to create butterfly buffer";
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    bool OceanFFTSimulation::createFFTBuffers(WaveCascade& cascade)
+    {
+        int res = cascade.textureResolution;
+
+        // FFT buffer size: map_size × map_size × num_spectra × 2 (ping-pong) × sizeof(vec2)
+        // Each element is vec2 (complex number), so 2 floats = 8 bytes
+        size_t fftBufferSize = static_cast<size_t>(res) * res * NUM_SPECTRA * 2 * 2 * sizeof(float);
+
+        // Allocate buffer data (initialize to zero)
+        std::vector<float> zeroData(res * res * NUM_SPECTRA * 2 * 2, 0.0f);
+        osg::ref_ptr<osg::FloatArray> bufferData = new osg::FloatArray(zeroData.begin(), zeroData.end());
+
+        cascade.fftBufferObject = new osg::ShaderStorageBufferObject;
+        cascade.fftBufferObject->setUsage(GL_DYNAMIC_DRAW);
+        bufferData->setBufferObject(cascade.fftBufferObject.get());
+
+        Log(Debug::Info) << "[OCEAN FFT] Created FFT buffer: " << (fftBufferSize / 1024.0f / 1024.0f) << " MB";
+
+        return true;
+    }
+
+    bool OceanFFTSimulation::createButterflyBuffer(int resolution)
+    {
+        // Butterfly buffer size: log2(resolution) × resolution × sizeof(vec4)
+        int stages = static_cast<int>(std::log2(resolution));
+        size_t butterflyBufferSize = static_cast<size_t>(stages) * resolution * 4 * sizeof(float);
+
+        // Allocate buffer data
+        std::vector<float> zeroData(stages * resolution * 4, 0.0f);
+        osg::ref_ptr<osg::FloatArray> bufferData = new osg::FloatArray(zeroData.begin(), zeroData.end());
+
+        osg::ref_ptr<osg::ShaderStorageBufferObject> butterflyBuffer = new osg::ShaderStorageBufferObject;
+        butterflyBuffer->setUsage(GL_STATIC_DRAW);
+        bufferData->setBufferObject(butterflyBuffer.get());
+
+        mButterflyBuffers[resolution] = butterflyBuffer;
+
+        Log(Debug::Info) << "[OCEAN FFT] Created butterfly buffer for resolution " << resolution
+                       << ": " << (butterflyBufferSize / 1024.0f) << " KB";
+
+        return true;
+    }
+
+    void OceanFFTSimulation::generateSpectrum(osg::State* state, WaveCascade& cascade)
+    {
+        if (!state || !mSpectrumComputeProgram)
+            return;
+
+        osg::GLExtensions* ext = state->get<osg::GLExtensions>();
+        if (!ext)
+            return;
+
+        // Create a temporary state set for uniforms
+        osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+        // OSG doesn't have Vec2i uniform support, so we'll use array or separate uniforms
+        // For now, convert to Vec2f which shaders can handle
+        stateset->addUniform(new osg::Uniform("uSeed", osg::Vec2f(static_cast<float>(mRandomSeed.x()), static_cast<float>(mRandomSeed.y()))));
+        stateset->addUniform(new osg::Uniform("uTileLength", osg::Vec2f(cascade.tileSize, cascade.tileSize)));
+        stateset->addUniform(new osg::Uniform("uAlpha", mAlpha));
+        stateset->addUniform(new osg::Uniform("uPeakFrequency", mPeakFrequency));
+        stateset->addUniform(new osg::Uniform("uWindSpeed", mWindSpeed));
+        stateset->addUniform(new osg::Uniform("uAngle", mWindAngle));
+        stateset->addUniform(new osg::Uniform("uDepth", mWaterDepth));
+        stateset->addUniform(new osg::Uniform("uSwell", mSwell));
+        stateset->addUniform(new osg::Uniform("uDetail", mDetail));
+        stateset->addUniform(new osg::Uniform("uSpread", mSpread));
+
+        // Apply state set and program
+        state->pushStateSet(stateset);
+        state->apply();
+        state->applyAttribute(mSpectrumComputeProgram.get());
+
+        // Apply uniforms to the program
+        for (const auto& [name, stack] : state->getUniformMap())
+        {
+            if (!stack.uniformVec.empty())
+                state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+        }
+
+        // Bind output spectrum texture
+        bindImage(state, cascade.spectrumTexture.get(), 0, GL_WRITE_ONLY_ARB);
+
+        // Dispatch compute shader (16x16 local size)
+        int res = cascade.textureResolution;
+        ext->glDispatchCompute((res + 15) / 16, (res + 15) / 16, 1);
+        ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        state->popStateSet();
+
+        Log(Debug::Info) << "[OCEAN FFT] Generated initial spectrum for cascade (tile=" << cascade.tileSize << "m)";
     }
 
     void OceanFFTSimulation::dispatchCompute(osg::State* state)
     {
         if (!mInitialized || !state)
-        {
-            if (!mInitialized)
-                Log(Debug::Warning) << "[OCEAN FFT] dispatchCompute called but not initialized";
             return;
-        }
 
         osg::GLExtensions* ext = state->get<osg::GLExtensions>();
         if (!ext)
-        {
-            Log(Debug::Warning) << "[OCEAN FFT] No GL extensions available";
             return;
-        }
 
         const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
 
         static bool firstDispatch = true;
         static bool shaderCompileFailed = false;
-        static int dispatchCount = 0;
 
         // If shaders failed to compile, disable FFT and return immediately
         if (shaderCompileFailed)
@@ -218,40 +345,23 @@ namespace Ocean
 
         if (firstDispatch)
         {
-            Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - FFT simulation is running";
+            Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - validating shaders...";
 
             // Validate shader programs compiled successfully
             auto checkShader = [&](osg::Program* program, const char* name) {
+                if (!program)
+                {
+                    Log(Debug::Error) << "[OCEAN FFT] Program '" << name << "' is null";
+                    return false;
+                }
                 osg::Program::PerContextProgram* pcp = program->getPCP(*state);
                 if (!pcp)
                 {
                     Log(Debug::Error) << "[OCEAN FFT] Shader program '" << name << "' failed to compile";
-
-                    // Try to get program info log
                     std::string infoLog;
                     if (program->getGlProgramInfoLog(contextID, infoLog) && !infoLog.empty())
                     {
                         Log(Debug::Error) << "[OCEAN FFT] Program info log:\n" << infoLog;
-                    }
-
-                    // Log individual shader info
-                    for (unsigned int i = 0; i < program->getNumShaders(); ++i)
-                    {
-                        osg::Shader* shader = program->getShader(i);
-                        if (shader)
-                        {
-                            Log(Debug::Error) << "[OCEAN FFT] Shader " << i << ": " << shader->getName()
-                                             << " (type=" << shader->getType() << ")";
-                            std::string shaderSource = shader->getShaderSource();
-                            if (shaderSource.empty())
-                            {
-                                Log(Debug::Error) << "[OCEAN FFT] Shader source is EMPTY!";
-                            }
-                            else
-                            {
-                                Log(Debug::Verbose) << "[OCEAN FFT] Shader source length: " << shaderSource.length();
-                            }
-                        }
                     }
                     return false;
                 }
@@ -259,11 +369,12 @@ namespace Ocean
             };
 
             bool allShadersValid = true;
-            allShadersValid &= checkShader(mSpectrumGeneratorProgram.get(), "spectrum_generator");
-            allShadersValid &= checkShader(mFFTHorizontalProgram.get(), "fft_horizontal");
-            allShadersValid &= checkShader(mFFTVerticalProgram.get(), "fft_vertical");
-            allShadersValid &= checkShader(mDisplacementProgram.get(), "displacement");
-            allShadersValid &= checkShader(mFoamPersistenceProgram.get(), "foam_persistence");
+            allShadersValid &= checkShader(mSpectrumComputeProgram.get(), "spectrum_compute");
+            allShadersValid &= checkShader(mSpectrumModulateProgram.get(), "spectrum_modulate");
+            allShadersValid &= checkShader(mButterflyFactorsProgram.get(), "fft_butterfly_factors");
+            allShadersValid &= checkShader(mFFTStockhamProgram.get(), "fft_stockham");
+            allShadersValid &= checkShader(mFFTTransposeProgram.get(), "fft_transpose");
+            allShadersValid &= checkShader(mFFTUnpackProgram.get(), "fft_unpack");
 
             if (!allShadersValid)
             {
@@ -275,163 +386,236 @@ namespace Ocean
             }
 
             Log(Debug::Info) << "[OCEAN FFT] All compute shaders compiled successfully";
+
+            // Generate butterfly factors for each resolution (one-time initialization)
+            for (auto& pair : mButterflyBuffers)
+            {
+                int resolution = pair.first;
+                osg::BufferObject* butterflyBuffer = pair.second.get();
+
+                // Create state set for uniforms
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(resolution)));
+
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mButterflyFactorsProgram.get());
+
+                // Apply uniforms
+                for (const auto& [name, stack] : state->getUniformMap())
+                {
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+                }
+
+                // Bind butterfly buffer to SSBO binding point 0
+                osg::GLBufferObject* glBufferObject = butterflyBuffer->getOrCreateGLBufferObject(contextID);
+                if (glBufferObject)
+                {
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, glBufferObject->getGLObjectID());
+                }
+
+                // Dispatch (64x1 local size, log2(resolution) rows)
+                int stages = static_cast<int>(std::log2(resolution));
+                ext->glDispatchCompute((resolution + 63) / 64, stages, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+                state->popStateSet();
+
+                Log(Debug::Info) << "[OCEAN FFT] Generated butterfly factors for resolution " << resolution;
+            }
+
+            // Generate initial spectrum for each cascade (one-time initialization)
+            for (auto& cascade : mCascades)
+            {
+                generateSpectrum(state, cascade);
+            }
+
+            mNeedsSpectrumRegeneration = false;
             firstDispatch = false;
         }
-        dispatchCount++;
 
-        // Log every 100 dispatches to monitor FFT is still running
-        if (dispatchCount % 100 == 0)
+        // Regenerate spectrum if parameters changed
+        if (mNeedsSpectrumRegeneration)
         {
-            Log(Debug::Verbose) << "[OCEAN FFT] Compute dispatch #" << dispatchCount
-                               << " - Time: " << mSimulationTime << "s";
+            for (auto& cascade : mCascades)
+            {
+                generateSpectrum(state, cascade);
+            }
+            mNeedsSpectrumRegeneration = false;
         }
-
-        // Helper lambda to bind texture as image
-        auto bindImage = [&](osg::Texture2D* texture, GLuint index, GLenum access) {
-            if (!texture)
-                return;
-
-            osg::Texture::TextureObject* to = texture->getTextureObject(contextID);
-            if (!to || texture->isDirty(contextID))
-            {
-                state->applyTextureAttribute(index, texture);
-                to = texture->getTextureObject(contextID);
-            }
-
-            if (to)
-            {
-                ext->glBindImageTexture(index, to->id(), 0, GL_FALSE, 0, access, GL_RGBA32F_ARB);
-            }
-        };
-
-        // Helper lambda to set uniforms using direct GL calls
-        auto setUniform = [&](osg::Program* program, const char* name, float value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
-            if (location >= 0)
-                ext->glUniform1f(location, value);
-        };
-
-        auto setUniformInt = [&](osg::Program* program, const char* name, int value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
-            if (location >= 0)
-                ext->glUniform1i(location, value);
-        };
-
-        auto setUniformBool = [&](osg::Program* program, const char* name, bool value) {
-            GLint location = ext->glGetUniformLocation(program->getPCP(*state)->getHandle(), name);
-            if (location >= 0)
-                ext->glUniform1i(location, value ? 1 : 0);
-        };
 
         // Process each cascade
         for (auto& cascade : mCascades)
         {
             int res = cascade.textureResolution;
 
-            // 1. Update spectrum
-            state->applyAttribute(mSpectrumGeneratorProgram.get());
-            bindImage(cascade.spectrumTexture.get(), 0, GL_READ_ONLY_ARB);
-            bindImage(cascade.fftTemp1.get(), 1, GL_WRITE_ONLY_ARB);
+            // Get butterfly buffer for this resolution
+            auto butterflyIt = mButterflyBuffers.find(res);
+            if (butterflyIt == mButterflyBuffers.end())
+                continue;
+            osg::BufferObject* butterflyBuffer = butterflyIt->second.get();
 
-            mSpectrumGeneratorProgram->apply(*state);
-
-            // Set uniforms for spectrum update
-            setUniform(mSpectrumGeneratorProgram.get(), "uTime", mSimulationTime);
-            setUniform(mSpectrumGeneratorProgram.get(), "uTileSize", cascade.tileSize);
-            setUniform(mSpectrumGeneratorProgram.get(), "uGravity", GRAVITY);
-
-            ext->glDispatchCompute(res / 16, res / 16, 1);
-            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-            // 2. Horizontal FFT pass
-            int stages = static_cast<int>(std::log2(res));
-            for (int stage = 0; stage < stages; ++stage)
+            // 1. Spectrum Modulate - time evolution and gradient calculation
             {
-                state->applyAttribute(mFFTHorizontalProgram.get());
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uTileLength", osg::Vec2f(cascade.tileSize, cascade.tileSize)));
+                stateset->addUniform(new osg::Uniform("uDepth", mWaterDepth));
+                stateset->addUniform(new osg::Uniform("uTime", mSimulationTime));
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(res)));
 
-                bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
-                bindImage(cascade.fftTemp2.get(), 1, GL_WRITE_ONLY_ARB);
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mSpectrumModulateProgram.get());
 
-                // Bind butterfly texture
-                auto butterflyIt = mButterflyTextures.find(res);
-                if (butterflyIt != mButterflyTextures.end())
+                for (const auto& [name, stack] : state->getUniformMap())
                 {
-                    state->applyTextureAttribute(2, butterflyIt->second.get());
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
                 }
 
-                mFFTHorizontalProgram->apply(*state);
+                bindImage(state, cascade.spectrumTexture.get(), 0, GL_READ_ONLY_ARB);
 
-                // Set uniforms for butterfly shader
-                setUniformInt(mFFTHorizontalProgram.get(), "uStage", stage);
-                setUniformBool(mFFTHorizontalProgram.get(), "uHorizontal", true);
-
-                ext->glDispatchCompute(res / 16, res / 16, 1);
-                ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-                // Swap buffers
-                std::swap(cascade.fftTemp1, cascade.fftTemp2);
-            }
-
-            // 3. Vertical FFT pass
-            for (int stage = 0; stage < stages; ++stage)
-            {
-                state->applyAttribute(mFFTVerticalProgram.get());
-
-                bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
-                bindImage(cascade.fftTemp2.get(), 1, GL_WRITE_ONLY_ARB);
-
-                // Bind butterfly texture for vertical pass
-                auto butterflyIt = mButterflyTextures.find(res);
-                if (butterflyIt != mButterflyTextures.end())
+                osg::GLBufferObject* fftGLBuffer = cascade.fftBufferObject->getOrCreateGLBufferObject(contextID);
+                if (fftGLBuffer)
                 {
-                    state->applyTextureAttribute(2, butterflyIt->second.get());
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftGLBuffer->getGLObjectID());
                 }
 
-                mFFTVerticalProgram->apply(*state);
+                ext->glDispatchCompute((res + 15) / 16, (res + 15) / 16, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-                // Set uniforms for vertical butterfly shader
-                setUniformInt(mFFTVerticalProgram.get(), "uStage", stage);
-                setUniformBool(mFFTVerticalProgram.get(), "uHorizontal", false);
-
-                ext->glDispatchCompute(res / 16, res / 16, 1);
-                ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-                std::swap(cascade.fftTemp1, cascade.fftTemp2);
+                state->popStateSet();
             }
 
-            // 4. Generate displacement and normals
-            state->applyAttribute(mDisplacementProgram.get());
+            // 2. Horizontal FFT passes (4 times, one per spectrum)
+            for (unsigned int spectrumIdx = 0; spectrumIdx < NUM_SPECTRA; ++spectrumIdx)
+            {
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(res)));
+                stateset->addUniform(new osg::Uniform("uSpectrumIndex", spectrumIdx));
 
-            bindImage(cascade.fftTemp1.get(), 0, GL_READ_ONLY_ARB);
-            bindImage(cascade.displacementTexture.get(), 1, GL_WRITE_ONLY_ARB);
-            bindImage(cascade.normalTexture.get(), 2, GL_WRITE_ONLY_ARB);
-            bindImage(cascade.tempFoamTexture.get(), 3, GL_WRITE_ONLY_ARB);
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mFFTStockhamProgram.get());
 
-            mDisplacementProgram->apply(*state);
+                for (const auto& [name, stack] : state->getUniformMap())
+                {
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+                }
 
-            // Set uniforms for displacement generation
-            setUniform(mDisplacementProgram.get(), "uTileSize", cascade.tileSize);
-            setUniform(mDisplacementProgram.get(), "uChoppiness", mChoppiness);
-            setUniformInt(mDisplacementProgram.get(), "uN", res);
+                osg::GLBufferObject* butterflyGLBuffer = butterflyBuffer->getOrCreateGLBufferObject(contextID);
+                osg::GLBufferObject* fftGLBuffer = cascade.fftBufferObject->getOrCreateGLBufferObject(contextID);
+                if (butterflyGLBuffer && fftGLBuffer)
+                {
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyGLBuffer->getGLObjectID());
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftGLBuffer->getGLObjectID());
+                }
 
-            ext->glDispatchCompute(res / 16, res / 16, 1);
-            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                // Dispatch (local_size_x = MAX_MAP_SIZE = 1024, one row per invocation)
+                ext->glDispatchCompute(1, res, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 
-            // 5. Update foam persistence
-            state->applyAttribute(mFoamPersistenceProgram.get());
+                state->popStateSet();
+            }
 
-            bindImage(cascade.tempFoamTexture.get(), 0, GL_READ_ONLY_ARB);
-            bindImage(cascade.foamTexture.get(), 1, GL_READ_WRITE_ARB);
+            // 3. Transpose (4 times, one per spectrum)
+            for (unsigned int spectrumIdx = 0; spectrumIdx < NUM_SPECTRA; ++spectrumIdx)
+            {
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(res)));
+                stateset->addUniform(new osg::Uniform("uSpectrumIndex", spectrumIdx));
 
-            mFoamPersistenceProgram->apply(*state);
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mFFTTransposeProgram.get());
 
-            // Set uniforms for foam persistence
-            setUniform(mFoamPersistenceProgram.get(), "uDeltaTime", cascade.updateInterval);  // Use update interval as dt
-            setUniform(mFoamPersistenceProgram.get(), "uFoamGrowthRate", 0.3f);   // Moderate foam growth
-            setUniform(mFoamPersistenceProgram.get(), "uFoamDecayRate", 0.92f);   // ~8% decay per second
+                for (const auto& [name, stack] : state->getUniformMap())
+                {
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+                }
 
-            ext->glDispatchCompute(res / 16, res / 16, 1);
-            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+                osg::GLBufferObject* butterflyGLBuffer = butterflyBuffer->getOrCreateGLBufferObject(contextID);
+                osg::GLBufferObject* fftGLBuffer = cascade.fftBufferObject->getOrCreateGLBufferObject(contextID);
+                if (butterflyGLBuffer && fftGLBuffer)
+                {
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyGLBuffer->getGLObjectID());
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftGLBuffer->getGLObjectID());
+                }
+
+                // Dispatch (32x32 local size for tiling)
+                ext->glDispatchCompute((res + 31) / 32, (res + 31) / 32, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+                state->popStateSet();
+            }
+
+            // 4. Vertical FFT passes (4 times, one per spectrum)
+            for (unsigned int spectrumIdx = 0; spectrumIdx < NUM_SPECTRA; ++spectrumIdx)
+            {
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(res)));
+                stateset->addUniform(new osg::Uniform("uSpectrumIndex", spectrumIdx));
+
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mFFTStockhamProgram.get());
+
+                for (const auto& [name, stack] : state->getUniformMap())
+                {
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+                }
+
+                osg::GLBufferObject* butterflyGLBuffer = butterflyBuffer->getOrCreateGLBufferObject(contextID);
+                osg::GLBufferObject* fftGLBuffer = cascade.fftBufferObject->getOrCreateGLBufferObject(contextID);
+                if (butterflyGLBuffer && fftGLBuffer)
+                {
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyGLBuffer->getGLObjectID());
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftGLBuffer->getGLObjectID());
+                }
+
+                ext->glDispatchCompute(1, res, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+                state->popStateSet();
+            }
+
+            // 5. Unpack - generate displacement and normal maps with foam
+            {
+                osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+                stateset->addUniform(new osg::Uniform("uMapSize", static_cast<unsigned int>(res)));
+                stateset->addUniform(new osg::Uniform("uWhitecap", mWhitecap));
+                stateset->addUniform(new osg::Uniform("uFoamGrowRate", mFoamGrowRate));
+                stateset->addUniform(new osg::Uniform("uFoamDecayRate", mFoamDecayRate));
+
+                state->pushStateSet(stateset);
+                state->apply();
+                state->applyAttribute(mFFTUnpackProgram.get());
+
+                for (const auto& [name, stack] : state->getUniformMap())
+                {
+                    if (!stack.uniformVec.empty())
+                        state->getLastAppliedProgramObject()->apply(*(stack.uniformVec.back().first));
+                }
+
+                bindImage(state, cascade.displacementTexture.get(), 0, GL_WRITE_ONLY_ARB);
+                bindImage(state, cascade.normalTexture.get(), 1, GL_READ_WRITE_ARB);
+
+                osg::GLBufferObject* fftGLBuffer = cascade.fftBufferObject->getOrCreateGLBufferObject(contextID);
+                if (fftGLBuffer)
+                {
+                    ext->glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, fftGLBuffer->getGLObjectID());
+                }
+
+                // Dispatch (16x16x2 local size)
+                ext->glDispatchCompute((res + 15) / 16, (res + 15) / 16, 2);
+                ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
+
+                state->popStateSet();
+            }
         }
     }
 
@@ -442,16 +626,13 @@ namespace Ocean
 
         mSimulationTime += dt;
 
-        // Update cascades (staggered to distribute load)
+        // Update cascades timing
         for (auto& cascade : mCascades)
         {
             cascade.timeSinceUpdate += dt;
-
             if (cascade.timeSinceUpdate >= cascade.updateInterval)
             {
-                updateCascade(cascade, mSimulationTime);
                 cascade.timeSinceUpdate = 0.0f;
-                break; // Only update one cascade per frame for performance
             }
         }
     }
@@ -461,14 +642,10 @@ namespace Ocean
         mWindDirection = direction;
         mWindDirection.normalize();
 
-        // Regenerate spectrum when wind direction changes
-        if (mInitialized)
-        {
-            for (auto& cascade : mCascades)
-            {
-                generateSpectrum(cascade);
-            }
-        }
+        // Calculate wind angle
+        mWindAngle = std::atan2(mWindDirection.y(), mWindDirection.x());
+
+        mNeedsSpectrumRegeneration = true;
     }
 
     osg::Texture2D* OceanFFTSimulation::getDisplacementTexture(int cascadeIndex) const
@@ -487,8 +664,9 @@ namespace Ocean
 
     osg::Texture2D* OceanFFTSimulation::getFoamTexture(int cascadeIndex) const
     {
+        // Foam is stored in the alpha channel of the normal texture
         if (cascadeIndex >= 0 && cascadeIndex < static_cast<int>(mCascades.size()))
-            return mCascades[cascadeIndex].foamTexture.get();
+            return mCascades[cascadeIndex].normalTexture.get();
         return nullptr;
     }
 
@@ -518,212 +696,27 @@ namespace Ocean
         mWindSpeed = params.windSpeed;
         mWindDirection = osg::Vec2f(params.windDirectionX, params.windDirectionY);
         mWindDirection.normalize();
+        mWindAngle = std::atan2(mWindDirection.y(), mWindDirection.x());
         mFetchDistance = params.fetchDistance;
         mWaterDepth = params.waterDepth;
-        mChoppiness = params.choppiness;
 
-        // Regenerate spectrum with new parameters
-        if (mInitialized)
-        {
-            for (auto& cascade : mCascades)
-            {
-                generateSpectrum(cascade);
-            }
-        }
+        // Calculate peak frequency from wind speed
+        mPeakFrequency = 0.855f * GRAVITY / mWindSpeed;
+
+        mNeedsSpectrumRegeneration = true;
     }
 
-    void OceanFFTSimulation::initializeCascades()
-    {
-        PresetConfig config = getPresetConfig();
-
-        mCascades.clear();
-        mCascades.resize(config.cascadeCount);
-
-        // Configure cascades with increasing tile sizes
-        // Each cascade covers 4x the area of the previous one
-        float baseSize = 50.0f; // 50 meters for finest cascade
-
-        for (int i = 0; i < config.cascadeCount; ++i)
-        {
-            WaveCascade& cascade = mCascades[i];
-            cascade.tileSize = baseSize * std::pow(4.0f, static_cast<float>(i));
-            cascade.textureResolution = config.resolution;
-            cascade.updateInterval = config.updateInterval;
-            cascade.timeSinceUpdate = 0.0f;
-
-            if (!initializeCascade(cascade))
-            {
-                Log(Debug::Error) << "Failed to initialize cascade " << i;
-                mCascades.clear();
-                return;
-            }
-
-            Log(Debug::Info) << "Cascade " << i << ": tile size = " << cascade.tileSize
-                           << "m, resolution = " << cascade.textureResolution;
-        }
-    }
-
-    bool OceanFFTSimulation::initializeCascade(WaveCascade& cascade)
-    {
-        int res = cascade.textureResolution;
-
-        // Create textures
-        cascade.spectrumTexture = createFloatTexture(res, res, 4);
-        cascade.displacementTexture = createFloatTexture(res, res, 4);
-        cascade.normalTexture = createFloatTexture(res, res, 4);
-        cascade.foamTexture = createFloatTexture(res, res, 1);          // Persistent foam
-        cascade.tempFoamTexture = createFloatTexture(res, res, 1);      // Temporary foam from Jacobian
-        cascade.fftTemp1 = createFloatTexture(res, res, 4);
-        cascade.fftTemp2 = createFloatTexture(res, res, 4);
-
-        if (!cascade.spectrumTexture || !cascade.displacementTexture ||
-            !cascade.normalTexture || !cascade.foamTexture || !cascade.tempFoamTexture)
-        {
-            return false;
-        }
-
-        // Generate initial spectrum
-        generateSpectrum(cascade);
-
-        // Create butterfly texture if not already created for this resolution
-        if (mButterflyTextures.find(res) == mButterflyTextures.end())
-        {
-            mButterflyTextures[res] = createButterflyTexture(res);
-        }
-
-        return true;
-    }
-
-    void OceanFFTSimulation::generateSpectrum(WaveCascade& cascade)
-    {
-        int res = cascade.textureResolution;
-        osg::Image* image = cascade.spectrumTexture->getImage();
-
-        if (!image)
-        {
-            image = new osg::Image;
-            image->allocateImage(res, res, 1, GL_RGBA, GL_FLOAT);
-            cascade.spectrumTexture->setImage(image);
-        }
-
-        float* data = reinterpret_cast<float*>(image->data());
-
-        // Random number generator for spectrum
-        std::mt19937 gen(42); // Fixed seed for reproducibility
-
-        // Generate spectrum using Phillips spectrum
-        float L = cascade.tileSize;
-        float kScale = 2.0f * PI / L;
-
-        for (int y = 0; y < res; ++y)
-        {
-            for (int x = 0; x < res; ++x)
-            {
-                // Wave vector k
-                float kx = (x - res / 2.0f) * kScale;
-                float ky = (y - res / 2.0f) * kScale;
-                osg::Vec2f k(kx, ky);
-
-                // Phillips spectrum
-                float P = phillipsSpectrum(k, mWindSpeed, mWindDirection);
-
-                // Random Gaussian samples
-                // Scale up the spectrum amplitude significantly for visible ocean waves
-                // The factor of 1000 accounts for the typical small values from Phillips spectrum
-                float amplitudeScale = 1000.0f;
-                std::complex<float> h0 = gaussianRandom(gen) * std::sqrt(P * 0.5f * amplitudeScale);
-                std::complex<float> h0conj = std::conj(gaussianRandom(gen) * std::sqrt(P * 0.5f * amplitudeScale));
-
-                // Store in texture (real, imag, realConj, imagConj)
-                int idx = (y * res + x) * 4;
-                data[idx + 0] = h0.real();
-                data[idx + 1] = h0.imag();
-                data[idx + 2] = h0conj.real();
-                data[idx + 3] = h0conj.imag();
-            }
-        }
-
-        image->dirty();
-    }
-
-    void OceanFFTSimulation::updateCascade(WaveCascade& cascade, float time)
-    {
-        // We need an OpenGL state to dispatch compute shaders
-        // This will be called from the rendering thread with proper state
-        // For now, mark that this cascade needs updating
-        // The actual compute dispatch happens in dispatchCompute() which is called from rendering
-
-        // Note: dispatchCompute() should be called during the render loop
-        // when we have a valid osg::State* object
-    }
-
-    void OceanFFTSimulation::performFFT2D(WaveCascade& cascade)
-    {
-        // This is now handled by dispatchCompute()
-        // Which is called from the rendering thread with proper OpenGL state
-    }
-
-    void OceanFFTSimulation::generateDisplacementAndNormals(WaveCascade& cascade)
-    {
-        // This is now handled by dispatchCompute()
-        // The displacement generation shader does this work on GPU
-    }
-
-    osg::ref_ptr<osg::Texture2D> OceanFFTSimulation::createButterflyTexture(int resolution)
-    {
-        // Create butterfly texture for FFT twiddle factors
-        osg::ref_ptr<osg::Image> image = new osg::Image;
-        image->allocateImage(resolution, static_cast<int>(std::log2(resolution)) + 1, 1, GL_RGBA, GL_FLOAT);
-
-        float* data = reinterpret_cast<float*>(image->data());
-        int stages = static_cast<int>(std::log2(resolution));
-
-        for (int stage = 0; stage <= stages; ++stage)
-        {
-            for (int i = 0; i < resolution; ++i)
-            {
-                int butterflySpan = 1 << stage;
-                int butterflyWidth = butterflySpan << 1;
-
-                int butterflyIndex = i & (butterflySpan - 1);
-                int twiddleIndex = butterflyIndex * resolution / butterflyWidth;
-
-                // Twiddle factor: e^(-2πi * k/N)
-                float angle = -2.0f * PI * static_cast<float>(twiddleIndex) / static_cast<float>(resolution);
-                float twiddleReal = std::cos(angle);
-                float twiddleImag = std::sin(angle);
-
-                int topWing = (i / butterflyWidth) * butterflyWidth + butterflyIndex;
-                int bottomWing = topWing + butterflySpan;
-
-                int idx = (stage * resolution + i) * 4;
-                data[idx + 0] = twiddleReal;
-                data[idx + 1] = twiddleImag;
-                data[idx + 2] = static_cast<float>(topWing);
-                data[idx + 3] = static_cast<float>(bottomWing);
-            }
-        }
-
-        osg::ref_ptr<osg::Texture2D> texture = new osg::Texture2D(image);
-        texture->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::NEAREST);
-        texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::NEAREST);
-        texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::CLAMP_TO_EDGE);
-        texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::CLAMP_TO_EDGE);
-
-        return texture;
-    }
-
-    osg::ref_ptr<osg::Texture2D> OceanFFTSimulation::createFloatTexture(int width, int height, int components)
+    osg::ref_ptr<osg::Texture2D> OceanFFTSimulation::createFloatTexture(int width, int height, GLenum internalFormat)
     {
         GLenum format;
-        switch (components)
-        {
-            case 1: format = GL_RED; break;
-            case 2: format = GL_RG; break;
-            case 3: format = GL_RGB; break;
-            case 4: format = GL_RGBA; break;
-            default: return nullptr;
-        }
+        if (internalFormat == GL_RGBA16F_ARB)
+            format = GL_RGBA;
+        else if (internalFormat == GL_RGB16F_ARB)
+            format = GL_RGB;
+        else if (internalFormat == GL_RG16F)
+            format = GL_RG;
+        else
+            format = GL_RED;
 
         osg::ref_ptr<osg::Image> image = new osg::Image;
         image->allocateImage(width, height, 1, format, GL_FLOAT);
@@ -733,12 +726,70 @@ namespace Ocean
         texture->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
         texture->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::REPEAT);
         texture->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::REPEAT);
-        texture->setInternalFormat(format == GL_RGBA ? GL_RGBA32F_ARB :
-                                   format == GL_RGB ? GL_RGB32F_ARB :
-                                   format == GL_RG ? GL_RG32F :
-                                   GL_R32F);
+        texture->setInternalFormat(internalFormat);
 
         return texture;
+    }
+
+    void OceanFFTSimulation::setUniform(osg::Program* program, const char* name, float value)
+    {
+        // This is a placeholder - uniforms should be set via StateSet
+        // For now, we'll rely on the state stack approach used in dispatchCompute
+    }
+
+    void OceanFFTSimulation::setUniform(osg::Program* program, const char* name, const osg::Vec2f& value)
+    {
+        // This is a placeholder - uniforms should be set via StateSet
+        // For now, we'll rely on the state stack approach used in dispatchCompute
+    }
+
+    void OceanFFTSimulation::setUniformInt(osg::Program* program, const char* name, int x, int y)
+    {
+        // This is a placeholder - uniforms should be set via StateSet
+        // For now, we'll rely on the state stack approach used in dispatchCompute
+    }
+
+    void OceanFFTSimulation::setUniformInt(osg::Program* program, const char* name, int value)
+    {
+        // This is a placeholder - uniforms should be set via StateSet
+        // For now, we'll rely on the state stack approach used in dispatchCompute
+    }
+
+    void OceanFFTSimulation::setUniformUInt(osg::Program* program, const char* name, unsigned int value)
+    {
+        // This is a placeholder - uniforms should be set via StateSet
+        // For now, we'll rely on the state stack approach used in dispatchCompute
+    }
+
+    void OceanFFTSimulation::bindSSBO(osg::BufferObject* buffer, unsigned int binding)
+    {
+        // This function is now unused - SSBOs are bound in dispatchCompute using proper GL extensions
+        // Keeping it as a stub for now
+    }
+
+    void OceanFFTSimulation::bindImage(osg::State* state, osg::Texture2D* texture, GLuint index, GLenum access)
+    {
+        if (!state || !texture)
+            return;
+
+        osg::GLExtensions* ext = state->get<osg::GLExtensions>();
+        if (!ext)
+            return;
+
+        const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
+
+        // Ensure texture object is created
+        osg::Texture::TextureObject* to = texture->getTextureObject(contextID);
+        if (!to || texture->isDirty(contextID))
+        {
+            state->applyTextureAttribute(index, texture);
+            to = texture->getTextureObject(contextID);
+        }
+
+        if (to)
+        {
+            ext->glBindImageTexture(index, to->id(), 0, GL_FALSE, 0, access, texture->getInternalFormat());
+        }
     }
 
     OceanFFTSimulation::PresetConfig OceanFFTSimulation::getPresetConfig() const

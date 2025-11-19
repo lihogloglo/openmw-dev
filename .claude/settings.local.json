@@ -6,7 +6,8 @@
       "Bash(cp:*)",
       "Bash(cmake --build:*)",
       "Bash(dir:*)",
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "Bash(g++ -c:*)"
     ],
     "deny": [],
     "ask": []
