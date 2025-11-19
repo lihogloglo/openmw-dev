@@ -100,6 +100,9 @@ namespace Ocean
         /// Get cascade tile size
         float getCascadeTileSize(int cascadeIndex) const;
 
+        /// Check if FFT simulation is initialized
+        bool isInitialized() const { return mInitialized; }
+
         /// Check if compute shaders are supported
         static bool supportsComputeShaders();
 

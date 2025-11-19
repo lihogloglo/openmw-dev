@@ -1,15 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "Bash(find:*)",
+      "Bash(copy:*)",
+      "Bash(copy /Y files\\shaders\\compatibility\\ocean\\ocean.frag MSVC2022_64\\RelWithDebInfo\\resources\\shaders\\compatibility\\ocean\\ocean.frag)",
+      "Bash(cp:*)",
       "Bash(cmake --build:*)",
-      "Bash(git add:*)",
-      "Bash(git commit:*)",
-      "Bash(dir)",
-      "Bash(findstr:*)",
       "Bash(dir:*)",
-      "Bash(if exist RTT_VIEWPORT_FIX.md del RTT_VIEWPORT_FIX.md)",
-      "Bash(if exist NEXT_CHALLENGE.md del NEXT_CHALLENGE.md)"
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

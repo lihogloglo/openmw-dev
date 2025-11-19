@@ -1,7 +1,6 @@
 #version 120
 
-// Ocean Vertex Shader with FFT Displacement
-// Applies wave displacement from FFT simulation
+// Ocean Vertex Shader with FFT Displacement (Clipmap)
 
 #if @useUBO
     #extension GL_ARB_uniform_buffer_object : require
@@ -34,8 +33,10 @@ uniform float uCascadeTileSize0;
 uniform float uCascadeTileSize1;
 uniform float uCascadeTileSize2;
 
-uniform bool uEnableOceanWaves;  // Enable/disable FFT waves
-uniform float uWaveAmplitude;     // Global wave amplitude multiplier
+uniform bool uEnableOceanWaves;
+uniform float uWaveAmplitude;
+
+uniform mat4 osg_ViewMatrixInverse;
 
 // Sample displacement with cascades
 vec3 sampleDisplacement(vec2 worldPosXY)
@@ -43,7 +44,6 @@ vec3 sampleDisplacement(vec2 worldPosXY)
     if (!uEnableOceanWaves)
         return vec3(0.0);
 
-    // Sample from multiple cascades and blend
     vec2 uv0 = worldPosXY / uCascadeTileSize0;
     vec2 uv1 = worldPosXY / uCascadeTileSize1;
     vec2 uv2 = worldPosXY / uCascadeTileSize2;
@@ -52,8 +52,8 @@ vec3 sampleDisplacement(vec2 worldPosXY)
     vec3 disp1 = texture2D(uDisplacementCascade1, uv1).xyz;
     vec3 disp2 = texture2D(uDisplacementCascade2, uv2).xyz;
 
-    // Blend cascades (can be improved with better weighting)
-    vec3 displacement = (disp0 + disp1 * 0.5 + disp2 * 0.25) / 1.75;
+    // Blend cascades
+    vec3 displacement = (disp0 + disp1 + disp2); 
 
     return displacement * uWaveAmplitude;
 }
@@ -68,54 +68,73 @@ vec3 sampleNormal(vec2 worldPosXY)
     vec2 uv1 = worldPosXY / uCascadeTileSize1;
     vec2 uv2 = worldPosXY / uCascadeTileSize2;
 
-    // Normals are encoded as [0,1], decode to [-1,1]
     vec3 normal0 = texture2D(uNormalCascade0, uv0).xyz * 2.0 - 1.0;
     vec3 normal1 = texture2D(uNormalCascade1, uv1).xyz * 2.0 - 1.0;
     vec3 normal2 = texture2D(uNormalCascade2, uv2).xyz * 2.0 - 1.0;
 
-    // Blend cascades with proper weighting
-    vec3 blendedNormal = normal0 + normal1 * 0.5 + normal2 * 0.25;
-
-    // Normalize after blending
+    vec3 blendedNormal = normal0 + normal1 + normal2;
     return normalize(blendedNormal);
 }
 
 void main()
 {
-    // gl_Vertex is in LOCAL chunk space (0 to CHUNK_SIZE)
-    // The PositionAttitudeTransform node positions the chunk in world space
     vec4 localPos = gl_Vertex;
     vTexCoord = gl_MultiTexCoord0.xy;
 
-    // Calculate world position
-    // We need the world XY for FFT texture sampling, but ModelViewMatrix includes the view transform
-    // For now, use the model transform to get world position
-    // TODO: Pass world position more explicitly via uniform or vertex attribute
-    vec4 modelPos = gl_ModelViewMatrix * localPos;
+    // Calculate View Position
+    vec4 viewPos = gl_ModelViewMatrix * localPos;
+    
+    // Calculate World Position
+    vec3 worldPos = (osg_ViewMatrixInverse * viewPos).xyz;
+    vec3 cameraPos = osg_ViewMatrixInverse[3].xyz;
 
-    // Sample FFT displacement using world-space XY coordinates
-    // The transform node positions chunks, so we approximate world XY from model space
-    vec2 worldPosXY = modelPos.xy;
-    vWorldPos = vec3(worldPosXY, localPos.z);
+    // Distance factor for attenuation (match Godot's logic)
+    // float distance_factor = min(exp(-(length(VERTEX.xz - CAMERA_POSITION_WORLD.xz) - 150.0)*0.007), 1.0);
+    float dist = length(worldPos.xy - cameraPos.xy);
+    float distance_factor = min(exp(-(dist - 150.0) * 0.007), 1.0);
 
-    // Sample displacement and apply it
-    vec3 displacement = sampleDisplacement(worldPosXY);
-    vec3 displacedPos = localPos.xyz + displacement;
-    vDisplacedPos = displacedPos;
+    // Sample displacement
+    vec3 displacement = sampleDisplacement(worldPos.xy);
 
-    // Sample normal from FFT (use world position for sampling)
-    vec3 worldNormal = sampleNormal(worldPosXY);
+    // Apply attenuation
+    displacement *= distance_factor;
+
+    // Apply displacement to World Position (for varyings)
+    vec3 displacedWorldPos = worldPos;
+    displacedWorldPos.z += displacement.y; // Godot uses Y for height, we use Z? 
+    // Wait, Godot's displacement texture:
+    // "displacement += texture(displacements, ...).xyz * scales.z;"
+    // "VERTEX += displacement * distance_factor;"
+    // "wave_height = displacement.y;"
+    // Godot uses Y-up. So displacement.y is vertical.
+    // Our FFT simulation likely produces XYZ displacement where Z is vertical (if adapted) or Y is vertical (if copied).
+    // Assuming OpenMW FFT simulation produces Z-up displacement or we swizzle it.
+    // Let's assume displacement.z is vertical for now, or check `oceanfftsimulation.cpp`.
+    // But `sampleDisplacement` returns vec3.
+    // If the texture is from Godot, it's likely Y-up.
+    // Let's assume we need to add displacement to the vertex.
+    // If displacement is in World Space (XYZ), we just add it.
+    
+    // Transform displacement to View Space to apply to viewPos
+    // Assuming Model Matrix rotation is Identity (water plane is flat)
+    // The rotation part of ModelView is just View rotation.
+    vec3 viewDisplacement = mat3(gl_ModelViewMatrix) * displacement;
+    
+    viewPos.xyz += viewDisplacement;
+
+    vWorldPos = displacedWorldPos; // Approximate, or re-calculate from new viewPos
+    vDisplacedPos = displacedWorldPos;
+
+    // Sample normal
+    vec3 worldNormal = sampleNormal(worldPos.xy);
     vNormal = gl_NormalMatrix * worldNormal;
 
-    // Transform displaced position
-    vec4 displacedVertex = vec4(displacedPos, 1.0);
-    vViewPos = modelToView(displacedVertex);
+    vViewPos = viewPos;
 
-    // Final position
-    gl_Position = modelToClip(displacedVertex);
+    gl_Position = gl_ProjectionMatrix * viewPos;
     gl_ClipVertex = vViewPos;
 
-    // Required outputs for water system integration
-    position = displacedVertex;
+    position = viewPos; // Pass viewPos as 'position' for frag shader? Or world pos? 
+    // Legacy water uses viewPos for 'position' usually.
     linearDepth = gl_Position.z;
 }

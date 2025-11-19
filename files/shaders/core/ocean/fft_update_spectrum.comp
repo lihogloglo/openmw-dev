@@ -1,4 +1,4 @@
-#version 430 core
+#version 440 core
 
 // FFT Ocean Spectrum Update Shader
 // Updates the wave spectrum H(k,t) based on dispersion relation
@@ -6,10 +6,10 @@
 layout(local_size_x = 16, local_size_y = 16) in;
 
 // Input: Initial spectrum H0(k) and H0*(-k)
-layout(binding = 0, rgba32f) uniform image2D uH0Texture;
+layout(binding = 0, rgba32f) restrict readonly uniform image2D uH0Texture;
 
 // Output: Time-evolved spectrum H(k,t)
-layout(binding = 1, rgba32f) uniform image2D uHtTexture;
+layout(binding = 1, rgba32f) restrict writeonly uniform image2D uHtTexture;
 
 // Uniforms
 uniform float uTime;           // Current simulation time

@@ -1,4 +1,4 @@
-#version 430 core
+#version 440 core
 
 // Foam Persistence and Dissipation Shader
 // Accumulates foam from breaking waves and applies exponential decay
@@ -6,10 +6,10 @@
 layout(local_size_x = 16, local_size_y = 16) in;
 
 // Input: Current foam from Jacobian
-layout(binding = 0, r32f) uniform image2D uNewFoam;
+layout(binding = 0, r32f) restrict readonly uniform image2D uNewFoam;
 
-// Input/Output: Persistent foam texture
-layout(binding = 1, r32f) uniform image2D uPersistentFoam;
+// Input/Output: Persistent foam texture (read and write)
+layout(binding = 1, r32f) restrict uniform image2D uPersistentFoam;
 
 // Uniforms
 uniform float uDeltaTime;       // Time since last update (seconds)

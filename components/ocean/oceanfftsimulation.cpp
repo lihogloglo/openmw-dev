@@ -181,10 +181,39 @@ namespace Ocean
         const unsigned int contextID = static_cast<unsigned int>(state->getContextID());
 
         static bool firstDispatch = true;
+        static bool shaderCompileFailed = false;
         static int dispatchCount = 0;
+
+        // If shaders failed to compile, disable FFT and return immediately
+        if (shaderCompileFailed)
+        {
+            if (firstDispatch)
+            {
+                Log(Debug::Warning) << "[OCEAN FFT] Shaders failed to compile, disabling FFT ocean";
+                mInitialized = false;
+                firstDispatch = false;
+            }
+            return;
+        }
+
         if (firstDispatch)
         {
             Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - FFT simulation is running";
+
+            // Validate shader programs compiled successfully
+            if (!mSpectrumGeneratorProgram->getPCP(*state) ||
+                !mFFTHorizontalProgram->getPCP(*state) ||
+                !mFFTVerticalProgram->getPCP(*state) ||
+                !mDisplacementProgram->getPCP(*state) ||
+                !mFoamPersistenceProgram->getPCP(*state))
+            {
+                Log(Debug::Error) << "[OCEAN FFT] Compute shader programs failed to compile";
+                shaderCompileFailed = true;
+                mInitialized = false;
+                firstDispatch = false;
+                return;
+            }
+
             firstDispatch = false;
         }
         dispatchCount++;

@@ -16,33 +16,25 @@ namespace MWRender
         , mSceneRoot(sceneRoot)
         , mResourceSystem(resourceSystem)
         , mIncrementalCompileOperation(ico)
-        , mFFTOceanEnabled(true)  // Enable by default (can be configured via settings)
+        , mFFTOceanEnabled(false)  // Will be enabled if FFT initialization succeeds
     {
-        // For now, create the legacy water renderer
-        // In the future, we'll create different renderers based on water type
+        // Create the legacy water renderer for lakes/rivers/interiors
         mWater = std::make_unique<Water>(parent, sceneRoot, resourceSystem, ico);
 
-        // Initialize FFT ocean simulation
+        // Create FFT ocean simulation
         mOceanFFT = std::make_unique<Ocean::OceanFFTSimulation>(resourceSystem);
-        if (mFFTOceanEnabled)
-        {
-            if (mOceanFFT->initialize())
-            {
-                Log(Debug::Info) << "FFT Ocean simulation initialized successfully";
 
-                // Create ocean renderer
-                // Attach to scene root so it doesn't follow player/camera position
-                mOceanRenderer = std::make_unique<OceanWaterRenderer>(
-                    mSceneRoot, resourceSystem, mOceanFFT.get());
-            }
-            else
-            {
-                Log(Debug::Warning) << "FFT Ocean simulation initialization failed, falling back to legacy rendering";
-                mFFTOceanEnabled = false;
-            }
-        }
+        // Create ocean renderer with FFT simulation
+        mOceanRenderer = std::make_unique<OceanWaterRenderer>(
+            mSceneRoot, resourceSystem, mOceanFFT.get());
 
-        Log(Debug::Info) << "WaterManager initialized with legacy water renderer and FFT ocean system";
+        // Try to initialize FFT ocean waves (disabled by default due to compute shader compilation issues)
+        // TODO: Re-enable once compute shader issues are resolved
+        // setFFTOceanEnabled(true);
+        setFFTOceanEnabled(false);  // Force simple Gerstner shaders for now
+
+        Log(Debug::Info) << "WaterManager initialized with legacy water and "
+                         << (mFFTOceanEnabled ? "FFT" : "simple Gerstner") << " ocean system";
     }
 
     WaterManager::~WaterManager()
@@ -132,30 +124,41 @@ namespace MWRender
     {
         mCurrentCell = store;
 
+        Log(Debug::Warning) << "========================================";
+        Log(Debug::Warning) << "[WATERMGR] changeCell called";
+        Log(Debug::Warning) << "[WATERMGR] Cell: " << (store ? (store->getCell()->isExterior() ? "EXTERIOR" : "INTERIOR") : "NULL");
+
         // Classify the water type for this cell
         if (store)
         {
             mCurrentWaterType = mWaterTypeClassifier.classifyCell(store);
-            Log(Debug::Info) << "Cell water type: " << Ocean::waterTypeToString(mCurrentWaterType);
+            Log(Debug::Warning) << "[WATERMGR] Cell water type: " << Ocean::waterTypeToString(mCurrentWaterType);
         }
         else
         {
             mCurrentWaterType = Ocean::WaterType::INDOOR;
         }
 
+        Log(Debug::Warning) << "[WATERMGR] mWaterEnabled: " << mWaterEnabled;
+        Log(Debug::Warning) << "[WATERMGR] mFFTOceanEnabled: " << mFFTOceanEnabled;
+        Log(Debug::Warning) << "[WATERMGR] mOceanRenderer exists: " << (mOceanRenderer ? "YES" : "NO");
+
         // Enable/disable ocean renderer based on water type and master enabled state
         bool useOcean = false;
         if (mOceanRenderer && mWaterEnabled)
         {
             useOcean = (mCurrentWaterType == Ocean::WaterType::OCEAN) && mFFTOceanEnabled;
+            Log(Debug::Warning) << "[WATERMGR] useOcean decision: " << useOcean;
+            Log(Debug::Warning) << "[WATERMGR] Calling ocean->setEnabled(" << useOcean << ")";
             mOceanRenderer->setEnabled(useOcean);
-            Log(Debug::Info) << "Ocean renderer " << (useOcean ? "ENABLED" : "DISABLED")
-                            << " for water type: " << Ocean::waterTypeToString(mCurrentWaterType);
         }
         else if (mOceanRenderer)
         {
+            Log(Debug::Warning) << "[WATERMGR] Disabling ocean (mWaterEnabled=" << mWaterEnabled << ")";
             mOceanRenderer->setEnabled(false);
         }
+
+        Log(Debug::Warning) << "========================================";
 
         // Update the legacy water renderer (use for non-ocean water)
         if (mWater)

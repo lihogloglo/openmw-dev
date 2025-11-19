@@ -1,5 +1,8 @@
 #include "oceanwaterrenderer.hpp"
 
+#include <algorithm>
+#include <string>
+
 #include <osg/BlendFunc>
 #include <osg/Depth>
 #include <osg/Geode>
@@ -21,42 +24,19 @@
 
 namespace MWRender
 {
-    OceanComputeDrawable::OceanComputeDrawable()
-        : mFFTSimulation(nullptr)
-        , mLastFrameNumber(0)
+    void OceanUpdateCallback::operator()(osg::Node* node, osg::NodeVisitor* nv)
     {
-        setSupportsDisplayList(false);
-    }
-
-    OceanComputeDrawable::OceanComputeDrawable(Ocean::OceanFFTSimulation* fftSimulation)
-        : mFFTSimulation(fftSimulation)
-        , mLastFrameNumber(0)
-    {
-        setSupportsDisplayList(false);
-    }
-
-    OceanComputeDrawable::OceanComputeDrawable(const OceanComputeDrawable& copy, const osg::CopyOp& copyop)
-        : osg::Drawable(copy, copyop)
-        , mFFTSimulation(copy.mFFTSimulation)
-        , mLastFrameNumber(copy.mLastFrameNumber)
-    {
-    }
-
-    void OceanComputeDrawable::drawImplementation(osg::RenderInfo& renderInfo) const
-    {
-        unsigned int frameNumber = renderInfo.getState()->getFrameStamp()->getFrameNumber();
-
-        // Only dispatch compute shaders once per frame
-        if (mFFTSimulation && frameNumber != mLastFrameNumber)
+        if (nv->getVisitorType() == osg::NodeVisitor::CULL_VISITOR)
         {
-            mFFTSimulation->dispatchCompute(renderInfo.getState());
-            mLastFrameNumber = frameNumber;
-        }
-    }
+            osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+            osg::State* state = cv->getState();
 
-    osg::BoundingBox OceanComputeDrawable::computeBoundingBox() const
-    {
-        return osg::BoundingBox(-100000.0f, -100000.0f, -10000.0f, 100000.0f, 100000.0f, 10000.0f);
+            if (state && mFFT)
+            {
+                mFFT->dispatchCompute(state);
+            }
+        }
+        traverse(node, nv);
     }
 
     OceanWaterRenderer::OceanWaterRenderer(osg::Group* parent, Resource::ResourceSystem* resourceSystem,
@@ -68,29 +48,51 @@ namespace MWRender
         , mEnabled(true)
         , mLastPlayerPos(0, 0, 0)
     {
+        Log(Debug::Warning) << "========================================";
+        Log(Debug::Warning) << "[OCEAN] CONSTRUCTOR CALLED";
+        Log(Debug::Warning) << "[OCEAN] Parent: " << parent;
+        Log(Debug::Warning) << "[OCEAN] Parent name: " << (parent ? parent->getName() : "NULL");
+        Log(Debug::Warning) << "========================================";
+
         mOceanNode = new osg::Group;
         mOceanNode->setName("Ocean Water");
-        mOceanNode->setNodeMask(Mask_Water);
+        // FORCE VISIBILITY - use 0xffffffff to make it visible to everything
+        mOceanNode->setNodeMask(0xffffffff);
 
-        // Create a drawable to dispatch compute shaders during the Draw traversal
-        // This ensures we have a valid OpenGL context
-        mComputeGeode = new osg::Geode;
-        mComputeGeode->setName("Ocean FFT Compute");
-        mComputeGeode->addDrawable(new OceanComputeDrawable(fftSimulation));
-        mComputeGeode->setCullingActive(false); // Always draw to ensure update happens
+        // Create Clipmap Geometry (large grid for ocean surface)
+        // 256x256 grid provides good detail while maintaining performance
+        mClipmapGeometry = createClipmapGeometry(256);
 
-        // Set render bin to 0 (default/opaque) to ensure it runs before water rendering (bin 9/10)
-        osg::StateSet* computeStateSet = mComputeGeode->getOrCreateStateSet();
-        computeStateSet->setRenderBinDetails(0, "RenderBin");
+        osg::ref_ptr<osg::Geode> waterGeode = new osg::Geode;
+        waterGeode->addDrawable(mClipmapGeometry);
+        waterGeode->setName("Ocean Clipmap Geode");
+        waterGeode->setNodeMask(0xffffffff);
 
-        mOceanNode->addChild(mComputeGeode);
+        mClipmapTransform = new osg::PositionAttitudeTransform;
+        mClipmapTransform->addChild(waterGeode);
+        mClipmapTransform->setName("Ocean Clipmap Transform");
+        mClipmapTransform->setNodeMask(0xffffffff);
 
-        // Setup ocean shader
+        mOceanNode->addChild(mClipmapTransform);
+
+        // Setup ocean shader (FFT waves)
         setupOceanShader();
+
+        // Apply shader state to the water geode
+        waterGeode->setStateSet(mOceanStateSet);
+
+        // Install compute callback to dispatch FFT shaders
+        if (mFFTSimulation)
+        {
+            mOceanNode->setCullCallback(new OceanUpdateCallback(mFFTSimulation));
+            Log(Debug::Info) << "[OCEAN] FFT compute callback installed";
+        }
 
         mParent->addChild(mOceanNode);
 
-        Log(Debug::Info) << "OceanWaterRenderer initialized";
+        Log(Debug::Warning) << "[OCEAN] Initialization complete";
+        Log(Debug::Warning) << "[OCEAN] Ocean node added to parent: " << (mParent->containsNode(mOceanNode) ? "YES" : "NO");
+        Log(Debug::Warning) << "[OCEAN] Ocean node children: " << mOceanNode->getNumChildren();
     }
 
     OceanWaterRenderer::~OceanWaterRenderer()
@@ -104,62 +106,53 @@ namespace MWRender
         if (!mEnabled)
             return;
 
-        // Update subdivision tracker
-        mSubdivisionTracker.update(osg::Vec2f(playerPos.x(), playerPos.y()));
+        // Update time uniform for wave animation
+        static float accumulatedTime = 0.0f;
+        accumulatedTime += dt;
 
-        // Check if player moved significantly OR if chunks haven't been created yet
-        float distMoved = (playerPos - mLastPlayerPos).length();
-        bool needsChunkUpdate = (distMoved > 512.0f) || mChunks.empty();
-
-        if (needsChunkUpdate)
+        if (mOceanStateSet)
         {
-            updateChunks(playerPos);
-            mLastPlayerPos = playerPos;
-            Log(Debug::Info) << "[OCEAN DEBUG] Ocean chunks updated: " << mChunks.size() << " chunks active at player pos ("
-                            << playerPos.x() << ", " << playerPos.y() << ", " << playerPos.z() << ")";
-            
-            if (!mChunks.empty()) {
-                auto firstChunk = mChunks.begin();
-                osg::Vec2i gridPos = firstChunk->second.gridPos;
-                Log(Debug::Info) << "[OCEAN DEBUG] First chunk grid pos: (" << gridPos.x() << ", " << gridPos.y() << ")";
-                if (firstChunk->second.geode) {
-                     const osg::BoundingBox& bbox = firstChunk->second.geode->getBoundingBox();
-                     Log(Debug::Info) << "[OCEAN DEBUG] First chunk bbox: " 
-                         << bbox.xMin() << "," << bbox.yMin() << "," << bbox.zMin() << " -> "
-                         << bbox.xMax() << "," << bbox.yMax() << "," << bbox.zMax();
-                }
-            }
+            osg::Uniform* timeUniform = mOceanStateSet->getUniform("uTime");
+            if (timeUniform)
+                timeUniform->set(accumulatedTime);
+
+            // Update camera position uniform
+            osg::Uniform* camPosUniform = mOceanStateSet->getUniform("uCameraPosition");
+            if (camPosUniform)
+                camPosUniform->set(playerPos);
         }
 
-        // Update FFT textures
-        updateFFTTextures();
+        // Position clipmap with grid snapping to prevent swimming artifacts
+        // Large mesh size to extend to horizon (128 cells * 8192 units/cell)
+        float meshSize = 1048576.0f;  // ~128 Morrowind cells
+        float gridSize = 256.0f;
+        float vertexSpacing = meshSize / gridSize;
+
+        float snappedX = std::floor(playerPos.x() / vertexSpacing) * vertexSpacing;
+        float snappedY = std::floor(playerPos.y() / vertexSpacing) * vertexSpacing;
+
+        mClipmapTransform->setPosition(osg::Vec3f(snappedX, snappedY, mWaterHeight));
+
+        Log(Debug::Verbose) << "[OCEAN] Update - Time: " << accumulatedTime
+                           << " | Player pos: " << playerPos.x() << "," << playerPos.y() << "," << playerPos.z()
+                           << " | Water height: " << mWaterHeight;
     }
 
     void OceanWaterRenderer::setWaterHeight(float height)
     {
-        if (std::abs(height - mWaterHeight) > 0.01f)
-        {
-            Log(Debug::Info) << "[OCEAN] Water height changed from " << mWaterHeight << " to " << height;
-        }
-
         mWaterHeight = height;
-
-        // Update all chunk positions
-        for (auto& pair : mChunks)
+        if (mClipmapTransform)
         {
-            if (pair.second.geode && pair.second.geometry)
-            {
-                osg::Vec3Array* verts = dynamic_cast<osg::Vec3Array*>(pair.second.geometry->getVertexArray());
-                if (verts)
-                {
-                    // Update Z coordinate
-                    for (size_t i = 0; i < verts->size(); ++i)
-                    {
-                        (*verts)[i].z() = height;
-                    }
-                    verts->dirty();
-                }
-            }
+            osg::Vec3f pos = mClipmapTransform->getPosition();
+            pos.z() = height;
+            mClipmapTransform->setPosition(pos);
+
+            Log(Debug::Warning) << "[OCEAN] *** Water height set to: " << height
+                              << " | Clipmap pos: " << pos.x() << "," << pos.y() << "," << pos.z();
+        }
+        else
+        {
+            Log(Debug::Warning) << "[OCEAN] *** Water height set to: " << height << " but transform is NULL!";
         }
     }
 
@@ -168,381 +161,229 @@ namespace MWRender
         mEnabled = enabled;
         if (mOceanNode)
         {
-            mOceanNode->setNodeMask(enabled ? Mask_Water : 0);
+            // FORCE FULL VISIBILITY FOR TESTING
+            mOceanNode->setNodeMask(enabled ? 0xffffffff : 0);
+            Log(Debug::Warning) << "========================================";
+            Log(Debug::Warning) << "[OCEAN] Ocean renderer " << (enabled ? "**ENABLED**" : "**DISABLED**");
+            Log(Debug::Warning) << "[OCEAN] Node mask: " << std::hex << (enabled ? 0xffffffff : 0) << std::dec;
+            Log(Debug::Warning) << "[OCEAN] Geometry vertices: " << (mClipmapGeometry ? mClipmapGeometry->getVertexArray()->getNumElements() : 0);
+            Log(Debug::Warning) << "[OCEAN] Program valid: " << (mOceanProgram ? "YES" : "NO");
+            Log(Debug::Warning) << "========================================";
         }
     }
 
-    osg::ref_ptr<osg::Geometry> OceanWaterRenderer::createBaseWaterGeometry(float chunkSize)
+    osg::ref_ptr<osg::Geometry> OceanWaterRenderer::createClipmapGeometry(int gridSize)
     {
-        // Create a simple grid of triangles (40x40 segments)
-        // We implement this manually instead of using SceneUtil::createWaterGeometry
-        // because we need GL_TRIANGLES for the subdivider, but SceneUtil uses QUADS.
-        constexpr int segments = 40;
-        const float step = chunkSize / segments;
-        const float textureRepeats = chunkSize / segments; // 1 repeat per segment
-        const float texCoordStep = textureRepeats / segments;
+        osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
+
+        // Create a grid of vertices
+        // The mesh covers a large area extending to the horizon (~128 cells)
+        float meshSize = 1048576.0f;  // ~128 Morrowind cells (1024km)
+        float vertexSpacing = meshSize / gridSize;
 
         osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
-        osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
-        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(GL_TRIANGLES);
+        osg::ref_ptr<osg::Vec2Array> texCoords = new osg::Vec2Array;
 
-        // Generate vertices
-        for (int y = 0; y <= segments; ++y)
+        // Generate grid vertices
+        for (int y = 0; y <= gridSize; ++y)
         {
-            for (int x = 0; x <= segments; ++x)
+            for (int x = 0; x <= gridSize; ++x)
             {
-                float xPos = -chunkSize / 2.0f + x * step;
-                float yPos = -chunkSize / 2.0f + y * step;
-                verts->push_back(osg::Vec3f(xPos, yPos, 0.0f));
+                float px = (x - gridSize / 2.0f) * vertexSpacing;
+                float py = (y - gridSize / 2.0f) * vertexSpacing;
 
-                float u = x * texCoordStep;
-                float v = y * texCoordStep;
-                texcoords->push_back(osg::Vec2f(u, v));
+                verts->push_back(osg::Vec3f(px, py, 0.0f));
+                texCoords->push_back(osg::Vec2f(x / float(gridSize), y / float(gridSize)));
             }
         }
 
-        // Generate indices for triangles
-        for (int y = 0; y < segments; ++y)
-        {
-            for (int x = 0; x < segments; ++x)
-            {
-                // Grid vertex indices
-                unsigned int i00 = y * (segments + 1) + x;
-                unsigned int i10 = y * (segments + 1) + (x + 1);
-                unsigned int i01 = (y + 1) * (segments + 1) + x;
-                unsigned int i11 = (y + 1) * (segments + 1) + (x + 1);
-
-                // Triangle 1 (00, 10, 11)
-                indices->push_back(i00);
-                indices->push_back(i10);
-                indices->push_back(i11);
-
-                // Triangle 2 (00, 11, 01)
-                indices->push_back(i00);
-                indices->push_back(i11);
-                indices->push_back(i01);
-            }
-        }
-
-        osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry;
         geometry->setVertexArray(verts);
-        geometry->setTexCoordArray(0, texcoords);
-        
+        geometry->setTexCoordArray(0, texCoords);
+
+        // Default normal (will be calculated in vertex shader)
         osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array;
         normals->push_back(osg::Vec3f(0, 0, 1));
         geometry->setNormalArray(normals, osg::Array::BIND_OVERALL);
 
+        // Create triangle strip indices for efficient rendering
+        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(GL_TRIANGLES);
+
+        for (int y = 0; y < gridSize; ++y)
+        {
+            for (int x = 0; x < gridSize; ++x)
+            {
+                int i0 = y * (gridSize + 1) + x;
+                int i1 = i0 + 1;
+                int i2 = i0 + (gridSize + 1);
+                int i3 = i2 + 1;
+
+                // Two triangles per quad
+                indices->push_back(i0);
+                indices->push_back(i2);
+                indices->push_back(i1);
+
+                indices->push_back(i1);
+                indices->push_back(i2);
+                indices->push_back(i3);
+            }
+        }
+
         geometry->addPrimitiveSet(indices);
-        
+
+        // Large bounding box to prevent culling
+        geometry->setInitialBound(osg::BoundingBox(-100000, -100000, -10000, 100000, 100000, 10000));
+
+        Log(Debug::Info) << "Created ocean clipmap geometry: " << gridSize << "x" << gridSize
+                         << " (" << verts->size() << " vertices, " << indices->size() / 3 << " triangles)";
+
         return geometry;
     }
 
-    osg::ref_ptr<osg::Geometry> OceanWaterRenderer::createWaterChunk(const osg::Vec2i& gridPos, int subdivisionLevel)
+    // Callback to update the view matrix inverse uniform
+    struct ViewMatrixCallback : public osg::Uniform::Callback
     {
-        // Create base geometry
-        osg::ref_ptr<osg::Geometry> baseGeom = createBaseWaterGeometry(CHUNK_SIZE);
-
-        if (!baseGeom || !baseGeom->getVertexArray() || baseGeom->getVertexArray()->getNumElements() == 0)
+        virtual void operator()(osg::Uniform* uniform, osg::NodeVisitor* nv)
         {
-            Log(Debug::Error) << "Failed to create base water geometry for chunk at ("
-                             << gridPos.x() << ", " << gridPos.y() << ")";
-            return nullptr;
-        }
-
-        Log(Debug::Verbose) << "Base geometry created with " << baseGeom->getVertexArray()->getNumElements()
-                           << " vertices for chunk at (" << gridPos.x() << ", " << gridPos.y() << ")";
-
-        // Apply subdivision if needed
-        if (subdivisionLevel > 0 && baseGeom)
-        {
-            osg::ref_ptr<osg::Geometry> subdivided = Ocean::WaterSubdivider::subdivide(baseGeom.get(), subdivisionLevel);
-            if (subdivided && subdivided->getVertexArray() && subdivided->getVertexArray()->getNumElements() > 0)
+            if (nv->getVisitorType() == osg::NodeVisitor::CULL_VISITOR)
             {
-                Log(Debug::Verbose) << "Subdivision level " << subdivisionLevel << " produced "
-                                   << subdivided->getVertexArray()->getNumElements() << " vertices";
-                baseGeom = subdivided;
-            }
-            else
-            {
-                Log(Debug::Warning) << "Subdivision level " << subdivisionLevel
-                                   << " failed or produced empty geometry at grid pos ("
-                                   << gridPos.x() << ", " << gridPos.y() << "), using base geometry";
+                osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+                osg::Matrix viewMatrix = cv->getCurrentCamera()->getViewMatrix();
+                uniform->set(osg::Matrix::inverse(viewMatrix));
             }
         }
-
-        // Set up geometry properties
-        if (baseGeom)
-        {
-            baseGeom->setUseDisplayList(false);
-            baseGeom->setUseVertexBufferObjects(true);
-            baseGeom->setDataVariance(osg::Object::STATIC);
-
-            // Keep vertices in LOCAL space (don't bake world coordinates)
-            // The transform node will handle positioning
-            osg::Vec3Array* verts = dynamic_cast<osg::Vec3Array*>(baseGeom->getVertexArray());
-            if (verts)
-            {
-                // Set Z to water height (in local space, this is the base height)
-                for (size_t i = 0; i < verts->size(); ++i)
-                {
-                    (*verts)[i].z() = mWaterHeight;
-                }
-                verts->dirty();
-
-                // CRITICAL FIX: Set a custom bounding box that accounts for wave displacement
-                // The vertex shader displaces vertices, but the default bounding box is computed
-                // from the CPU-side vertices (all at mWaterHeight), causing frustum culling issues
-                // Max wave amplitude should be ~10m in production, but using 100m for safety
-                const float MAX_WAVE_AMPLITUDE = 100.0f;
-                osg::BoundingBox bbox;
-                bbox.set(-CHUNK_SIZE/2.0f, -CHUNK_SIZE/2.0f, mWaterHeight - MAX_WAVE_AMPLITUDE,
-                          CHUNK_SIZE/2.0f,  CHUNK_SIZE/2.0f, mWaterHeight + MAX_WAVE_AMPLITUDE);
-                baseGeom->setInitialBound(bbox);
-
-                Log(Debug::Verbose) << "Created water chunk at (" << gridPos.x() << ", " << gridPos.y()
-                                   << ") with " << verts->size() << " vertices in local space";
-            }
-            else
-            {
-                Log(Debug::Error) << "Failed to get vertex array for water chunk at ("
-                                 << gridPos.x() << ", " << gridPos.y() << ")";
-            }
-        }
-
-        return baseGeom;
-    }
-
-    void OceanWaterRenderer::updateChunks(const osg::Vec3f& playerPos)
-    {
-        // Determine which chunks should be visible
-        int playerGridX = static_cast<int>(std::floor(playerPos.x() / CHUNK_SIZE));
-        int playerGridY = static_cast<int>(std::floor(playerPos.y() / CHUNK_SIZE));
-
-        std::set<std::pair<int, int>> desiredChunks;
-
-        // Create chunks in a grid around the player
-        for (int dx = -CHUNK_GRID_RADIUS; dx <= CHUNK_GRID_RADIUS; ++dx)
-        {
-            for (int dy = -CHUNK_GRID_RADIUS; dy <= CHUNK_GRID_RADIUS; ++dy)
-            {
-                osg::Vec2i gridPos(playerGridX + dx, playerGridY + dy);
-                desiredChunks.insert(std::make_pair(gridPos.x(), gridPos.y()));
-            }
-        }
-
-        // Remove chunks that are too far
-        std::vector<std::pair<int, int>> toRemove;
-        for (const auto& pair : mChunks)
-        {
-            if (desiredChunks.find(pair.first) == desiredChunks.end())
-            {
-                toRemove.push_back(pair.first);
-            }
-        }
-
-        for (const auto& key : toRemove)
-        {
-            if (mChunks[key].transform)
-            {
-                mOceanNode->removeChild(mChunks[key].transform);
-            }
-            mChunks.erase(key);
-        }
-
-        // Add new chunks
-        for (const auto& chunkKey : desiredChunks)
-        {
-            if (mChunks.find(chunkKey) == mChunks.end())
-            {
-                osg::Vec2i gridPos(chunkKey.first, chunkKey.second);
-
-                // Calculate subdivision level based on distance
-                osg::Vec2f chunkCenter(
-                    gridPos.x() * CHUNK_SIZE + CHUNK_SIZE / 2.0f,
-                    gridPos.y() * CHUNK_SIZE + CHUNK_SIZE / 2.0f
-                );
-                float distanceToPlayer = (chunkCenter - osg::Vec2f(playerPos.x(), playerPos.y())).length();
-                int subdivLevel = mSubdivisionTracker.getSubdivisionLevel(chunkCenter, distanceToPlayer);
-
-                // Create chunk
-                WaterChunk chunk;
-                chunk.gridPos = gridPos;
-                chunk.subdivisionLevel = subdivLevel;
-                chunk.geometry = createWaterChunk(gridPos, subdivLevel);
-
-                if (chunk.geometry)
-                {
-                    // Create geode to hold geometry
-                    chunk.geode = new osg::Geode;
-                    chunk.geode->addDrawable(chunk.geometry);
-                    chunk.geode->setStateSet(mOceanStateSet);
-
-                    // Create transform node to position chunk in world space
-                    chunk.transform = new osg::PositionAttitudeTransform;
-                    float offsetX = gridPos.x() * CHUNK_SIZE;
-                    float offsetY = gridPos.y() * CHUNK_SIZE;
-                    chunk.transform->setPosition(osg::Vec3f(offsetX, offsetY, 0.0f));
-                    chunk.transform->addChild(chunk.geode);
-
-                    mOceanNode->addChild(chunk.transform);
-                    mChunks[chunkKey] = chunk;
-
-                    // Track in subdivision tracker
-                    mSubdivisionTracker.markChunkSubdivided(chunkCenter, subdivLevel);
-
-                    Log(Debug::Verbose) << "Created ocean chunk at (" << gridPos.x() << ", " << gridPos.y()
-                                       << ") with subdivision level " << subdivLevel
-                                       << " at world pos (" << offsetX << ", " << offsetY << ")";
-                }
-            }
-        }
-    }
+    };
 
     void OceanWaterRenderer::setupOceanShader()
     {
-        if (!mResourceSystem)
-            return;
+        Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
 
-        auto& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
+        // 1. Try to load FFT ocean shaders first
+        Shader::ShaderManager::DefineMap defineMap;
+        defineMap["radialFog"] = "1";
+        defineMap["disableNormals"] = "0";
 
-        // Load ocean shaders
-        osg::ref_ptr<osg::Shader> vertexShader =
-            shaderManager.getShader("compatibility/ocean/ocean.vert", {}, osg::Shader::VERTEX);
-        osg::ref_ptr<osg::Shader> fragmentShader =
-            shaderManager.getShader("compatibility/ocean/ocean.frag", {}, osg::Shader::FRAGMENT);
+        // Check if FFT simulation is available and initialized
+        bool useFFT = mFFTSimulation && mFFTSimulation->isInitialized();
 
-        if (!vertexShader)
+        if (useFFT)
         {
-            Log(Debug::Error) << "Failed to load ocean vertex shader: compatibility/ocean/ocean.vert";
-            return;
+            mOceanProgram = shaderMgr.getProgram("compatibility/ocean/ocean", defineMap);
+
+            if (!mOceanProgram)
+            {
+                Log(Debug::Warning) << "[OCEAN] Failed to load FFT ocean shaders, trying simple fallback";
+                useFFT = false;
+            }
         }
 
-        if (!fragmentShader)
+        // Fallback to simple ocean shaders (Gerstner waves, no FFT)
+        if (!useFFT)
         {
-            Log(Debug::Error) << "Failed to load ocean fragment shader: compatibility/ocean/ocean.frag";
-            return;
+            Log(Debug::Info) << "[OCEAN] Using simple ocean shaders (Gerstner waves)";
+            mOceanProgram = shaderMgr.getProgram("compatibility/ocean/ocean_simple", defineMap);
+
+            if (!mOceanProgram)
+            {
+                Log(Debug::Error) << "[OCEAN] Failed to load both FFT and simple ocean shaders, using basic material";
+
+                // Last resort: basic material
+                mOceanStateSet = new osg::StateSet;
+                osg::ref_ptr<osg::Material> material = new osg::Material;
+                material->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(0.0f, 0.5f, 1.0f, 0.7f));
+                material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.0f, 0.3f, 0.7f, 1.0f));
+                material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+                material->setShininess(osg::Material::FRONT_AND_BACK, 128.0f);
+                mOceanStateSet->setAttributeAndModes(material, osg::StateAttribute::ON);
+                mOceanStateSet->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
+                return;
+            }
         }
 
-        mOceanProgram = shaderManager.getProgram(vertexShader, fragmentShader);
-
-        if (!mOceanProgram)
-        {
-            Log(Debug::Error) << "Failed to create ocean shader program";
-            return;
-        }
-
+        // 2. Create state set
         mOceanStateSet = new osg::StateSet;
         mOceanStateSet->setAttributeAndModes(mOceanProgram, osg::StateAttribute::ON);
 
-        // Enable alpha blending for water transparency
+        Log(Debug::Info) << (useFFT ? "[OCEAN] FFT" : "[OCEAN] Simple") << " shader loaded successfully";
+
+        // 3. Bind FFT textures (3 cascades) - only if using FFT
+        if (useFFT && mFFTSimulation)
+        {
+            int cascadeCount = mFFTSimulation->getCascadeCount();
+            Log(Debug::Info) << "[OCEAN] Binding textures for " << cascadeCount << " cascades";
+
+            for (int i = 0; i < cascadeCount; i++)
+            {
+                // Displacement textures (units 0-2)
+                osg::Texture2D* dispTex = mFFTSimulation->getDisplacementTexture(i);
+                if (dispTex)
+                {
+                    mOceanStateSet->setTextureAttributeAndModes(i, dispTex, osg::StateAttribute::ON);
+                    std::string uniformName = "uDisplacementCascade" + std::to_string(i);
+                    mOceanStateSet->addUniform(new osg::Uniform(uniformName.c_str(), i));
+                    Log(Debug::Info) << "[OCEAN]   Displacement cascade " << i << " -> unit " << i;
+                }
+
+                // Normal textures (units 3-5)
+                osg::Texture2D* normalTex = mFFTSimulation->getNormalTexture(i);
+                if (normalTex)
+                {
+                    int unit = 3 + i;
+                    mOceanStateSet->setTextureAttributeAndModes(unit, normalTex, osg::StateAttribute::ON);
+                    std::string uniformName = "uNormalCascade" + std::to_string(i);
+                    mOceanStateSet->addUniform(new osg::Uniform(uniformName.c_str(), unit));
+                    Log(Debug::Info) << "[OCEAN]   Normal cascade " << i << " -> unit " << unit;
+                }
+
+                // Foam textures (units 6-8)
+                osg::Texture2D* foamTex = mFFTSimulation->getFoamTexture(i);
+                if (foamTex)
+                {
+                    int unit = 6 + i;
+                    mOceanStateSet->setTextureAttributeAndModes(unit, foamTex, osg::StateAttribute::ON);
+                    std::string uniformName = "uFoamCascade" + std::to_string(i);
+                    mOceanStateSet->addUniform(new osg::Uniform(uniformName.c_str(), unit));
+                    Log(Debug::Info) << "[OCEAN]   Foam cascade " << i << " -> unit " << unit;
+                }
+
+                // Cascade tile sizes
+                float tileSize = mFFTSimulation->getCascadeTileSize(i);
+                std::string sizeUniformName = "uCascadeTileSize" + std::to_string(i);
+                mOceanStateSet->addUniform(new osg::Uniform(sizeUniformName.c_str(), tileSize));
+                Log(Debug::Info) << "[OCEAN]   Cascade " << i << " tile size: " << tileSize;
+            }
+        }
+
+        // 4. Set shader uniforms
+        mOceanStateSet->addUniform(new osg::Uniform("uTime", 0.0f));
+        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));
+        mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
+
+        // Camera position uniform with callback
+        osg::ref_ptr<osg::Uniform> cameraPos = new osg::Uniform("uCameraPosition", osg::Vec3f(0, 0, 0));
+        mOceanStateSet->addUniform(cameraPos);
+
+        // Note: osg_ViewMatrixInverse is automatically provided by OSG, don't add it manually
+
+        // 5. Setup rendering state
+        mOceanStateSet->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
         mOceanStateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
         mOceanStateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
-        // Configure blend function for proper transparency
         osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc(
-            osg::BlendFunc::SRC_ALPHA,
-            osg::BlendFunc::ONE_MINUS_SRC_ALPHA
-        );
+            osg::BlendFunc::SRC_ALPHA, osg::BlendFunc::ONE_MINUS_SRC_ALPHA);
         mOceanStateSet->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
-        // Enable depth testing but disable depth writing
-        // Transparent water should not write to depth buffer to avoid occluding objects behind it
-        // This matches the legacy water system behavior
         osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-        depth->setWriteMask(false);  // Don't write to depth buffer (transparent object)
-        depth->setFunction(osg::Depth::LEQUAL);  // But still test against depth
+        depth->setWriteMask(false);
+        depth->setFunction(osg::Depth::LEQUAL);
         mOceanStateSet->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
-        // Add uniforms for FFT textures
-        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade0", 0));
-        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade1", 1));
-        mOceanStateSet->addUniform(new osg::Uniform("uDisplacementCascade2", 2));
-        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade0", 3));
-        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade1", 4));
-        mOceanStateSet->addUniform(new osg::Uniform("uNormalCascade2", 5));
-        mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade0", 6));
-        mOceanStateSet->addUniform(new osg::Uniform("uFoamCascade1", 7));
-
-        // Initialize cascade tile size uniforms immediately
-        for (int i = 0; i < 3; ++i)
-        {
-            float tileSize = mFFTSimulation ? mFFTSimulation->getCascadeTileSize(i) : 50.0f * std::pow(4.0f, i);
-            std::string uniformName = "uCascadeTileSize" + std::to_string(i);
-            mOceanStateSet->addUniform(new osg::Uniform(uniformName.c_str(), tileSize));
-        }
-
-        // Wave parameters
-        mOceanStateSet->addUniform(new osg::Uniform("uEnableOceanWaves", true));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaveAmplitude", 1.0f));  // Amplitude multiplier (FFT already in world units)
-
-        // Water appearance
-        mOceanStateSet->addUniform(new osg::Uniform("uDeepWaterColor", osg::Vec3f(0.0f, 0.2f, 0.3f)));
-        mOceanStateSet->addUniform(new osg::Uniform("uShallowWaterColor", osg::Vec3f(0.0f, 0.4f, 0.5f)));
-        mOceanStateSet->addUniform(new osg::Uniform("uWaterAlpha", 0.8f));
-
-        Log(Debug::Info) << "Ocean shaders loaded successfully";
-        Log(Debug::Info) << "[OCEAN DEBUG] uEnableOceanWaves=true, uWaveAmplitude=1.0";
+        Log(Debug::Info) << "[OCEAN] FFT ocean shader setup complete with "
+                         << (mFFTSimulation ? mFFTSimulation->getCascadeCount() : 0) << " cascades";
     }
 
     void OceanWaterRenderer::updateFFTTextures()
     {
-        if (!mFFTSimulation || !mOceanStateSet)
-            return;
-
-        static bool logged = false;
-        if (!logged)
-        {
-            Log(Debug::Info) << "[OCEAN DEBUG] updateFFTTextures called - binding displacement textures";
-            logged = true;
-        }
-
-        // Bind displacement textures
-        for (int i = 0; i < 3; ++i)
-        {
-            osg::Texture2D* dispTex = mFFTSimulation->getDisplacementTexture(i);
-            if (dispTex)
-            {
-                mOceanStateSet->setTextureAttributeAndModes(i, dispTex, osg::StateAttribute::ON);
-
-                // Update cascade tile size uniform
-                float tileSize = mFFTSimulation->getCascadeTileSize(i);
-                std::string uniformName = "uCascadeTileSize" + std::to_string(i);
-                osg::Uniform* uniform = mOceanStateSet->getUniform(uniformName);
-                if (!uniform)
-                {
-                    uniform = new osg::Uniform(uniformName.c_str(), tileSize);
-                    mOceanStateSet->addUniform(uniform);
-                    Log(Debug::Info) << "[OCEAN DEBUG] Added uniform " << uniformName << " = " << tileSize;
-                }
-                else
-                {
-                    uniform->set(tileSize);
-                }
-            }
-            else
-            {
-                Log(Debug::Warning) << "[OCEAN DEBUG] Displacement texture " << i << " is NULL!";
-            }
-        }
-
-        // Bind normal textures
-        for (int i = 0; i < 3; ++i)
-        {
-            osg::Texture2D* normalTex = mFFTSimulation->getNormalTexture(i);
-            if (normalTex)
-            {
-                mOceanStateSet->setTextureAttributeAndModes(3 + i, normalTex, osg::StateAttribute::ON);
-            }
-        }
-
-        // Bind foam textures
-        for (int i = 0; i < 2; ++i)
-        {
-            osg::Texture2D* foamTex = mFFTSimulation->getFoamTexture(i);
-            if (foamTex)
-            {
-                mOceanStateSet->setTextureAttributeAndModes(6 + i, foamTex, osg::StateAttribute::ON);
-            }
-        }
+        // Not needed for Gerstner waves - all wave calculation is done in shaders
     }
 }

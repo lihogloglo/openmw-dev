@@ -59,6 +59,8 @@ set(SHADER_FILES
     compatibility/fullscreen_tri.frag
     compatibility/ocean/ocean.vert
     compatibility/ocean/ocean.frag
+    compatibility/ocean/ocean_simple.vert
+    compatibility/ocean/ocean_simple.frag
     compatibility/bs/default.vert
     compatibility/bs/default.frag
     compatibility/bs/nolighting.vert
