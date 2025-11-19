@@ -1,0 +1,80 @@
+#version 440 core
+/**
+ * Unpacks the IFFT outputs from the modulation stage and creates
+ * the output displacement and normal maps with foam.
+ *
+ * Ported from GodotOceanWaves by 2Retr0
+ */
+
+#define TILE_SIZE   (16U)
+#define NUM_SPECTRA (4U)
+
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 2) in;
+
+// Outputs
+layout(binding = 0, rgba16f) restrict writeonly uniform image2D displacement_map;
+layout(binding = 1, rgba16f) restrict uniform image2D normal_map; // Read-write for foam persistence
+
+// Input: FFT data buffer
+layout(std430, binding = 2) restrict readonly buffer FFTBuffer {
+    vec2 data[]; // map_size x map_size x num_spectra x 2
+};
+
+// Uniforms
+uniform uint uMapSize;
+uniform float uWhitecap;       // Jacobian threshold for foam generation
+uniform float uFoamGrowRate;   // Foam growth rate
+uniform float uFoamDecayRate;  // Foam exponential decay rate
+
+// Tiling provides a small benefit
+shared vec2 tile[NUM_SPECTRA][TILE_SIZE][TILE_SIZE];
+
+// Note: We access the FFT buffer at an offset of NUM_SPECTRA*map_size*map_size
+// because the transpose doesn't happen a second time
+#define FFT_DATA(x, y, layer) (data[NUM_SPECTRA*uMapSize*uMapSize + (layer)*uMapSize*uMapSize + (y)*uMapSize + (x)])
+
+void main() {
+    const uvec3 id_local = gl_LocalInvocationID;
+    const ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+
+    if (id.x >= int(uMapSize) || id.y >= int(uMapSize))
+        return;
+
+    // Multiplying output of inverse FFT by below factor is equivalent to ifftshift()
+    const float sign_shift = -2*((id.x & 1) ^ (id.y & 1)) + 1; // Equivalent: (-1^id.x)(-1^id.y)
+
+    // Load all 4 spectra into shared memory
+    tile[id_local.z*2][id_local.y][id_local.x] = FFT_DATA(id.x, id.y, id_local.z*2);
+    tile[id_local.z*2 + 1][id_local.y][id_local.x] = FFT_DATA(id.x, id.y, id_local.z*2 + 1);
+    barrier();
+
+    // Half of all threads write to displacement map while other half writes to normal map
+    if (id_local.z == 0) {
+        // Displacement map
+        float hx = tile[0][id_local.y][id_local.x].x;
+        float hy = tile[0][id_local.y][id_local.x].y;
+        float hz = tile[1][id_local.y][id_local.x].x;
+        imageStore(displacement_map, id, vec4(hx, hy, hz, 0) * sign_shift);
+    } else {
+        // Normal map + foam
+        float dhy_dx = tile[1][id_local.y][id_local.x].y * sign_shift;
+        float dhy_dz = tile[2][id_local.y][id_local.x].x * sign_shift;
+        float dhx_dx = tile[2][id_local.y][id_local.x].y * sign_shift;
+        float dhz_dz = tile[3][id_local.y][id_local.x].x * sign_shift;
+        float dhz_dx = tile[3][id_local.y][id_local.x].y * sign_shift;
+
+        // Calculate foam from Jacobian
+        float jacobian = (1.0 + dhx_dx) * (1.0 + dhz_dz) - dhz_dx*dhz_dx;
+        float foam_factor = -min(0.0, jacobian - uWhitecap);
+
+        // Load existing foam and apply decay + growth
+        float foam = imageLoad(normal_map, id).a;
+        foam *= exp(-uFoamDecayRate);
+        foam += foam_factor * uFoamGrowRate;
+        foam = clamp(foam, 0.0, 1.0);
+
+        // Calculate gradient for normal
+        vec2 gradient = vec2(dhy_dx, dhy_dz) / (1.0 + abs(vec2(dhx_dx, dhz_dz)));
+        imageStore(normal_map, id, vec4(gradient, dhx_dx, foam));
+    }
+}

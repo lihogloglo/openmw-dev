@@ -138,18 +138,38 @@ namespace Ocean
         osg::ref_ptr<osg::Shader> foamPersistenceShader =
             shaderManager.getShader("core/ocean/fft_update_foam.comp", {}, osg::Shader::COMPUTE);
 
-        if (!spectrumShader || !butterflyShader || !displacementShader || !foamPersistenceShader)
+        // Debug: Check shader source is not empty
+        auto checkShaderSource = [](osg::Shader* shader, const char* name) {
+            if (!shader)
+            {
+                Log(Debug::Error) << "[OCEAN FFT] Shader " << name << " is null";
+                return false;
+            }
+            std::string source = shader->getShaderSource();
+            if (source.empty())
+            {
+                Log(Debug::Error) << "[OCEAN FFT] Shader " << name << " has empty source";
+                return false;
+            }
+            Log(Debug::Info) << "[OCEAN FFT] Shader " << name << " loaded (" << source.length() << " bytes)";
+            return true;
+        };
+
+        if (!checkShaderSource(spectrumShader.get(), "fft_update_spectrum.comp") ||
+            !checkShaderSource(butterflyShader.get(), "fft_butterfly.comp") ||
+            !checkShaderSource(displacementShader.get(), "fft_generate_displacement.comp") ||
+            !checkShaderSource(foamPersistenceShader.get(), "fft_update_foam.comp"))
         {
-            Log(Debug::Error) << "Failed to load ocean FFT compute shaders";
+            Log(Debug::Error) << "Failed to load ocean FFT compute shaders - one or more shaders are null or empty";
             return false;
         }
 
-        // Create shader programs
-        mSpectrumGeneratorProgram = shaderManager.getProgram(nullptr, spectrumShader);
-        mFFTHorizontalProgram = shaderManager.getProgram(nullptr, butterflyShader);
-        mFFTVerticalProgram = shaderManager.getProgram(nullptr, butterflyShader);  // Same shader, different uniform
-        mDisplacementProgram = shaderManager.getProgram(nullptr, displacementShader);
-        mFoamPersistenceProgram = shaderManager.getProgram(nullptr, foamPersistenceShader);
+        // Create shader programs (using compute-only program function)
+        mSpectrumGeneratorProgram = shaderManager.getComputeProgram(spectrumShader);
+        mFFTHorizontalProgram = shaderManager.getComputeProgram(butterflyShader);
+        mFFTVerticalProgram = shaderManager.getComputeProgram(butterflyShader);  // Same shader, different uniform
+        mDisplacementProgram = shaderManager.getComputeProgram(displacementShader);
+        mFoamPersistenceProgram = shaderManager.getComputeProgram(foamPersistenceShader);
 
         if (!mSpectrumGeneratorProgram || !mFFTHorizontalProgram ||
             !mFFTVerticalProgram || !mDisplacementProgram || !mFoamPersistenceProgram)
@@ -201,19 +221,60 @@ namespace Ocean
             Log(Debug::Info) << "[OCEAN FFT] First compute dispatch - FFT simulation is running";
 
             // Validate shader programs compiled successfully
-            if (!mSpectrumGeneratorProgram->getPCP(*state) ||
-                !mFFTHorizontalProgram->getPCP(*state) ||
-                !mFFTVerticalProgram->getPCP(*state) ||
-                !mDisplacementProgram->getPCP(*state) ||
-                !mFoamPersistenceProgram->getPCP(*state))
+            auto checkShader = [&](osg::Program* program, const char* name) {
+                osg::Program::PerContextProgram* pcp = program->getPCP(*state);
+                if (!pcp)
+                {
+                    Log(Debug::Error) << "[OCEAN FFT] Shader program '" << name << "' failed to compile";
+
+                    // Try to get program info log
+                    std::string infoLog;
+                    if (program->getGlProgramInfoLog(contextID, infoLog) && !infoLog.empty())
+                    {
+                        Log(Debug::Error) << "[OCEAN FFT] Program info log:\n" << infoLog;
+                    }
+
+                    // Log individual shader info
+                    for (unsigned int i = 0; i < program->getNumShaders(); ++i)
+                    {
+                        osg::Shader* shader = program->getShader(i);
+                        if (shader)
+                        {
+                            Log(Debug::Error) << "[OCEAN FFT] Shader " << i << ": " << shader->getName()
+                                             << " (type=" << shader->getType() << ")";
+                            std::string shaderSource = shader->getShaderSource();
+                            if (shaderSource.empty())
+                            {
+                                Log(Debug::Error) << "[OCEAN FFT] Shader source is EMPTY!";
+                            }
+                            else
+                            {
+                                Log(Debug::Verbose) << "[OCEAN FFT] Shader source length: " << shaderSource.length();
+                            }
+                        }
+                    }
+                    return false;
+                }
+                return true;
+            };
+
+            bool allShadersValid = true;
+            allShadersValid &= checkShader(mSpectrumGeneratorProgram.get(), "spectrum_generator");
+            allShadersValid &= checkShader(mFFTHorizontalProgram.get(), "fft_horizontal");
+            allShadersValid &= checkShader(mFFTVerticalProgram.get(), "fft_vertical");
+            allShadersValid &= checkShader(mDisplacementProgram.get(), "displacement");
+            allShadersValid &= checkShader(mFoamPersistenceProgram.get(), "foam_persistence");
+
+            if (!allShadersValid)
             {
-                Log(Debug::Error) << "[OCEAN FFT] Compute shader programs failed to compile";
+                Log(Debug::Error) << "[OCEAN FFT] One or more compute shader programs failed to compile - disabling FFT ocean";
                 shaderCompileFailed = true;
                 mInitialized = false;
                 firstDispatch = false;
                 return;
             }
 
+            Log(Debug::Info) << "[OCEAN FFT] All compute shaders compiled successfully";
             firstDispatch = false;
         }
         dispatchCount++;

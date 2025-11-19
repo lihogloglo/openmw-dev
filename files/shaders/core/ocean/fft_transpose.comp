@@ -1,0 +1,51 @@
+#version 440 core
+/**
+ * A memory-efficient coalesced matrix transpose kernel.
+ *
+ * Ported from GodotOceanWaves by 2Retr0
+ * Source: https://developer.nvidia.com/blog/efficient-matrix-transpose-cuda-cc/
+ */
+
+#define TILE_SIZE   (32U)
+#define NUM_SPECTRA (4U)
+
+layout(local_size_x = TILE_SIZE, local_size_y = TILE_SIZE, local_size_z = 1) in;
+
+// Input: Butterfly factors (not used but kept for consistency)
+layout(std430, binding = 0) restrict readonly buffer ButterflyFactorBuffer {
+    vec4 butterfly[];
+};
+
+// Input/Output: FFT data buffer
+layout(std430, binding = 1) restrict buffer FFTBuffer {
+    vec2 data[]; // map_size x map_size x num_spectra x 2
+};
+
+// Uniforms
+uniform uint uMapSize;
+uniform uint uSpectrumIndex; // Which of the 4 spectra to process (0-3)
+
+shared vec2 tile[TILE_SIZE][TILE_SIZE+1]; // +1 to avoid bank conflicts
+
+#define DATA_IN(x, y, layer)  (data[NUM_SPECTRA*uMapSize*uMapSize + (layer)*uMapSize*uMapSize + (y)*uMapSize + (x)])
+#define DATA_OUT(x, y, layer) (data[                             0 + (layer)*uMapSize*uMapSize + (y)*uMapSize + (x)])
+
+void main() {
+    const uvec2 id_block = gl_WorkGroupID.xy;
+    const uvec2 id_local = gl_LocalInvocationID.xy;
+    const uint spectrum = uSpectrumIndex;
+
+    // Read from global memory into shared memory tile
+    uvec2 id_global = gl_GlobalInvocationID.xy;
+    if (id_global.x < uMapSize && id_global.y < uMapSize) {
+        tile[id_local.y][id_local.x] = DATA_IN(id_global.x, id_global.y, spectrum);
+    }
+
+    barrier();
+
+    // Write transposed tile back to global memory
+    uvec2 id_transposed = id_block.yx * TILE_SIZE + id_local.xy;
+    if (id_transposed.x < uMapSize && id_transposed.y < uMapSize) {
+        DATA_OUT(id_transposed.x, id_transposed.y, spectrum) = tile[id_local.x][id_local.y];
+    }
+}

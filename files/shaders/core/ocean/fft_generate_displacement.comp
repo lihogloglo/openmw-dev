@@ -6,12 +6,12 @@
 layout(local_size_x = 16, local_size_y = 16) in;
 
 // Input: FFT result for height
-layout(binding = 0, rgba32f) restrict readonly uniform image2D uHeightFFT;
+layout(binding = 0, rgba32f) readonly uniform image2D uHeightFFT;
 
 // Outputs
-layout(binding = 1, rgba32f) restrict writeonly uniform image2D uDisplacementMap;  // xyz displacement
-layout(binding = 2, rgba32f) restrict writeonly uniform image2D uNormalMap;        // Normal vectors
-layout(binding = 3, r32f) restrict writeonly uniform image2D uTempFoamMap;         // Temporary foam from Jacobian
+layout(binding = 1, rgba32f) writeonly uniform image2D uDisplacementMap;  // xyz displacement
+layout(binding = 2, rgba32f) writeonly uniform image2D uNormalMap;        // Normal vectors
+layout(binding = 3, r32f) writeonly uniform image2D uTempFoamMap;         // Temporary foam from Jacobian
 
 // Uniforms
 uniform float uTileSize;      // Physical tile size in meters

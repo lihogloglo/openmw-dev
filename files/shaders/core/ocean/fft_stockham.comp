@@ -1,0 +1,70 @@
+#version 440 core
+/**
+ * A coalesced decimation-in-time Stockham FFT kernel.
+ *
+ * Ported from GodotOceanWaves by 2Retr0
+ * Source: http://wwwa.pikara.ne.jp/okojisan/otfft-en/stockham3.html
+ */
+
+#define PI           (3.141592653589793)
+#define MAX_MAP_SIZE (1024U)
+#define NUM_SPECTRA  (4U)
+
+layout(local_size_x = MAX_MAP_SIZE, local_size_y = 1, local_size_z = 1) in;
+
+// Input: Butterfly factors
+layout(std430, binding = 0) restrict readonly buffer ButterflyFactorBuffer {
+    vec4 butterfly[]; // log2(map_size) x map_size
+};
+
+// Input/Output: FFT data buffer (ping-pong between two regions)
+layout(std430, binding = 1) restrict buffer FFTBuffer {
+    vec2 data[]; // map_size x map_size x num_spectra x 2
+};
+
+// Uniforms
+uniform uint uMapSize;
+uniform uint uSpectrumIndex; // Which of the 4 spectra to process (0-3)
+
+shared vec2 row_shared[2 * MAX_MAP_SIZE]; // "Ping-pong" shared buffer for a single row
+
+/** Returns (a0 + j*a1)(b0 + j*b1) */
+vec2 mul_complex(in vec2 a, in vec2 b) {
+    return vec2(a.x*b.x - a.y*b.y, a.x*b.y + a.y*b.x);
+}
+
+#define ROW_SHARED(col, pingpong) (row_shared[(pingpong)*MAX_MAP_SIZE + (col)])
+#define BUTTERFLY(col, stage)     (butterfly[(stage)*uMapSize + (col)])
+#define DATA_IN(col, row, layer)  (data[                             0 + (layer)*uMapSize*uMapSize + (row)*uMapSize + (col)])
+#define DATA_OUT(col, row, layer) (data[NUM_SPECTRA*uMapSize*uMapSize + (layer)*uMapSize*uMapSize + (row)*uMapSize + (col)])
+
+void main() {
+    const uint num_stages = findMSB(uMapSize); // Equivalent: log2(map_size)
+    const uint col = gl_GlobalInvocationID.x; // Column in row
+    const uint row = gl_GlobalInvocationID.y; // Row being processed
+    const uint spectrum = uSpectrumIndex;
+
+    if (col >= uMapSize)
+        return;
+
+    // Load row data into shared memory
+    ROW_SHARED(col, 0) = DATA_IN(col, row, spectrum);
+
+    // Perform FFT stages with ping-pong buffering in shared memory
+    for (uint stage = 0U; stage < num_stages; ++stage) {
+        barrier();
+        uint buf_idx_read = stage % 2;
+        uint buf_idx_write = (stage + 1) % 2;
+        vec4 butterfly_data = BUTTERFLY(col, stage);
+
+        uvec2 read_indices = uvec2(floatBitsToUint(butterfly_data.xy));
+        vec2 twiddle_factor = butterfly_data.zw;
+
+        vec2 upper = ROW_SHARED(read_indices[0], buf_idx_read);
+        vec2 lower = ROW_SHARED(read_indices[1], buf_idx_read);
+        ROW_SHARED(col, buf_idx_write) = upper + mul_complex(lower, twiddle_factor);
+    }
+
+    // Write result back to global memory
+    DATA_OUT(col, row, spectrum) = ROW_SHARED(col, num_stages % 2);
+}

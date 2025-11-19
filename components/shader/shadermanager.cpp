@@ -608,6 +608,24 @@ namespace Shader
         return found->second;
     }
 
+    osg::ref_ptr<osg::Program> ShaderManager::getComputeProgram(osg::ref_ptr<osg::Shader> computeShader)
+    {
+        if (!computeShader)
+            return nullptr;
+
+        // Use the existing cache, but with nullptr for both vertex and fragment
+        std::lock_guard<std::mutex> lock(mMutex);
+        ProgramMap::iterator found = mPrograms.find(std::make_pair(computeShader, nullptr));
+        if (found == mPrograms.end())
+        {
+            osg::ref_ptr<osg::Program> program(new osg::Program);
+            program->addShader(computeShader);
+
+            found = mPrograms.insert(std::make_pair(std::make_pair(computeShader, nullptr), program)).first;
+        }
+        return found->second;
+    }
+
     osg::ref_ptr<osg::Program> ShaderManager::cloneProgram(const osg::Program* src)
     {
         osg::ref_ptr<osg::Program> program = static_cast<osg::Program*>(src->clone(osg::CopyOp::SHALLOW_COPY));

@@ -28,10 +28,8 @@ namespace MWRender
         mOceanRenderer = std::make_unique<OceanWaterRenderer>(
             mSceneRoot, resourceSystem, mOceanFFT.get());
 
-        // Try to initialize FFT ocean waves (disabled by default due to compute shader compilation issues)
-        // TODO: Re-enable once compute shader issues are resolved
-        // setFFTOceanEnabled(true);
-        setFFTOceanEnabled(false);  // Force simple Gerstner shaders for now
+        // Initialize FFT ocean waves (compute shader issues have been resolved)
+        setFFTOceanEnabled(true);
 
         Log(Debug::Info) << "WaterManager initialized with legacy water and "
                          << (mFFTOceanEnabled ? "FFT" : "simple Gerstner") << " ocean system";

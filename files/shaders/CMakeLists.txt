@@ -71,10 +71,12 @@ set(SHADER_FILES
     core/ripples_simulate.comp
     core/gui.frag
     core/gui.vert
-    core/ocean/fft_update_spectrum.comp
-    core/ocean/fft_butterfly.comp
-    core/ocean/fft_generate_displacement.comp
-    core/ocean/fft_update_foam.comp
+    core/ocean/spectrum_compute.comp
+    core/ocean/spectrum_modulate.comp
+    core/ocean/fft_butterfly_factors.comp
+    core/ocean/fft_stockham.comp
+    core/ocean/fft_transpose.comp
+    core/ocean/fft_unpack.comp
 )
 
 copy_all_resource_files(${CMAKE_CURRENT_SOURCE_DIR} ${OPENMW_RESOURCES_ROOT} ${DDIRRELATIVE} "${SHADER_FILES}")
