@@ -17,7 +17,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 layout(binding = 0, rgba16f) restrict writeonly uniform image2D spectrum;
 
 // Uniforms (converted from push constants)
-uniform ivec2 uSeed;
+uniform vec2 uSeed;  // OSG doesn't support Vec2i, so we use Vec2f and convert
 uniform vec2 uTileLength;
 uniform float uAlpha;
 uniform float uPeakFrequency;
@@ -110,7 +110,7 @@ vec2 get_spectrum_amplitude(in ivec2 id, in ivec2 map_size) {
     float w_norm = dispersion[1] / k * dk.x*dk.y;
     float s = TMA_spectrum(w, uPeakFrequency, uAlpha);
     float d = mix(0.5/PI, hasselmann_directional_spread(w, uPeakFrequency, uWindSpeed, theta), 1.0 - uSpread) * exp(-(1.0-uDetail)*(1.0-uDetail) * k*k);
-    return gaussian(hash(uvec2(id + uSeed))) * sqrt(2.0 * s * d * w_norm);
+    return gaussian(hash(uvec2(id + ivec2(uSeed)))) * sqrt(2.0 * s * d * w_norm);
 }
 
 void main() {

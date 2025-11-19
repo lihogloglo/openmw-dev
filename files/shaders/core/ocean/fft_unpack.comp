@@ -16,7 +16,7 @@ layout(binding = 0, rgba16f) restrict writeonly uniform image2D displacement_map
 layout(binding = 1, rgba16f) restrict uniform image2D normal_map; // Read-write for foam persistence
 
 // Input: FFT data buffer
-layout(std430, binding = 2) restrict readonly buffer FFTBuffer {
+layout(std430, binding = 2) readonly buffer FFTBuffer {
     vec2 data[]; // map_size x map_size x num_spectra x 2
 };
 

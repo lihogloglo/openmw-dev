@@ -354,14 +354,31 @@ namespace Ocean
                     Log(Debug::Error) << "[OCEAN FFT] Program '" << name << "' is null";
                     return false;
                 }
+
+                // Try to compile the program if not already compiled
+                program->compileGLObjects(*state);
+
+                // Get individual shader logs
+                const osg::Program::ShaderList& shaders = program->getShaders();
+                for (unsigned int i = 0; i < shaders.size(); ++i)
+                {
+                    osg::Shader* shader = shaders[i].get();
+                    std::string shaderInfoLog;
+                    if (shader && shader->getGlShaderInfoLog(contextID, shaderInfoLog) && !shaderInfoLog.empty())
+                    {
+                        Log(Debug::Error) << "[OCEAN FFT] Shader '" << name << "' info log:\n" << shaderInfoLog;
+                    }
+                }
+
+                // Check program link status
                 osg::Program::PerContextProgram* pcp = program->getPCP(*state);
                 if (!pcp)
                 {
-                    Log(Debug::Error) << "[OCEAN FFT] Shader program '" << name << "' failed to compile";
-                    std::string infoLog;
-                    if (program->getGlProgramInfoLog(contextID, infoLog) && !infoLog.empty())
+                    Log(Debug::Error) << "[OCEAN FFT] Shader program '" << name << "' failed to compile/link";
+                    std::string programInfoLog;
+                    if (program->getGlProgramInfoLog(contextID, programInfoLog) && !programInfoLog.empty())
                     {
-                        Log(Debug::Error) << "[OCEAN FFT] Program info log:\n" << infoLog;
+                        Log(Debug::Error) << "[OCEAN FFT] Program link log:\n" << programInfoLog;
                     }
                     return false;
                 }
