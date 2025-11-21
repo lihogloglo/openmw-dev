@@ -18,10 +18,12 @@
 #include <QAbstractProxyModel>
 
 #include "cellcoordinates.hpp"
+#include "data.hpp"
 #include "idtable.hpp"
 #include "idtree.hpp"
 #include "nestedtablewrapper.hpp"
 #include "pathgrid.hpp"
+#include "refcollection.hpp"
 
 CSMWorld::TouchCommand::TouchCommand(IdTable& table, const std::string& id, QUndoCommand* parent)
     : QUndoCommand(parent)
@@ -551,4 +553,138 @@ CSMWorld::NestedTableStoring::~NestedTableStoring()
 const CSMWorld::NestedTableWrapperBase& CSMWorld::NestedTableStoring::getOld() const
 {
     return *mOld;
+}
+
+// Copy/Cut/Paste commands
+
+CSMWorld::CopyCommand::CopyCommand(
+    Data& data, const std::vector<std::string>& ids, UniversalId::Type type, QUndoCommand* parent)
+    : QUndoCommand(parent)
+    , mData(data)
+    , mIds(ids)
+    , mType(type)
+{
+    if (ids.size() == 1)
+        setText(("Copy record " + ids[0]).c_str());
+    else
+        setText(("Copy " + std::to_string(ids.size()) + " records").c_str());
+}
+
+void CSMWorld::CopyCommand::redo()
+{
+    mData.copyToClipboard(mIds, mType, false);
+}
+
+void CSMWorld::CopyCommand::undo()
+{
+    // Copy doesn't modify data, so nothing to undo
+    // However, we clear the clipboard to maintain consistency
+    mData.clearClipboard();
+}
+
+CSMWorld::CutCommand::CutCommand(
+    Data& data, IdTable& table, const std::vector<std::string>& ids, UniversalId::Type type, QUndoCommand* parent)
+    : QUndoCommand(parent)
+{
+    if (ids.size() == 1)
+        setText(("Cut record " + ids[0]).c_str());
+    else
+        setText(("Cut " + std::to_string(ids.size()) + " records").c_str());
+
+    // Create child commands: copy first, then delete
+    new CopyCommand(data, ids, type, this);
+
+    for (const std::string& id : ids)
+    {
+        new DeleteCommand(table, id, type, this);
+    }
+}
+
+void CSMWorld::CutCommand::redo()
+{
+    // Execute all child commands (copy + deletes)
+    QUndoCommand::redo();
+}
+
+void CSMWorld::CutCommand::undo()
+{
+    // Undo all child commands in reverse order
+    QUndoCommand::undo();
+}
+
+CSMWorld::PasteCommand::PasteCommand(Data& data, IdTable& table, UniversalId::Type type, QUndoCommand* parent)
+    : QUndoCommand(parent)
+    , mData(data)
+    , mTable(table)
+    , mType(type)
+{
+    const std::vector<std::unique_ptr<RecordBase>>& clipboard = mData.getClipboard();
+    if (clipboard.size() == 1)
+        setText("Paste record");
+    else
+        setText(("Paste " + std::to_string(clipboard.size()) + " records").c_str());
+}
+
+void CSMWorld::PasteCommand::redo()
+{
+    const std::vector<std::unique_ptr<RecordBase>>& clipboard = mData.getClipboard();
+
+    if (clipboard.empty())
+        return;
+
+    // First call: generate new IDs
+    if (mPastedIds.empty())
+    {
+        for (size_t i = 0; i < clipboard.size(); ++i)
+        {
+            // Generate a unique ID for the pasted record
+            std::string newId;
+
+            // For references, use RefCollection to generate proper IDs
+            if (mType == UniversalId::Type_Reference || mType == UniversalId::Type_Referenceable)
+            {
+                RefCollection& refs = mData.getReferences();
+                newId = refs.getNewId();
+            }
+            else
+            {
+                // For other types, append "_copy" and a number if needed
+                std::string baseId = "copy";
+                int copyNum = 1;
+                do
+                {
+                    newId = baseId + "_" + std::to_string(copyNum++);
+                } while (mTable.getModelIndex(newId, 0).isValid());
+            }
+
+            mPastedIds.push_back(newId);
+        }
+    }
+
+    // Clone and add records (works for both first call and redo)
+    for (size_t i = 0; i < clipboard.size() && i < mPastedIds.size(); ++i)
+    {
+        std::unique_ptr<RecordBase> clone = clipboard[i]->clone();
+        mTable.setRecord(mPastedIds[i], std::move(clone), mType);
+    }
+
+    // If this was a cut operation, clear the clipboard (only on first redo)
+    if (mData.isClipboardCut() && mPastedIds.size() == clipboard.size())
+    {
+        mData.clearClipboard();
+    }
+}
+
+void CSMWorld::PasteCommand::undo()
+{
+    // Remove all pasted records
+    for (const std::string& id : mPastedIds)
+    {
+        int row = mTable.getModelIndex(id, 0).row();
+        if (row >= 0)
+        {
+            mTable.removeRow(row);
+        }
+    }
+    // Don't clear mPastedIds - we need them for redo
 }

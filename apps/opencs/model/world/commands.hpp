@@ -320,6 +320,50 @@ namespace CSMWorld
 
         void undo() override;
     };
+
+    // Forward declaration
+    class Data;
+
+    /// \brief Copy records to clipboard
+    class CopyCommand : public QUndoCommand
+    {
+        Data& mData;
+        std::vector<std::string> mIds;
+        UniversalId::Type mType;
+
+    public:
+        CopyCommand(
+            Data& data, const std::vector<std::string>& ids, UniversalId::Type type, QUndoCommand* parent = nullptr);
+
+        void redo() override;
+        void undo() override;
+    };
+
+    /// \brief Cut records (copy + delete)
+    class CutCommand : public QUndoCommand
+    {
+    public:
+        CutCommand(Data& data, IdTable& table, const std::vector<std::string>& ids, UniversalId::Type type,
+            QUndoCommand* parent = nullptr);
+
+        void redo() override;
+        void undo() override;
+    };
+
+    /// \brief Paste records from clipboard
+    class PasteCommand : public QUndoCommand
+    {
+        Data& mData;
+        IdTable& mTable;
+        UniversalId::Type mType;
+        std::vector<std::string> mPastedIds;
+
+    public:
+        PasteCommand(Data& data, IdTable& table, UniversalId::Type type, QUndoCommand* parent = nullptr);
+
+        void redo() override;
+        void undo() override;
+    };
 }
 
 #endif
