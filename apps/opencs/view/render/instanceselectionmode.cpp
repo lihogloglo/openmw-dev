@@ -50,9 +50,15 @@ namespace CSVRender
         , mParentNode(cellNode)
     {
         mSelectSame = new QAction("Extend selection to instances with same object ID", this);
+        mCopySelection = new QAction("Copy selected instances", this);
+        mCutSelection = new QAction("Cut selected instances", this);
+        mPasteSelection = new QAction("Paste instances", this);
         mDeleteSelection = new QAction("Delete selected instances", this);
 
         connect(mSelectSame, &QAction::triggered, this, &InstanceSelectionMode::selectSame);
+        connect(mCopySelection, &QAction::triggered, this, &InstanceSelectionMode::copySelection);
+        connect(mCutSelection, &QAction::triggered, this, &InstanceSelectionMode::cutSelection);
+        connect(mPasteSelection, &QAction::triggered, this, &InstanceSelectionMode::pasteSelection);
         connect(mDeleteSelection, &QAction::triggered, this, &InstanceSelectionMode::deleteSelection);
     }
 
@@ -409,6 +415,19 @@ namespace CSVRender
             SelectionMode::createContextMenu(menu);
 
             menu->addAction(mSelectSame);
+            menu->addSeparator();
+
+            // Copy/Cut/Paste actions
+            menu->addAction(mCopySelection);
+            menu->addAction(mCutSelection);
+
+            // Show paste action if clipboard has data
+            if (getWorldspaceWidget().getDocument().getData().hasClipboard())
+            {
+                menu->addAction(mPasteSelection);
+            }
+
+            menu->addSeparator();
             menu->addAction(mDeleteSelection);
         }
 
@@ -434,5 +453,62 @@ namespace CSVRender
 
             getWorldspaceWidget().getDocument().getUndoStack().push(command);
         }
+    }
+
+    void InstanceSelectionMode::copySelection()
+    {
+        std::vector<osg::ref_ptr<TagBase>> selection = getWorldspaceWidget().getSelection(Mask_Reference);
+
+        if (selection.empty())
+            return;
+
+        // Collect reference IDs from selection
+        std::vector<std::string> ids;
+        for (auto& tag : selection)
+        {
+            ids.push_back(static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId());
+        }
+
+        // Create copy command
+        getWorldspaceWidget().getDocument().getUndoStack().push(
+            new CSMWorld::CopyCommand(getWorldspaceWidget().getDocument().getData(), ids,
+                CSMWorld::UniversalId::Type_Reference));
+    }
+
+    void InstanceSelectionMode::cutSelection()
+    {
+        std::vector<osg::ref_ptr<TagBase>> selection = getWorldspaceWidget().getSelection(Mask_Reference);
+
+        if (selection.empty())
+            return;
+
+        // Collect reference IDs from selection
+        std::vector<std::string> ids;
+        for (auto& tag : selection)
+        {
+            ids.push_back(static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId());
+        }
+
+        CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
+            *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
+
+        // Create cut command (copy + delete)
+        getWorldspaceWidget().getDocument().getUndoStack().push(new CSMWorld::CutCommand(
+            getWorldspaceWidget().getDocument().getData(), referencesTable, ids, CSMWorld::UniversalId::Type_Reference));
+    }
+
+    void InstanceSelectionMode::pasteSelection()
+    {
+        if (!getWorldspaceWidget().getDocument().getData().hasClipboard())
+            return;
+
+        CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
+            *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
+
+        // Create paste command
+        // Note: Pasted instances will appear at same position as originals
+        // TODO: Implement position offset for pasted instances
+        getWorldspaceWidget().getDocument().getUndoStack().push(new CSMWorld::PasteCommand(
+            getWorldspaceWidget().getDocument().getData(), referencesTable, CSMWorld::UniversalId::Type_Reference));
     }
 }

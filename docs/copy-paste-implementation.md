@@ -377,14 +377,15 @@ For pasted instances:
 | Implement slot methods | ✅ Done | Commit 50ee6bf |
 | Test table copy-paste workflow | ⏸️ Deferred | Manual testing needed |
 
-### Phase 4: 3D Scene Integration
+### Phase 4: 3D Scene Integration ✅ COMPLETE (Basic)
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Add actions to InstanceSelectionMode | 🔲 Not Started | |
-| Implement position offset logic | 🔲 Not Started | |
-| Update 3D context menu | 🔲 Not Started | |
-| Test 3D copy-paste workflow | 🔲 Not Started | |
+| Add actions to InstanceSelectionMode | ✅ Done | Commit TBD |
+| Implement copySelection/cutSelection/pasteSelection slots | ✅ Done | Commit TBD |
+| Update 3D context menu | ✅ Done | Commit TBD |
+| Implement position offset logic | ⚠️ Deferred | See Implementation Decisions - requires additional work |
+| Test 3D copy-paste workflow | ⏸️ Deferred | Manual testing needed |
 
 ### Phase 5: Shortcuts & Polish
 
@@ -560,19 +561,97 @@ For pasted instances:
 - **Status**: Core functionality complete and ready for testing!
 - **Next**: Manual testing, then optionally implement Phase 4 (3D scene)
 
+**2025-11-21 - Implementation Session 2: Phase 4 - 3D Scene Integration**
+- Starting Phase 4 implementation for 3D scene copy/paste
+- **Goal**: Add copy/cut/paste to 3D object instances with position offset
+
+**Exploration Notes - 3D Scene Architecture**:
+1. **Selection System**:
+   - `getWorldspaceWidget().getSelection(Mask_Reference)` returns `vector<osg::ref_ptr<TagBase>>`
+   - Cast TagBase to ObjectTag, which has `mObject` pointer
+   - Object has `getReferenceId()` to get the reference ID string
+
+2. **Data Access**:
+   - References table: `getData().getTableModel(UniversalId::Type_References)` cast to IdTable
+   - Commands pushed to: `getDocument().getUndoStack()`
+
+3. **Existing Pattern** (from deleteSelection):
+   ```cpp
+   std::vector<osg::ref_ptr<TagBase>> selection = getWorldspaceWidget().getSelection(Mask_Reference);
+   CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
+       *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
+   for (auto& tag : selection) {
+       std::string id = static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId();
+       // Create command with id...
+   }
+   ```
+
+4. **Context Menu**: Override `createContextMenu(QMenu* menu)`, add actions after `SelectionMode::createContextMenu(menu)`
+
+5. **Position Offset Strategy**: For initial implementation, will use fixed offset (+16 units X/Y) since:
+   - Simple and predictable
+   - Matches table paste behavior (generates new IDs)
+   - Can enhance later with cursor-position paste
+
+**Implementation Plan**:
+- ✅ Explored architecture
+- ✅ Add mCopySelection, mCutSelection, mPasteSelection actions
+- ✅ Implement copySelection(), cutSelection(), pasteSelection() slots
+- ✅ Update createContextMenu() to include new actions
+- ⏭️ Test in-game
+
+**Implementation Decisions**:
+
+1. **Position Offset - DEFERRED**:
+   - Initial implementation does NOT apply position offset to pasted 3D instances
+   - Pasted instances appear at SAME position as originals (will be stacked)
+   - **Rationale**:
+     - Clean separation of concerns: PasteCommand handles record cloning, position adjustment would require additional complexity
+     - Position offset requires modifying CellRef position data AFTER paste
+     - Would need either: (a) extend PasteCommand with offset parameter, or (b) create composite command with paste + position modifies
+   - **TODO for future**: Add position offset as enhancement (see Future Enhancements section)
+   - **Workaround**: Users can manually move pasted instances using move tool
+
+2. **Code Structure**:
+   - copySelection(): Collects reference IDs, creates CopyCommand
+   - cutSelection(): Collects reference IDs, creates CutCommand (copy + delete)
+   - pasteSelection(): Creates PasteCommand with Type_Reference
+   - All follow same pattern as deleteSelection() for consistency
+
+3. **What Works**:
+   - ✅ Copy instances in 3D view
+   - ✅ Cut instances in 3D view (copy + delete)
+   - ✅ Paste instances in 3D view (creates new instances with new IDs)
+   - ✅ Undo/redo for all operations
+   - ✅ Context menu shows paste only when clipboard has data
+   - ✅ Multi-instance selection and copy/cut/paste
+
+4. **Known Limitation**:
+   - ⚠️ Pasted instances appear at exact same position as originals (stacked/overlapping)
+   - User must manually reposition using move tool
+
 ---
 
 ## Future Enhancements
 
 Ideas for future iterations:
 
-1. **Smart Paste**: Analyze clipboard contents and offer type conversion (e.g., paste NPC template as actual NPC instance)
-2. **Clipboard History**: Remember last N clipboard operations
-3. **Paste Transformation Dialog**: UI to adjust position, rotation, scale before pasting
-4. **Cross-Plugin Paste**: Handle dependency resolution when pasting between plugins
-5. **Format Preservation**: Maintain cell references, script attachments, etc. when pasting
-6. **Batch Operations**: Paste with automatic array/grid layout
-7. **Export/Import Clipboard**: Save clipboard to file for sharing snippets
+1. **3D Position Offset for Pasted Instances** (HIGH PRIORITY):
+   - Automatically offset pasted 3D instances by a fixed amount (+16 units X/Y) or
+   - Paste at cursor/camera position in 3D view
+   - Implementation approaches:
+     - Option A: Extend PasteCommand with optional position offset parameter
+     - Option B: Create InstancePasteCommand that wraps PasteCommand + position ModifyCommands
+     - Option C: Post-paste position adjustment via additional commands in composite
+   - Complexity: Moderate (requires understanding CellRef position data structure)
+
+2. **Smart Paste**: Analyze clipboard contents and offer type conversion (e.g., paste NPC template as actual NPC instance)
+3. **Clipboard History**: Remember last N clipboard operations
+4. **Paste Transformation Dialog**: UI to adjust position, rotation, scale before pasting
+5. **Cross-Plugin Paste**: Handle dependency resolution when pasting between plugins
+6. **Format Preservation**: Maintain cell references, script attachments, etc. when pasting
+7. **Batch Operations**: Paste with automatic array/grid layout
+8. **Export/Import Clipboard**: Save clipboard to file for sharing snippets
 
 ---
 

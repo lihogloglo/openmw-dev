@@ -69,6 +69,9 @@ namespace CSVRender
 
         QAction* mDeleteSelection;
         QAction* mSelectSame;
+        QAction* mCopySelection;
+        QAction* mCutSelection;
+        QAction* mPasteSelection;
         osg::Vec3d mDragStart;
         osg::Group* mParentNode;
         osg::ref_ptr<osg::PositionAttitudeTransform> mBaseNode;
@@ -77,6 +80,9 @@ namespace CSVRender
 
         void deleteSelection();
         void selectSame();
+        void copySelection();
+        void cutSelection();
+        void pasteSelection();
     };
 }
 
