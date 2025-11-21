@@ -438,7 +438,7 @@ namespace MWRender
         }
     };
 
-    Water::Water(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
+    WaterManager::WaterManager(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
         osgUtil::IncrementalCompileOperation* ico)
         : mRainSettingsUpdater(nullptr)
         , mParent(parent)
@@ -451,7 +451,11 @@ namespace MWRender
         , mShowWorld(true)
         , mCullCallback(nullptr)
         , mShaderWaterStateSetUpdater(nullptr)
+        , mUseOcean(false)
     {
+        mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
+        // mUseOcean = true; // Uncomment to enable ocean by default when ready
+
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
 
         mWaterGeom = SceneUtil::createWaterGeometry(Constants::CellSizeInUnits * 150, 40, 900);
@@ -482,7 +486,7 @@ namespace MWRender
             ico->add(mWaterNode);
     }
 
-    void Water::setCullCallback(osg::Callback* callback)
+    void WaterManager::setCullCallback(osg::Callback* callback)
     {
         if (mCullCallback)
         {
@@ -505,7 +509,7 @@ namespace MWRender
         }
     }
 
-    void Water::updateWaterMaterial()
+    void WaterManager::updateWaterMaterial()
     {
         if (mShaderWaterStateSetUpdater)
         {
@@ -570,12 +574,12 @@ namespace MWRender
         updateVisible();
     }
 
-    osg::Vec3d Water::getPosition() const
+    osg::Vec3d WaterManager::getPosition() const
     {
         return mWaterNode->getPosition();
     }
 
-    void Water::createSimpleWaterStateSet(osg::Node* node, float alpha)
+    void WaterManager::createSimpleWaterStateSet(osg::Node* node, float alpha)
     {
         osg::ref_ptr<osg::StateSet> stateset = SceneUtil::createSimpleWaterStateSet(alpha, MWRender::RenderBin_Water);
 
@@ -622,7 +626,7 @@ namespace MWRender
     class ShaderWaterStateSetUpdater : public SceneUtil::StateSetUpdater
     {
     public:
-        ShaderWaterStateSetUpdater(Water* water, Reflection* reflection, Refraction* refraction, Ripples* ripples,
+        ShaderWaterStateSetUpdater(WaterManager* water, Reflection* reflection, Refraction* refraction, Ripples* ripples,
             osg::ref_ptr<osg::Program> program, osg::ref_ptr<osg::Texture2D> normalMap)
             : mWater(water)
             , mReflection(reflection)
@@ -680,7 +684,7 @@ namespace MWRender
         }
 
     private:
-        Water* mWater;
+        WaterManager* mWater;
         Reflection* mReflection;
         Refraction* mRefraction;
         Ripples* mRipples;
@@ -688,7 +692,7 @@ namespace MWRender
         osg::ref_ptr<osg::Texture2D> mNormalMap;
     };
 
-    void Water::createShaderWaterStateSet(osg::Node* node)
+    void WaterManager::createShaderWaterStateSet(osg::Node* node)
     {
         // use a define map to conditionally compile the shader
         std::map<std::string, std::string> defineMap;
@@ -720,12 +724,12 @@ namespace MWRender
         node->addCullCallback(mShaderWaterStateSetUpdater);
     }
 
-    void Water::processChangedSettings(const Settings::CategorySettingVector& settings)
+    void WaterManager::processChangedSettings(const Settings::CategorySettingVector& settings)
     {
         updateWaterMaterial();
     }
 
-    Water::~Water()
+    WaterManager::~WaterManager()
     {
         mParent->removeChild(mWaterNode);
 
@@ -747,7 +751,7 @@ namespace MWRender
         }
     }
 
-    void Water::listAssetsToPreload(std::vector<VFS::Path::Normalized>& textures)
+    void WaterManager::listAssetsToPreload(std::vector<VFS::Path::Normalized>& textures)
     {
         const int frameCount = std::clamp(Fallback::Map::getInt("Water_SurfaceFrameCount"), 0, 320);
         std::string_view texture = Fallback::Map::getString("Water_SurfaceTexture");
@@ -759,13 +763,15 @@ namespace MWRender
         }
     }
 
-    void Water::setEnabled(bool enabled)
+    void WaterManager::setEnabled(bool enabled)
     {
         mEnabled = enabled;
+        if (mUseOcean && mOcean)
+            mOcean->setEnabled(enabled);
         updateVisible();
     }
 
-    void Water::changeCell(const MWWorld::CellStore* store)
+    void WaterManager::changeCell(const MWWorld::CellStore* store)
     {
         bool isInterior = !store->getCell()->isExterior();
         bool wasInterior = mInterior;
@@ -784,9 +790,12 @@ namespace MWRender
             mReflection->setInterior(mInterior);
     }
 
-    void Water::setHeight(const float height)
+    void WaterManager::setHeight(const float height)
     {
         mTop = height;
+
+        if (mUseOcean && mOcean)
+            mOcean->setHeight(height);
 
         mSimulation->setWaterHeight(height);
 
@@ -800,20 +809,23 @@ namespace MWRender
             mRefraction->setWaterLevel(mTop);
     }
 
-    void Water::setRainIntensity(float rainIntensity)
+    void WaterManager::setRainIntensity(float rainIntensity)
     {
         if (mRainSettingsUpdater)
             mRainSettingsUpdater->setRainIntensity(rainIntensity);
     }
 
-    void Water::setRainRipplesEnabled(bool enableRipples)
+    void WaterManager::setRainRipplesEnabled(bool enableRipples)
     {
         if (mRainSettingsUpdater)
             mRainSettingsUpdater->setRipplesEnabled(enableRipples);
     }
 
-    void Water::update(float dt, bool paused)
+    void WaterManager::update(float dt, bool paused)
     {
+        if (mUseOcean && mOcean)
+            mOcean->update(dt, paused);
+
         if (!paused)
         {
             mSimulation->update(dt);
@@ -825,7 +837,7 @@ namespace MWRender
         }
     }
 
-    void Water::updateVisible()
+    void WaterManager::updateVisible()
     {
         bool visible = mEnabled && mToggled;
         mWaterNode->setNodeMask(visible ? ~0u : 0u);
@@ -837,55 +849,55 @@ namespace MWRender
             mRipples->setNodeMask(visible ? Mask_RenderToTexture : 0u);
     }
 
-    bool Water::toggle()
+    bool WaterManager::toggle()
     {
         mToggled = !mToggled;
         updateVisible();
         return mToggled;
     }
 
-    bool Water::isUnderwater(const osg::Vec3f& pos) const
+    bool WaterManager::isUnderwater(const osg::Vec3f& pos) const
     {
         return pos.z() < mTop && mToggled && mEnabled;
     }
 
-    osg::Vec3f Water::getSceneNodeCoordinates(int gridX, int gridY)
+    osg::Vec3f WaterManager::getSceneNodeCoordinates(int gridX, int gridY)
     {
         return osg::Vec3f(static_cast<float>(gridX * Constants::CellSizeInUnits + (Constants::CellSizeInUnits / 2)),
             static_cast<float>(gridY * Constants::CellSizeInUnits + (Constants::CellSizeInUnits / 2)), mTop);
     }
 
-    void Water::addEmitter(const MWWorld::Ptr& ptr, float scale, float force)
+    void WaterManager::addEmitter(const MWWorld::Ptr& ptr, float scale, float force)
     {
         mSimulation->addEmitter(ptr, scale, force);
     }
 
-    void Water::removeEmitter(const MWWorld::Ptr& ptr)
+    void WaterManager::removeEmitter(const MWWorld::Ptr& ptr)
     {
         mSimulation->removeEmitter(ptr);
     }
 
-    void Water::updateEmitterPtr(const MWWorld::Ptr& old, const MWWorld::Ptr& ptr)
+    void WaterManager::updateEmitterPtr(const MWWorld::Ptr& old, const MWWorld::Ptr& ptr)
     {
         mSimulation->updateEmitterPtr(old, ptr);
     }
 
-    void Water::emitRipple(const osg::Vec3f& pos)
+    void WaterManager::emitRipple(const osg::Vec3f& pos)
     {
         mSimulation->emitRipple(pos);
     }
 
-    void Water::removeCell(const MWWorld::CellStore* store)
+    void WaterManager::removeCell(const MWWorld::CellStore* store)
     {
         mSimulation->removeCell(store);
     }
 
-    void Water::clearRipples()
+    void WaterManager::clearRipples()
     {
         mSimulation->clear();
     }
 
-    void Water::showWorld(bool show)
+    void WaterManager::showWorld(bool show)
     {
         if (mReflection)
             mReflection->showWorld(show);
