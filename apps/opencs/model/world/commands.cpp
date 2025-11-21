@@ -10,6 +10,7 @@
 #include <apps/opencs/model/world/record.hpp>
 #include <apps/opencs/model/world/universalid.hpp>
 
+#include <components/debug/debuglog.hpp>
 #include <components/esm3/loadland.hpp>
 #include <components/esm3/loadpgrd.hpp>
 #include <components/misc/constants.hpp>
@@ -572,11 +573,18 @@ CSMWorld::CopyCommand::CopyCommand(
 
 void CSMWorld::CopyCommand::redo()
 {
+    Log(Debug::Info) << "CopyCommand::redo - Copying " << mIds.size() << " records to clipboard";
+    for (const auto& id : mIds)
+    {
+        Log(Debug::Info) << "  - ID: " << id;
+    }
     mData.copyToClipboard(mIds, mType, false);
+    Log(Debug::Info) << "CopyCommand::redo - Complete";
 }
 
 void CSMWorld::CopyCommand::undo()
 {
+    Log(Debug::Info) << "CopyCommand::undo - Clearing clipboard";
     // Copy doesn't modify data, so nothing to undo
     // However, we clear the clipboard to maintain consistency
     mData.clearClipboard();
@@ -602,12 +610,15 @@ CSMWorld::CutCommand::CutCommand(
 
 void CSMWorld::CutCommand::redo()
 {
+    Log(Debug::Info) << "CutCommand::redo - Executing cut (copy + delete)";
     // Execute all child commands (copy + deletes)
     QUndoCommand::redo();
+    Log(Debug::Info) << "CutCommand::redo - Complete";
 }
 
 void CSMWorld::CutCommand::undo()
 {
+    Log(Debug::Info) << "CutCommand::undo - Undoing cut";
     // Undo all child commands in reverse order
     QUndoCommand::undo();
 }
@@ -629,12 +640,20 @@ void CSMWorld::PasteCommand::redo()
 {
     const std::vector<std::unique_ptr<RecordBase>>& clipboard = mData.getClipboard();
 
+    Log(Debug::Info) << "PasteCommand::redo - Starting paste operation";
+    Log(Debug::Info) << "  Clipboard size: " << clipboard.size();
+    Log(Debug::Info) << "  Existing pasted IDs: " << mPastedIds.size();
+
     if (clipboard.empty())
+    {
+        Log(Debug::Warning) << "PasteCommand::redo - Clipboard is empty, returning";
         return;
+    }
 
     // First call: generate new IDs
     if (mPastedIds.empty())
     {
+        Log(Debug::Info) << "  Generating new IDs for pasted records";
         for (size_t i = 0; i < clipboard.size(); ++i)
         {
             // Generate a unique ID for the pasted record
@@ -658,12 +677,15 @@ void CSMWorld::PasteCommand::redo()
             }
 
             mPastedIds.push_back(newId);
+            Log(Debug::Info) << "    Generated ID: " << newId;
         }
     }
 
     // Clone and add records (works for both first call and redo)
+    Log(Debug::Info) << "  Cloning and adding records";
     for (size_t i = 0; i < clipboard.size() && i < mPastedIds.size(); ++i)
     {
+        Log(Debug::Info) << "    Pasting as ID: " << mPastedIds[i];
         std::unique_ptr<RecordBase> clone = clipboard[i]->clone();
         mTable.setRecord(mPastedIds[i], std::move(clone), mType);
     }
@@ -671,20 +693,35 @@ void CSMWorld::PasteCommand::redo()
     // If this was a cut operation, clear the clipboard (only on first redo)
     if (mData.isClipboardCut() && mPastedIds.size() == clipboard.size())
     {
+        Log(Debug::Info) << "  Clearing clipboard (was cut operation)";
         mData.clearClipboard();
     }
+
+    Log(Debug::Info) << "PasteCommand::redo - Complete, pasted " << mPastedIds.size() << " records";
 }
 
 void CSMWorld::PasteCommand::undo()
 {
+    Log(Debug::Info) << "PasteCommand::undo - Removing " << mPastedIds.size() << " pasted records";
     // Remove all pasted records
     for (const std::string& id : mPastedIds)
     {
+        Log(Debug::Info) << "  Removing ID: " << id;
         int row = mTable.getModelIndex(id, 0).row();
         if (row >= 0)
         {
             mTable.removeRow(row);
         }
+        else
+        {
+            Log(Debug::Warning) << "    ID not found in table";
+        }
     }
     // Don't clear mPastedIds - we need them for redo
+    Log(Debug::Info) << "PasteCommand::undo - Complete";
+}
+
+const std::vector<std::string>& CSMWorld::PasteCommand::getPastedIds() const
+{
+    return mPastedIds;
 }

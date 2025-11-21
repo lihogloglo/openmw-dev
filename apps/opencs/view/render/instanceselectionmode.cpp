@@ -10,6 +10,8 @@
 #include <apps/opencs/view/render/mask.hpp>
 #include <apps/opencs/view/render/selectionmode.hpp>
 
+#include <components/debug/debuglog.hpp>
+
 #include <osg/Array>
 #include <osg/GL>
 #include <osg/Geometry>
@@ -469,17 +471,25 @@ namespace CSVRender
     {
         std::vector<osg::ref_ptr<TagBase>> selection = getWorldspaceWidget().getSelection(Mask_Reference);
 
+        Log(Debug::Info) << "Copy: Selection size = " << selection.size();
+
         if (selection.empty())
+        {
+            Log(Debug::Warning) << "Copy: No selection, returning";
             return;
+        }
 
         // Collect reference IDs from selection
         std::vector<std::string> ids;
         for (auto& tag : selection)
         {
-            ids.push_back(static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId());
+            std::string id = static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId();
+            ids.push_back(id);
+            Log(Debug::Info) << "Copy: Adding ID " << id;
         }
 
         // Create copy command
+        Log(Debug::Info) << "Copy: Pushing CopyCommand with " << ids.size() << " IDs";
         getWorldspaceWidget().getDocument().getUndoStack().push(
             new CSMWorld::CopyCommand(getWorldspaceWidget().getDocument().getData(), ids,
                 CSMWorld::UniversalId::Type_Reference));
@@ -489,36 +499,70 @@ namespace CSVRender
     {
         std::vector<osg::ref_ptr<TagBase>> selection = getWorldspaceWidget().getSelection(Mask_Reference);
 
+        Log(Debug::Info) << "Cut: Selection size = " << selection.size();
+
         if (selection.empty())
+        {
+            Log(Debug::Warning) << "Cut: No selection, returning";
             return;
+        }
 
         // Collect reference IDs from selection
         std::vector<std::string> ids;
         for (auto& tag : selection)
         {
-            ids.push_back(static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId());
+            std::string id = static_cast<ObjectTag*>(tag.get())->mObject->getReferenceId();
+            ids.push_back(id);
+            Log(Debug::Info) << "Cut: Adding ID " << id;
         }
 
         CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
             *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
 
         // Create cut command (copy + delete)
+        Log(Debug::Info) << "Cut: Pushing CutCommand with " << ids.size() << " IDs";
         getWorldspaceWidget().getDocument().getUndoStack().push(new CSMWorld::CutCommand(
             getWorldspaceWidget().getDocument().getData(), referencesTable, ids, CSMWorld::UniversalId::Type_Reference));
     }
 
     void InstanceSelectionMode::pasteSelection()
     {
+        Log(Debug::Info) << "Paste: Checking clipboard";
+
         if (!getWorldspaceWidget().getDocument().getData().hasClipboard())
+        {
+            Log(Debug::Warning) << "Paste: Clipboard is empty, returning";
             return;
+        }
+
+        const auto& clipboard = getWorldspaceWidget().getDocument().getData().getClipboard();
+        Log(Debug::Info) << "Paste: Clipboard has " << clipboard.size() << " items";
 
         CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
             *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
 
-        // Create paste command
+        // Clear current selection to avoid accumulation bug
+        Log(Debug::Info) << "Paste: Clearing current selection";
+        getWorldspaceWidget().clearSelection(Mask_Reference);
+
+        // Create paste command and store pointer to get pasted IDs later
         // Note: Pasted instances will appear at same position as originals
         // TODO: Implement position offset for pasted instances
-        getWorldspaceWidget().getDocument().getUndoStack().push(new CSMWorld::PasteCommand(
-            getWorldspaceWidget().getDocument().getData(), referencesTable, CSMWorld::UniversalId::Type_Reference));
+        Log(Debug::Info) << "Paste: Pushing PasteCommand";
+        CSMWorld::PasteCommand* pasteCommand = new CSMWorld::PasteCommand(
+            getWorldspaceWidget().getDocument().getData(), referencesTable, CSMWorld::UniversalId::Type_Reference);
+
+        getWorldspaceWidget().getDocument().getUndoStack().push(pasteCommand);
+
+        // After the command is pushed, redo() has been called and pasted IDs are available
+        const std::vector<std::string>& pastedIds = pasteCommand->getPastedIds();
+        Log(Debug::Info) << "Paste: Selecting " << pastedIds.size() << " newly pasted items";
+        for (const auto& id : pastedIds)
+        {
+            Log(Debug::Info) << "  - " << id;
+        }
+
+        // Select the newly pasted items
+        getWorldspaceWidget().selectGroup(pastedIds);
     }
 }

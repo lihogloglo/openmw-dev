@@ -659,6 +659,29 @@ For pasted instances:
 - **Result**: Copy/cut/paste now functional via keyboard in 3D view
 - **Note**: Table view uses CSMPrefs::Shortcut system, 3D view uses QAction::setShortcut (simpler approach)
 
+**2025-11-21 - Session 4: Logging & Selection Management ✅**
+- **User Feedback**: Copy/paste unreliable, pasted items not selected, multi-paste causes selection bug
+- **Solution 1 - Comprehensive Logging**:
+  - Added `<components/debug/debuglog.hpp>` to track all copy/paste operations
+  - Logging in view layer: copySelection/cutSelection/pasteSelection with selection sizes and IDs
+  - Logging in command layer: CopyCommand/CutCommand/PasteCommand redo/undo with detailed state
+  - Logs show: clipboard size, ID generation, record cloning, selection operations
+  - Purpose: Debug reliability issues and understand execution flow
+- **Solution 2 - Selection Management**:
+  - **Problem**: Pasted items weren't selected; multiple pastes accumulated selections
+  - **Fix**: Modified pasteSelection() to manage selection properly:
+    1. Clear current selection before paste (prevents accumulation)
+    2. Store PasteCommand pointer before pushing to undo stack
+    3. After redo() executes, get pasted IDs via new getPastedIds() getter
+    4. Call selectGroup() to select newly pasted items
+  - Added `getPastedIds()` public method to PasteCommand class
+  - Modified: `instanceselectionmode.cpp:544-566`, `commands.hpp:367-368`, `commands.cpp:724-727`
+- **Result**:
+  - Pasted items automatically selected for immediate manipulation
+  - No orphaned selections from multiple pastes
+  - Better user feedback showing what was pasted
+  - Comprehensive logging available for debugging
+
 ---
 
 ## Future Enhancements
