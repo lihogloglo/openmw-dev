@@ -752,6 +752,7 @@ void CSVRender::PagedWorldspaceWidget::clearSelection(int elementMask)
 
     flagAsModified();
     mSelectionMarker->detachMarker();
+    mSelectionMarker->clearSelectionHistory();
 }
 
 void CSVRender::PagedWorldspaceWidget::invertSelection(int elementMask)

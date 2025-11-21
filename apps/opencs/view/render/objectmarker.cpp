@@ -232,6 +232,11 @@ namespace CSVRender
             mSelectionHistory.end());
     }
 
+    void ObjectMarker::clearSelectionHistory()
+    {
+        mSelectionHistory.clear();
+    }
+
     void ObjectMarker::updateSelectionMarker(const std::string& refId)
     {
         if (mSelectionHistory.empty())

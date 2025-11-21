@@ -63,6 +63,8 @@ namespace CSVRender
 
         void addToSelectionHistory(const std::string& refId, bool update = true);
 
+        void clearSelectionHistory();
+
         void updateSelectionMarker(const std::string& refId = std::string());
 
         void resetMarkerHighlight();
