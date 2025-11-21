@@ -541,11 +541,28 @@ namespace CSVRender
         CSMWorld::IdTable& referencesTable = dynamic_cast<CSMWorld::IdTable&>(
             *getWorldspaceWidget().getDocument().getData().getTableModel(CSMWorld::UniversalId::Type_References));
 
-        // Create paste command
+        // Clear current selection to avoid accumulation bug
+        Log(Debug::Info) << "Paste: Clearing current selection";
+        getWorldspaceWidget().clearSelection(Mask_Reference);
+
+        // Create paste command and store pointer to get pasted IDs later
         // Note: Pasted instances will appear at same position as originals
         // TODO: Implement position offset for pasted instances
         Log(Debug::Info) << "Paste: Pushing PasteCommand";
-        getWorldspaceWidget().getDocument().getUndoStack().push(new CSMWorld::PasteCommand(
-            getWorldspaceWidget().getDocument().getData(), referencesTable, CSMWorld::UniversalId::Type_Reference));
+        CSMWorld::PasteCommand* pasteCommand = new CSMWorld::PasteCommand(
+            getWorldspaceWidget().getDocument().getData(), referencesTable, CSMWorld::UniversalId::Type_Reference);
+
+        getWorldspaceWidget().getDocument().getUndoStack().push(pasteCommand);
+
+        // After the command is pushed, redo() has been called and pasted IDs are available
+        const std::vector<std::string>& pastedIds = pasteCommand->getPastedIds();
+        Log(Debug::Info) << "Paste: Selecting " << pastedIds.size() << " newly pasted items";
+        for (const auto& id : pastedIds)
+        {
+            Log(Debug::Info) << "  - " << id;
+        }
+
+        // Select the newly pasted items
+        getWorldspaceWidget().selectGroup(pastedIds);
     }
 }

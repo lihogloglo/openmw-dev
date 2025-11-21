@@ -720,3 +720,8 @@ void CSMWorld::PasteCommand::undo()
     // Don't clear mPastedIds - we need them for redo
     Log(Debug::Info) << "PasteCommand::undo - Complete";
 }
+
+const std::vector<std::string>& CSMWorld::PasteCommand::getPastedIds() const
+{
+    return mPastedIds;
+}

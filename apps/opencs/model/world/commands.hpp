@@ -363,6 +363,9 @@ namespace CSMWorld
 
         void redo() override;
         void undo() override;
+
+        /// Get the IDs of pasted records (available after redo() is called)
+        const std::vector<std::string>& getPastedIds() const;
     };
 }
 
