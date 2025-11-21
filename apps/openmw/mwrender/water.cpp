@@ -767,10 +767,15 @@ namespace MWRender
     void WaterManager::setEnabled(bool enabled)
     {
         mEnabled = enabled;
-        if (mUseOcean && mOcean && !mInterior)
-            mOcean->setEnabled(enabled);
-        if (mLake && mInterior)
-            mLake->setEnabled(enabled);
+        
+        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        
+        if (mUseOcean && mOcean)
+            mOcean->setEnabled(enabled && isOcean);
+            
+        if (mLake)
+            mLake->setEnabled(enabled && !isOcean);
+            
         updateVisible();
     }
 
@@ -780,17 +785,18 @@ namespace MWRender
         bool wasInterior = mInterior;
         if (!isInterior)
         {
+            // Exterior
             mWaterNode->setPosition(
                 getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
             
-            // Exterior: Use Ocean if enabled, otherwise fallback or Lake?
-            // For now, let's assume Ocean is for exterior with water.
+            bool isOcean = (std::abs(mTop) < 1.0f);
+            
             if (mUseOcean && mOcean)
-            {
-                mOcean->setEnabled(mEnabled);
-                if (mLake) mLake->setEnabled(false);
-            }
+                mOcean->setEnabled(mEnabled && isOcean);
+                
+            if (mLake)
+                mLake->setEnabled(mEnabled && !isOcean);
         }
         else
         {
@@ -811,12 +817,19 @@ namespace MWRender
     void WaterManager::setHeight(const float height)
     {
         mTop = height;
+        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
 
         if (mUseOcean && mOcean)
+        {
             mOcean->setHeight(height);
+            mOcean->setEnabled(mEnabled && isOcean);
+        }
             
         if (mLake)
+        {
             mLake->setHeight(height);
+            mLake->setEnabled(mEnabled && !isOcean);
+        }
 
         mSimulation->setWaterHeight(height);
 
@@ -828,6 +841,8 @@ namespace MWRender
             mReflection->setWaterLevel(mTop);
         if (mRefraction)
             mRefraction->setWaterLevel(mTop);
+            
+        updateVisible();
     }
 
     void WaterManager::setRainIntensity(float rainIntensity)
@@ -844,10 +859,12 @@ namespace MWRender
 
     void WaterManager::update(float dt, bool paused)
     {
-        if (mUseOcean && mOcean && mEnabled && !mInterior)
+        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        
+        if (mUseOcean && mOcean && mEnabled && isOcean)
             mOcean->update(dt, paused);
             
-        if (mLake && mEnabled && mInterior)
+        if (mLake && mEnabled && !isOcean)
             mLake->update(dt, paused);
 
         if (!paused)
@@ -864,7 +881,12 @@ namespace MWRender
     void WaterManager::updateVisible()
     {
         bool visible = mEnabled && mToggled;
-        mWaterNode->setNodeMask(visible ? ~0u : 0u);
+
+        // Hide old water geometry when using Ocean (exterior sea level) or Lake (interior or high altitude)
+        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        bool useNewWater = (mUseOcean && isOcean) || (mLake && !isOcean);
+        mWaterNode->setNodeMask((visible && !useNewWater) ? ~0u : 0u);
+
         if (mRefraction)
             mRefraction->setNodeMask(visible ? Mask_RenderToTexture : 0u);
         if (mReflection)

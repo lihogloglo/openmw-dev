@@ -63,6 +63,16 @@ set(SHADER_FILES
     compatibility/bs/nolighting.frag
     compatibility/luminance/resolve.frag
     compatibility/luminance/luminance.frag
+    compatibility/lake.vert
+    compatibility/lake.frag
+    compatibility/ocean.vert
+    compatibility/ocean.frag
+    lib/ocean/spectrum_compute.comp
+    lib/ocean/fft_compute.comp
+    lib/ocean/fft_butterfly.comp
+    lib/ocean/spectrum_modulate.comp
+    lib/ocean/transpose.comp
+    lib/ocean/fft_unpack.comp
     core/ripples_blobber.comp
     core/ripples_simulate.comp
     core/gui.frag

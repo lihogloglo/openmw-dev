@@ -1,48 +1,47 @@
-#version 430 compatibility
+#version 330 compatibility
 
-layout(binding = 0) uniform sampler2DArray displacements;
+#include "lib/core/vertex.h.glsl"
 
-uniform int num_cascades;
-uniform vec4 map_scales[4]; // xy = scale, zw = unused
-uniform float time;
+varying vec4 position;
+varying float linearDepth;
+varying vec3 worldPos;
+varying vec2 texCoord;
 
-out vec3 vWorldPos;
-out vec3 vNormal;
-out vec2 vUV;
-out float vFoam;
+#include "shadows_vertex.glsl"
+#include "lib/view/depth.glsl"
 
-void main() {
-    vUV = gl_Vertex.xy; // Assuming plane is on XY or XZ. OpenMW water is usually Z-up.
-    // OpenMW passes vertex in object space.
-    // Water is usually a grid.
-    
-    vec4 worldPos = gl_ModelViewMatrix * gl_Vertex; // Wait, ModelView transforms to View space.
-    // We want World space for the FFT lookup usually.
-    // OpenMW's water.vert uses: varying vec3 worldPos; ... worldPos = (gl_ModelViewMatrixInverse * gl_ModelViewMatrix * gl_Vertex).xyz;
-    // effectively gl_Vertex if model matrix is identity?
-    // Actually, OpenMW water is a separate drawable.
-    
-    vec3 pos = gl_Vertex.xyz;
-    vec3 total_displacement = vec3(0.0);
-    float total_foam = 0.0;
-    
-    for (int i = 0; i < num_cascades; ++i) {
-        vec2 uv = pos.xy * map_scales[i].x; // Scaling
-        // Sample displacement
-        // We need to wrap UVs.
-        vec3 disp = texture(displacements, vec3(uv, float(i))).xyz;
-        total_displacement += disp;
-        
-        // Foam is usually stored in alpha or separate channel
-        // In our unpack shader: imageStore(displacement_map, id, vec4(hx, hy, hz, 0) * sign_shift);
-        // So displacement map has 0 in alpha.
-        // Normal map has foam in alpha.
+uniform vec3 nodePosition;
+uniform sampler2DArray displacementMap;
+uniform int numCascades;
+uniform vec4 mapScales[4]; // xy = scale for each cascade
+
+void main(void)
+{
+    position = gl_Vertex;
+    texCoord = gl_MultiTexCoord0.xy;
+
+    // Apply FFT displacement
+    vec3 totalDisplacement = vec3(0.0);
+
+    // Sample displacement from cascades
+    // Note: In a full implementation, we'd sample all cascades and blend them
+    // For now, simplified version
+    vec3 vertPos = position.xyz;
+
+    // Displacement sampling
+    for (int i = 0; i < numCascades && i < 4; ++i) {
+        vec2 uv = vertPos.xy * mapScales[i].x;
+        vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
+        totalDisplacement += disp;
     }
-    
-    pos += total_displacement;
-    
-    vWorldPos = pos;
-    gl_Position = gl_ModelViewProjectionMatrix * vec4(pos, 1.0);
-    
-    // We'll sample normals in fragment shader for better detail
+    vertPos += totalDisplacement;
+
+    worldPos = vertPos + nodePosition;
+
+    gl_Position = modelToClip(vec4(vertPos, 1.0));
+
+    vec4 viewPos = modelToView(vec4(vertPos, 1.0));
+    linearDepth = getLinearDepth(gl_Position.z, viewPos.z);
+
+    setupShadowCoords(viewPos, normalize((gl_NormalMatrix * gl_Normal).xyz));
 }

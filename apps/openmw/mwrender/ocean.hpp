@@ -8,6 +8,7 @@
 #include <osg/Texture2DArray>
 #include <osg/Program>
 #include <osg/Uniform>
+#include <osg/BufferObject>
 
 #include <memory>
 #include <vector>
@@ -39,30 +40,46 @@ namespace MWRender
         void addToScene(osg::Group* parent) override;
         void removeFromScene(osg::Group* parent) override;
 
+        // Called from compute dispatch callback
+        void dispatchCompute(osg::State* state);
+
     private:
         void initShaders();
         void initTextures();
+        void initBuffers();
         void initGeometry();
-        void updateSimulation(float dt);
+        void initializeComputePipeline();
+        void initializeComputeShaders(osg::State* state, osg::GLExtensions* ext, unsigned int contextID);
+        void updateComputeShaders(osg::State* state, osg::GLExtensions* ext, unsigned int contextID);
 
         osg::ref_ptr<osg::Group> mParent;
         Resource::ResourceSystem* mResourceSystem;
-        
+
         osg::ref_ptr<osg::PositionAttitudeTransform> mRootNode;
         osg::ref_ptr<osg::Geometry> mWaterGeom;
-        
-        // FFT Resources
+
+        // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;
         osg::ref_ptr<osg::Texture2DArray> mDisplacementMap;
         osg::ref_ptr<osg::Texture2DArray> mNormalMap;
-        
+
+        // FFT Buffers (SSBOs)
+        osg::ref_ptr<osg::BufferObject> mButterflyBuffer;
+        osg::ref_ptr<osg::BufferObject> mFFTBuffer;
+        osg::ref_ptr<osg::BufferObject> mSpectrumBuffer;
+
+        // Compute Shaders
+        osg::ref_ptr<osg::Program> mComputeButterfly;
         osg::ref_ptr<osg::Program> mComputeSpectrum;
+        osg::ref_ptr<osg::Program> mComputeModulate;
         osg::ref_ptr<osg::Program> mComputeFFT;
-        // ... other compute programs
-        
+        osg::ref_ptr<osg::Program> mComputeTranspose;
+        osg::ref_ptr<osg::Program> mComputeUnpack;
+
         float mHeight;
         bool mEnabled;
         float mTime;
+        bool mInitialized;
     };
 }
 

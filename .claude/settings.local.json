@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir:*)",
+      "Bash(nul)",
+      "Bash(cmake --build:*)",
+      "Bash(Select-String -Pattern \"error|warning C4\" -Context 0,2)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

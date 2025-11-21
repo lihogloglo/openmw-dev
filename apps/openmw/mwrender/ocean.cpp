@@ -5,24 +5,85 @@
 #include <components/shader/shadermanager.hpp>
 #include <components/sceneutil/color.hpp>
 
+#include "renderbin.hpp"
+
 #include <osg/Geometry>
+#include <osg/Geode>
 #include <osg/PositionAttitudeTransform>
 #include <osg/Texture2DArray>
-#include <osg/DispatchCompute>
 #include <osg/BindImageTexture>
 #include <osg/Shader>
 #include <osg/Program>
+#include <osg/BufferObject>
+#include <osg/BufferIndexBinding>
+#include <osg/Image>
+#include <osg/GLExtensions>
+#include <osg/State>
+#include <osg/Array>
+#include <osg/Depth>
+#include <osg/StateSet>
 
+#include <osgUtil/CullVisitor>
+
+#include <cstring>
+#include <cmath>
 #include <vector>
 #include <string>
+
+#ifndef GL_READ_ONLY
+#define GL_READ_ONLY 0x88B8
+#endif
+#ifndef GL_WRITE_ONLY
+#define GL_WRITE_ONLY 0x88B9
+#endif
+#ifndef GL_READ_WRITE
+#define GL_READ_WRITE 0x88BA
+#endif
+#ifndef GL_RGBA16F
+#define GL_RGBA16F 0x881A
+#endif
+#ifndef GL_RGBA32F
+#define GL_RGBA32F 0x8814
+#endif
+#ifndef GL_SHADER_STORAGE_BUFFER
+#define GL_SHADER_STORAGE_BUFFER 0x90D2
+#endif
 
 namespace MWRender
 {
 
     // Constants matching the shader definitions
-    const int FFT_SIZE = 512; // Must match shader
+    const int FFT_SIZE = 512;
     const int NUM_CASCADES = 4;
-    const int L_SIZE = 512; // Texture size
+    const int L_SIZE = 512;
+    const int NUM_SPECTRA = 4; // hx, hy, hz, and gradients
+
+    // Calculate number of FFT stages (log2)
+    int getNumStages(int size) {
+        int stages = 0;
+        while (size > 1) {
+            size >>= 1;
+            stages++;
+        }
+        return stages;
+    }
+
+    // Custom drawable callback for compute shader dispatch
+    class ComputeDispatchCallback : public osg::Drawable::DrawCallback
+    {
+    public:
+        ComputeDispatchCallback(Ocean* ocean) : mOcean(ocean) {}
+
+        void drawImplementation(osg::RenderInfo& renderInfo, const osg::Drawable* drawable) const override
+        {
+            // Don't actually draw, just dispatch compute shaders
+            if (mOcean)
+                mOcean->dispatchCompute(renderInfo.getState());
+        }
+
+    private:
+        Ocean* mOcean;
+    };
 
     Ocean::Ocean(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : mParent(parent)
@@ -30,13 +91,18 @@ namespace MWRender
         , mHeight(0.f)
         , mEnabled(false)
         , mTime(0.f)
+        , mInitialized(false)
     {
         mRootNode = new osg::PositionAttitudeTransform;
         mRootNode->setName("OceanRoot");
-        
-        initShaders();
+
         initTextures();
+        initBuffers();
+        initShaders();
         initGeometry();
+
+        // Initialize the compute pipeline once
+        initializeComputePipeline();
     }
 
     Ocean::~Ocean()
@@ -57,11 +123,11 @@ namespace MWRender
 
     void Ocean::update(float dt, bool paused)
     {
-        if (!mEnabled || paused)
+        if (!mEnabled || paused || !mInitialized)
             return;
 
         mTime += dt;
-        updateSimulation(dt);
+        // The actual compute dispatch happens in the draw callback
     }
 
     void Ocean::setHeight(float height)
@@ -72,7 +138,6 @@ namespace MWRender
 
     bool Ocean::isUnderwater(const osg::Vec3f& pos) const
     {
-        // Simple check for now
         return pos.z() < mHeight;
     }
 
@@ -93,157 +158,586 @@ namespace MWRender
         osg::ref_ptr<osg::Shader> shader = mgr.getShader(name, defines, osg::Shader::COMPUTE);
         if (!shader)
             return nullptr;
-            
+
         osg::ref_ptr<osg::Program> program = new osg::Program;
         program->addShader(shader);
         return program;
     }
 
-#include <components/sceneutil/glextensions.hpp>
-
     void Ocean::initShaders()
     {
         Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
         Shader::ShaderManager::DefineMap defines;
-        
-        // Load compute shaders
-        mComputeSpectrum = createComputeProgram(shaderManager, "lib/ocean/spectrum_compute.comp", defines);
-        mComputeFFT = createComputeProgram(shaderManager, "lib/ocean/fft_compute.comp", defines);
-        // mComputeButterfly = createComputeProgram(shaderManager, "lib/ocean/fft_butterfly.comp", defines); // If needed for precalc
-        // mComputeModulate = createComputeProgram(shaderManager, "lib/ocean/spectrum_modulate.comp", defines);
-        // mComputeTranspose = createComputeProgram(shaderManager, "lib/ocean/transpose.comp", defines);
-        // mComputeUnpack = createComputeProgram(shaderManager, "lib/ocean/fft_unpack.comp", defines);
-        
-        // Note: For brevity, I'm only initializing the main ones. 
-        // In a real implementation, all stages need to be initialized.
+
+        // Load all compute shaders
+        mComputeButterfly = createComputeProgram(shaderManager, "lib/ocean/fft_butterfly", defines);
+        mComputeSpectrum = createComputeProgram(shaderManager, "lib/ocean/spectrum_compute", defines);
+        mComputeModulate = createComputeProgram(shaderManager, "lib/ocean/spectrum_modulate", defines);
+        mComputeFFT = createComputeProgram(shaderManager, "lib/ocean/fft_compute", defines);
+        mComputeTranspose = createComputeProgram(shaderManager, "lib/ocean/transpose", defines);
+        mComputeUnpack = createComputeProgram(shaderManager, "lib/ocean/fft_unpack", defines);
     }
 
-
-
-    class DispatchCallback : public osg::Drawable::DrawCallback
+    void Ocean::initBuffers()
     {
-    public:
-        DispatchCallback(osg::Program* program, int x, int y, int z, GLbitfield barrier)
-            : mProgram(program), mX(x), mY(y), mZ(z), mBarrier(barrier) {}
+        const int numStages = getNumStages(L_SIZE);
 
-        void drawImplementation(osg::RenderInfo& renderInfo, const osg::Drawable* drawable) const override
-        {
-            osg::State* state = renderInfo.getState();
-            state->applyAttribute(mProgram.get());
-            
-            osg::GLExtensions* ext = state->get<osg::GLExtensions>();
-            if (ext)
-            {
-                 ext->glDispatchCompute(mX, mY, mZ);
-                 if (mBarrier != 0)
-                     ext->glMemoryBarrier(mBarrier);
-            }
-        }
+        // Butterfly factor buffer: log2(map_size) x map_size x vec4
+        const size_t butterflyElements = numStages * L_SIZE * 4;
+        osg::ref_ptr<osg::FloatArray> butterflyData = new osg::FloatArray(butterflyElements);
+        for (size_t i = 0; i < butterflyElements; ++i)
+            (*butterflyData)[i] = 0.0f;
 
-    private:
-        osg::ref_ptr<osg::Program> mProgram;
-        int mX, mY, mZ;
-        GLbitfield mBarrier;
-    };
+        mButterflyBuffer = new osg::VertexBufferObject;
+        mButterflyBuffer->setDataVariance(osg::Object::STATIC);
+        mButterflyBuffer->setUsage(GL_STATIC_DRAW);
+        butterflyData->setBufferObject(mButterflyBuffer.get());
+
+        // FFT working buffer: map_size x map_size x num_spectra x 2 * num_cascades x vec2
+        // The "x 2" is for ping-pong buffering
+        const size_t fftElements = L_SIZE * L_SIZE * NUM_SPECTRA * 2 * NUM_CASCADES * 2;
+        osg::ref_ptr<osg::FloatArray> fftData = new osg::FloatArray(fftElements);
+        for (size_t i = 0; i < fftElements; ++i)
+            (*fftData)[i] = 0.0f;
+
+        mFFTBuffer = new osg::VertexBufferObject;
+        mFFTBuffer->setDataVariance(osg::Object::DYNAMIC);
+        mFFTBuffer->setUsage(GL_DYNAMIC_DRAW);
+        fftData->setBufferObject(mFFTBuffer.get());
+
+        // Spectrum buffer for initial h0(k) generation
+        const size_t spectrumElements = L_SIZE * L_SIZE * NUM_CASCADES * 4;
+        osg::ref_ptr<osg::FloatArray> spectrumData = new osg::FloatArray(spectrumElements);
+        for (size_t i = 0; i < spectrumElements; ++i)
+            (*spectrumData)[i] = 0.0f;
+
+        mSpectrumBuffer = new osg::VertexBufferObject;
+        mSpectrumBuffer->setDataVariance(osg::Object::STATIC);
+        mSpectrumBuffer->setUsage(GL_STATIC_DRAW);
+        spectrumData->setBufferObject(mSpectrumBuffer.get());
+    }
 
     void Ocean::initTextures()
     {
-        // Create textures
+        // Create displacement map texture array (one layer per cascade)
         mDisplacementMap = new osg::Texture2DArray;
         mDisplacementMap->setTextureSize(L_SIZE, L_SIZE, NUM_CASCADES);
-        mDisplacementMap->setInternalFormat(GL_RGBA32F);
+        mDisplacementMap->setInternalFormat(GL_RGBA16F);
         mDisplacementMap->setSourceFormat(GL_RGBA);
-        mDisplacementMap->setSourceType(GL_FLOAT);
+        mDisplacementMap->setSourceType(GL_HALF_FLOAT);
         mDisplacementMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
         mDisplacementMap->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
         mDisplacementMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
         mDisplacementMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
-        
+
+        // Initialize with zero displacement (flat water)
+        size_t dispSize = L_SIZE * L_SIZE * NUM_CASCADES * 4 * sizeof(float);
+        unsigned char* zeroData = new unsigned char[dispSize];
+        std::memset(zeroData, 0, dispSize);
+        osg::ref_ptr<osg::Image> dispImage = new osg::Image;
+        dispImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA32F, GL_RGBA, GL_FLOAT,
+            zeroData, osg::Image::USE_NEW_DELETE);
+        mDisplacementMap->setImage(0, dispImage);
+
+        // Create normal map texture array
         mNormalMap = new osg::Texture2DArray;
         mNormalMap->setTextureSize(L_SIZE, L_SIZE, NUM_CASCADES);
-        mNormalMap->setInternalFormat(GL_RGBA32F);
+        mNormalMap->setInternalFormat(GL_RGBA16F);
         mNormalMap->setSourceFormat(GL_RGBA);
-        mNormalMap->setSourceType(GL_FLOAT);
+        mNormalMap->setSourceType(GL_HALF_FLOAT);
         mNormalMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
         mNormalMap->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
         mNormalMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
         mNormalMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
 
-        // Initialize Spectrum and Butterfly textures here
-        // For now, we assume they are created and populated.
-        // In a full implementation, we would run the initial compute shaders here.
+        // Initialize with up-pointing normals (0, 0, 1, 0)
+        size_t normalSize = L_SIZE * L_SIZE * NUM_CASCADES * 4 * sizeof(float);
+        float* normalData = new float[L_SIZE * L_SIZE * NUM_CASCADES * 4];
+        for (size_t i = 0; i < L_SIZE * L_SIZE * NUM_CASCADES; ++i)
+        {
+            normalData[i * 4] = 0.0f;     // x
+            normalData[i * 4 + 1] = 0.0f; // y
+            normalData[i * 4 + 2] = 1.0f; // z (up)
+            normalData[i * 4 + 3] = 0.0f; // w (foam)
+        }
+        osg::ref_ptr<osg::Image> normalImage = new osg::Image;
+        normalImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA32F, GL_RGBA, GL_FLOAT,
+            reinterpret_cast<unsigned char*>(normalData), osg::Image::USE_NEW_DELETE);
+        mNormalMap->setImage(0, normalImage);
+
+        // Create spectrum texture array (stores h0(k) and h0(-k)*)
+        mSpectrum = new osg::Texture2DArray;
+        mSpectrum->setTextureSize(L_SIZE, L_SIZE, NUM_CASCADES);
+        mSpectrum->setInternalFormat(GL_RGBA16F);
+        mSpectrum->setSourceFormat(GL_RGBA);
+        mSpectrum->setSourceType(GL_HALF_FLOAT);
+        mSpectrum->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+        mSpectrum->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+        mSpectrum->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+        mSpectrum->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+
+        // Initialize spectrum with zeros (will be filled by compute shader)
+        size_t spectrumSize = L_SIZE * L_SIZE * NUM_CASCADES * 4 * sizeof(uint16_t);
+        unsigned char* spectrumData = new unsigned char[spectrumSize];
+        std::memset(spectrumData, 0, spectrumSize);
+        osg::ref_ptr<osg::Image> spectrumImage = new osg::Image;
+        spectrumImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT,
+            spectrumData, osg::Image::USE_NEW_DELETE);
+        mSpectrum->setImage(0, spectrumImage);
     }
 
-    void Ocean::updateSimulation(float dt)
+    void Ocean::initializeComputePipeline()
     {
-        // Update uniforms
-        // mComputeModulate->getOrCreateStateSet()->getUniform("time")->set(mTime);
-        
-        // Dispatch logic would be added here if we were dynamically adding/removing dispatch nodes.
-        // Since we set up the pipeline in init, we just let it run.
-        // However, we need to ensure the compute shaders are actually executed.
-        // We can add a dummy drawable with the DispatchCallback to the scene.
-        
-        static bool initialized = false;
-        if (!initialized)
+        // Create a dummy drawable for compute dispatch
+        // This will be attached to the scene and its draw callback will dispatch compute shaders
+        osg::ref_ptr<osg::Geometry> computeDispatcher = new osg::Geometry;
+        computeDispatcher->setUseDisplayList(false);
+        computeDispatcher->setUseVertexBufferObjects(false);
+
+        // Empty vertex array (we're not actually drawing anything)
+        computeDispatcher->setVertexArray(new osg::Vec3Array);
+
+        // Set the compute dispatch callback
+        computeDispatcher->setDrawCallback(new ComputeDispatchCallback(this));
+
+        // Add to the root node in a pre-render bin to ensure it runs before the water renders
+        osg::ref_ptr<osg::Geode> computeGeode = new osg::Geode;
+        computeGeode->addDrawable(computeDispatcher);
+        computeGeode->getOrCreateStateSet()->setRenderBinDetails(-100, "RenderBin");
+        computeGeode->setName("OceanComputeDispatcher");
+
+        mRootNode->addChild(computeGeode);
+
+        mInitialized = true;
+    }
+
+    void Ocean::dispatchCompute(osg::State* state)
+    {
+        if (!state || !mInitialized)
+            return;
+
+        // Get OpenGL extensions for compute shaders
+        osg::GLExtensions* ext = state->get<osg::GLExtensions>();
+        if (!ext)
+            return;
+
+        unsigned int contextID = state->getContextID();
+
+        // For the first frame, run initialization compute shaders
+        static bool sInitialized = false;
+        if (!sInitialized)
         {
-            // Add compute dispatch nodes
-            osg::Geode* computeGeode = new osg::Geode;
-            osg::Geometry* dummy = new osg::Geometry;
-            dummy->setUseDisplayList(false);
-            dummy->setUseVertexBufferObjects(false);
+            initializeComputeShaders(state, ext, contextID);
+            sInitialized = true;
+        }
+
+        // Every frame: run the simulation compute shaders
+        updateComputeShaders(state, ext, contextID);
+    }
+
+    void Ocean::initializeComputeShaders(osg::State* state, osg::GLExtensions* ext, unsigned int contextID)
+    {
+        const int numStages = getNumStages(L_SIZE);
+
+        // Get glBindBufferBase function pointer (not available in osg::GLExtensions in this version)
+        typedef void (GL_APIENTRY * PFNGLBINDBUFFERBASEPROC) (GLenum target, GLuint index, GLuint buffer);
+        static PFNGLBINDBUFFERBASEPROC glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
+        
+        if (!glBindBufferBase)
+        {
+            // Try to get it again if failed (maybe context wasn't ready first time?)
+            glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
+            if (!glBindBufferBase) return; // Cannot run compute shaders without this
+        }
+
+        // Get glBindBuffer function pointer
+        typedef void (GL_APIENTRY * PFNGLBINDBUFFERPROC) (GLenum target, GLuint buffer);
+        static PFNGLBINDBUFFERPROC glBindBuffer = (PFNGLBINDBUFFERPROC)osg::getGLExtensionFuncPtr("glBindBuffer");
+        
+        // 1. Generate butterfly factors (once at startup)
+        if (mComputeButterfly.valid())
+        {
+            state->applyAttribute(mComputeButterfly.get());
+
+            // Bind butterfly buffer
+            GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
+
+            // Dispatch: work groups cover L_SIZE/128 x numStages x 1
+            // (64 threads per group, 2 writes per thread = 128 columns per group)
+            ext->glDispatchCompute(L_SIZE / 128, numStages, 1);
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+
+        // 2. Generate initial wave spectrum h0(k) for each cascade
+        if (mComputeSpectrum.valid())
+        {
+            state->applyAttribute(mComputeSpectrum.get());
+
+            // Bind spectrum buffer
+            GLuint spectrumBufferID = mSpectrumBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, spectrumBufferID);
+
+            // Wave parameters (you can adjust these)
+            float windSpeed = 15.0f;  // m/s
+            float windDirection = 0.0f; // radians
+            float fetchLength = 100000.0f; // meters
+            float swell = 0.5f;
+            float spread = 2.0f;
+
+            // Cascade tile sizes (increasing with each cascade)
+            float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
+
+            // Get the program object after applying it
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+            if (!pcp) return;
+
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                // Set uniforms using OSG uniform location API
+                GLint loc;
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
+                if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                if (loc >= 0) ext->glUniform1ui(loc, static_cast<unsigned int>(cascade));
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
+                if (loc >= 0) ext->glUniform1f(loc, windSpeed);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
+                if (loc >= 0) ext->glUniform1f(loc, windDirection);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("fetch_length"));
+                if (loc >= 0) ext->glUniform1f(loc, fetchLength);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("swell"));
+                if (loc >= 0) ext->glUniform1f(loc, swell);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
+                if (loc >= 0) ext->glUniform1f(loc, spread);
+
+                loc = pcp->getUniformLocation(osg::Uniform::getNameID("spectrum_seed"));
+                if (loc >= 0) ext->glUniform2f(loc, cascade * 1.234f, cascade * 5.678f);
+
+                // Dispatch: 16x16 thread groups to cover 512x512
+                ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
+                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            }
+        }
+
+        // Copy spectrum buffer data to spectrum texture
+        // We use the buffer as a Pixel Unpack Buffer to upload data to the texture
+        if (glBindBuffer)
+        {
+            GLuint spectrumBufferID = mSpectrumBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, spectrumBufferID);
             
-            // Spectrum Modulate
-            // dummy->setDrawCallback(new DispatchCallback(mComputeModulate.get(), L_SIZE/64, L_SIZE, 1, GL_SHADER_IMAGE_ACCESS_BARRIER_BIT));
+            GLuint spectrumTextureID = mSpectrum->getTextureObject(contextID)->id();
+            glBindTexture(GL_TEXTURE_2D_ARRAY, spectrumTextureID);
             
-            // FFT Horizontal
-            // ...
+            // The buffer contains floats (vec4), but the texture is RGBA16F.
+            // OpenGL will handle the conversion from GL_FLOAT to GL_HALF_FLOAT (GL_RGBA16F).
+            ext->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA, GL_FLOAT, 0);
             
-            // FFT Vertical
-            // ...
+            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+        }
+    }
+
+    void Ocean::updateComputeShaders(osg::State* state, osg::GLExtensions* ext, unsigned int contextID)
+    {
+        // Get glBindBufferBase function pointer (not available in osg::GLExtensions in this version)
+        typedef void (GL_APIENTRY * PFNGLBINDBUFFERBASEPROC) (GLenum target, GLuint index, GLuint buffer);
+        static PFNGLBINDBUFFERBASEPROC glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
+        
+        if (!glBindBufferBase)
+        {
+            // Try to get it again if failed (maybe context wasn't ready first time?)
+            glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
+            if (!glBindBufferBase) return; // Cannot run compute shaders without this
+        }
+
+        // Wave parameters
+        float depth = 1000.0f; // Deep water
+        float whitecap = 1.0f;
+        float foamGrowRate = 1.0f;
+        float foamDecayRate = 0.05f;
+        
+        // Cascade tile sizes (must match initBuffers)
+        float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
+
+        // 1. Modulate Spectrum
+        if (mComputeModulate.valid())
+        {
+            state->applyAttribute(mComputeModulate.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
-            // Unpack
-            // ...
+            // Bind Spectrum Texture (Image Unit 0)
+            // Note: We need to bind the texture object to an image unit
+            // Since OSG doesn't have a direct bindImageTexture for Texture2DArray easily accessible without extensions,
+            // we use the extension directly.
+            GLuint spectrumID = mSpectrum->getTextureObject(contextID)->id();
+            ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
             
-            computeGeode->addDrawable(dummy);
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
             
-            // Ensure compute runs before rendering? 
-            // OSG traversal order is usually by bin number.
-            // We can put compute in a lower bin.
-            computeGeode->getOrCreateStateSet()->setRenderBinDetails(-1, "RenderBin");
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc;
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
+                    if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
+                    if (loc >= 0) ext->glUniform1f(loc, depth);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("time"));
+                    if (loc >= 0) ext->glUniform1f(loc, mTime);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                }
+                
+                ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
+            }
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+
+        // 2. Horizontal FFT
+        if (mComputeFFT.valid())
+        {
+            state->applyAttribute(mComputeFFT.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
-            mRootNode->addChild(computeGeode);
-            initialized = true;
+            // Bind Butterfly Buffer (Binding 0)
+            GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
+            
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+            
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                }
+                
+                // Dispatch (1, L_SIZE, NUM_SPECTRA)
+                ext->glDispatchCompute(1, L_SIZE, NUM_SPECTRA);
+            }
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+
+        // 3. Transpose
+        if (mComputeTranspose.valid())
+        {
+            state->applyAttribute(mComputeTranspose.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+            
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+            
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                }
+                
+                ext->glDispatchCompute(L_SIZE / 32, L_SIZE / 32, NUM_SPECTRA);
+            }
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+
+        // 4. Vertical FFT (same shader as Horizontal)
+        if (mComputeFFT.valid())
+        {
+            state->applyAttribute(mComputeFFT.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+            
+            // Bind Butterfly Buffer (Binding 0)
+            GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
+            
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+            
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                }
+                
+                ext->glDispatchCompute(1, L_SIZE, NUM_SPECTRA);
+            }
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+
+        // 5. Unpack to Textures
+        if (mComputeUnpack.valid())
+        {
+            state->applyAttribute(mComputeUnpack.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+            
+            // Bind Displacement Map (Image Unit 0, Write Only)
+            GLuint dispID = mDisplacementMap->getTextureObject(contextID)->id();
+            ext->glBindImageTexture(0, dispID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+            
+            // Bind Normal Map (Image Unit 1, Read/Write)
+            GLuint normID = mNormalMap->getTextureObject(contextID)->id();
+            ext->glBindImageTexture(1, normID, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+            
+            // Bind FFT Buffer (Binding 0)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, fftBufferID);
+            
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc;
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("whitecap"));
+                    if (loc >= 0) ext->glUniform1f(loc, whitecap);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_grow_rate"));
+                    if (loc >= 0) ext->glUniform1f(loc, foamGrowRate);
+                    
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_decay_rate"));
+                    if (loc >= 0) ext->glUniform1f(loc, foamDecayRate);
+                }
+                
+                ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
+            }
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
     }
 
     void Ocean::initGeometry()
     {
-        // Create a simple quad for now, or a projected grid
+        // Create a large ocean plane
         mWaterGeom = new osg::Geometry;
-        
+
+        // Create a tessellated grid for better displacement
+        const int gridSize = 256;
+        const float worldSize = 100000.f;
+        const float step = worldSize / gridSize;
+
         osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
-        const float size = 100000.f;
-        verts->push_back(osg::Vec3f(-size, -size, 0.f));
-        verts->push_back(osg::Vec3f(size, -size, 0.f));
-        verts->push_back(osg::Vec3f(size, size, 0.f));
-        verts->push_back(osg::Vec3f(-size, size, 0.f));
-        
-        mWaterGeom->setVertexArray(verts);
-        
         osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
-        texcoords->push_back(osg::Vec2f(0.f, 0.f));
-        texcoords->push_back(osg::Vec2f(1.f, 0.f));
-        texcoords->push_back(osg::Vec2f(1.f, 1.f));
-        texcoords->push_back(osg::Vec2f(0.f, 1.f));
-        
+
+        // Generate grid vertices
+        for (int y = 0; y <= gridSize; ++y)
+        {
+            for (int x = 0; x <= gridSize; ++x)
+            {
+                float px = (x - gridSize * 0.5f) * step;
+                float py = (y - gridSize * 0.5f) * step;
+                verts->push_back(osg::Vec3f(px, py, 0.f));
+
+                float u = static_cast<float>(x) / gridSize;
+                float v = static_cast<float>(y) / gridSize;
+                texcoords->push_back(osg::Vec2f(u, v));
+            }
+        }
+
+        mWaterGeom->setVertexArray(verts);
         mWaterGeom->setTexCoordArray(0, texcoords, osg::Array::BIND_PER_VERTEX);
+
+        // Generate triangle indices
+        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES);
+        for (int y = 0; y < gridSize; ++y)
+        {
+            for (int x = 0; x < gridSize; ++x)
+            {
+                int i0 = y * (gridSize + 1) + x;
+                int i1 = i0 + 1;
+                int i2 = (y + 1) * (gridSize + 1) + x;
+                int i3 = i2 + 1;
+
+                // First triangle
+                indices->push_back(i0);
+                indices->push_back(i2);
+                indices->push_back(i1);
+
+                // Second triangle
+                indices->push_back(i1);
+                indices->push_back(i2);
+                indices->push_back(i3);
+            }
+        }
+
+        mWaterGeom->addPrimitiveSet(indices);
+
+        // Set up state set with our ocean shaders
+        osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+
+        // Load ocean shaders using the shader manager
+        Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
+        Shader::ShaderManager::DefineMap defines;
+
+        // Get the ocean program (vert + frag)
+        osg::ref_ptr<osg::Program> program = new osg::Program;
+
+        auto vert = shaderManager.getShader("ocean", defines, osg::Shader::VERTEX);
+        auto frag = shaderManager.getShader("ocean", defines, osg::Shader::FRAGMENT);
+
+        if (vert) program->addShader(vert);
+        if (frag) program->addShader(frag);
+
+        stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
+
+        // Bind textures
+        stateset->setTextureAttributeAndModes(0, mDisplacementMap, osg::StateAttribute::ON);
+        stateset->setTextureAttributeAndModes(1, mNormalMap, osg::StateAttribute::ON);
+
+        // Set uniforms
+        stateset->addUniform(new osg::Uniform("displacementMap", 0));
+        stateset->addUniform(new osg::Uniform("normalMap", 1));
+        stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
+
+        // Set cascade scales (each cascade covers a different area)
+        osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
+        for (int i = 0; i < NUM_CASCADES; ++i)
+        {
+            float scale = 1.0f / (1 << i); // Each cascade is half the scale of the previous
+            mapScales->setElement(i, osg::Vec4f(scale, scale, 0.f, 0.f));
+        }
+        stateset->addUniform(mapScales);
+
+        // Set RenderBin and Depth settings
+        stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
+        stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
         
-        mWaterGeom->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::QUADS, 0, 4));
-        
+        // Ocean is currently opaque, so we write to depth
+        osg::ref_ptr<osg::Depth> depth = new osg::Depth;
+        depth->setWriteMask(true);
+        depth->setFunction(osg::Depth::LESS);
+        stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+
+        // Sun parameters (would normally come from the scene)
+        stateset->addUniform(new osg::Uniform("sunDir", osg::Vec3f(0.5f, 0.5f, 0.7f)));
+        stateset->addUniform(new osg::Uniform("sunColor", osg::Vec3f(1.0f, 0.95f, 0.8f)));
+
+        // Add to scene
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
         geode->addDrawable(mWaterGeom);
-        
+
         mRootNode->addChild(geode);
     }
 
