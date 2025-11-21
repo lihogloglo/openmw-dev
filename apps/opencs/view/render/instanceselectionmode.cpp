@@ -55,6 +55,11 @@ namespace CSVRender
         mPasteSelection = new QAction("Paste instances", this);
         mDeleteSelection = new QAction("Delete selected instances", this);
 
+        // Add keyboard shortcuts for copy/cut/paste operations
+        mCopySelection->setShortcut(QKeySequence::Copy);   // Ctrl+C
+        mCutSelection->setShortcut(QKeySequence::Cut);     // Ctrl+X
+        mPasteSelection->setShortcut(QKeySequence::Paste); // Ctrl+V
+
         connect(mSelectSame, &QAction::triggered, this, &InstanceSelectionMode::selectSame);
         connect(mCopySelection, &QAction::triggered, this, &InstanceSelectionMode::copySelection);
         connect(mCutSelection, &QAction::triggered, this, &InstanceSelectionMode::cutSelection);
