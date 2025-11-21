@@ -60,6 +60,11 @@ namespace CSVRender
         mCutSelection->setShortcut(QKeySequence::Cut);     // Ctrl+X
         mPasteSelection->setShortcut(QKeySequence::Paste); // Ctrl+V
 
+        // Register actions with the worldspace widget so shortcuts work
+        getWorldspaceWidget().addAction(mCopySelection);
+        getWorldspaceWidget().addAction(mCutSelection);
+        getWorldspaceWidget().addAction(mPasteSelection);
+
         connect(mSelectSame, &QAction::triggered, this, &InstanceSelectionMode::selectSame);
         connect(mCopySelection, &QAction::triggered, this, &InstanceSelectionMode::copySelection);
         connect(mCutSelection, &QAction::triggered, this, &InstanceSelectionMode::cutSelection);
