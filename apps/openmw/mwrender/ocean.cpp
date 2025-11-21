@@ -1,8 +1,9 @@
 #include "ocean.hpp"
 
 #include <components/resource/resourcesystem.hpp>
+#include <components/resource/scenemanager.hpp>
 #include <components/shader/shadermanager.hpp>
-#include <components/sceneutil/texturemanager.hpp>
+#include <components/sceneutil/color.hpp>
 
 #include <osg/Geometry>
 #include <osg/PositionAttitudeTransform>
@@ -98,118 +99,11 @@ namespace MWRender
         return program;
     }
 
-    void Ocean::initShaders()
-    {
-        auto& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
-        Shader::ShaderManager::DefineMap defines;
-        
-        // Load compute shaders
-        mComputeSpectrum = createComputeProgram(shaderManager, "lib/ocean/spectrum_compute.comp", defines);
-        mComputeFFT = createComputeProgram(shaderManager, "lib/ocean/fft_compute.comp", defines);
-        // mComputeButterfly = createComputeProgram(shaderManager, "lib/ocean/fft_butterfly.comp", defines); // If needed for precalc
-#include "ocean.hpp"
-
-#include <components/resource/resourcesystem.hpp>
-#include <components/shader/shadermanager.hpp>
-#include <components/sceneutil/texturemanager.hpp>
-
-#include <osg/Geometry>
-#include <osg/PositionAttitudeTransform>
-#include <osg/Texture2DArray>
-#include <osg/DispatchCompute>
-#include <osg/BindImageTexture>
-#include <osg/Shader>
-#include <osg/Program>
-
-#include <vector>
-#include <string>
-
-namespace MWRender
-{
-
-    // Constants matching the shader definitions
-    const int FFT_SIZE = 512; // Must match shader
-    const int NUM_CASCADES = 4;
-    const int L_SIZE = 512; // Texture size
-
-    Ocean::Ocean(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
-        : mParent(parent)
-        , mResourceSystem(resourceSystem)
-        , mHeight(0.f)
-        , mEnabled(false)
-        , mTime(0.f)
-    {
-        mRootNode = new osg::PositionAttitudeTransform;
-        mRootNode->setName("OceanRoot");
-        
-        initShaders();
-        initTextures();
-        initGeometry();
-    }
-
-    Ocean::~Ocean()
-    {
-        removeFromScene(mParent);
-    }
-
-    void Ocean::setEnabled(bool enabled)
-    {
-        if (mEnabled == enabled)
-            return;
-        mEnabled = enabled;
-        if (mEnabled)
-            mParent->addChild(mRootNode);
-        else
-            mParent->removeChild(mRootNode);
-    }
-
-    void Ocean::update(float dt, bool paused)
-    {
-        if (!mEnabled || paused)
-            return;
-
-        mTime += dt;
-        updateSimulation(dt);
-    }
-
-    void Ocean::setHeight(float height)
-    {
-        mHeight = height;
-        mRootNode->setPosition(osg::Vec3f(0.f, 0.f, mHeight));
-    }
-
-    bool Ocean::isUnderwater(const osg::Vec3f& pos) const
-    {
-        // Simple check for now
-        return pos.z() < mHeight;
-    }
-
-    void Ocean::addToScene(osg::Group* parent)
-    {
-        if (mEnabled && !parent->containsNode(mRootNode))
-            parent->addChild(mRootNode);
-    }
-
-    void Ocean::removeFromScene(osg::Group* parent)
-    {
-        if (parent->containsNode(mRootNode))
-            parent->removeChild(mRootNode);
-    }
-
-    osg::ref_ptr<osg::Program> createComputeProgram(Shader::ShaderManager& mgr, const std::string& name, const Shader::ShaderManager::DefineMap& defines)
-    {
-        osg::ref_ptr<osg::Shader> shader = mgr.getShader(name, defines, osg::Shader::COMPUTE);
-        if (!shader)
-            return nullptr;
-            
-        osg::ref_ptr<osg::Program> program = new osg::Program;
-        program->addShader(shader);
-        return program;
-    }
+#include <components/sceneutil/glextensions.hpp>
 
     void Ocean::initShaders()
     {
-        auto& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
+        Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
         Shader::ShaderManager::DefineMap defines;
         
         // Load compute shaders
@@ -224,6 +118,8 @@ namespace MWRender
         // In a real implementation, all stages need to be initialized.
     }
 
+
+
     class DispatchCallback : public osg::Drawable::DrawCallback
     {
     public:
@@ -235,13 +131,13 @@ namespace MWRender
             osg::State* state = renderInfo.getState();
             state->applyAttribute(mProgram.get());
             
-            // We need to ensure uniforms are applied. 
-            // OSG usually applies uniforms from StateSet. 
-            // If we are just running this callback, we might rely on the StateSet of the drawable.
-            
-            glDispatchCompute(mX, mY, mZ);
-            if (mBarrier != 0)
-                glMemoryBarrier(mBarrier);
+            osg::GLExtensions* ext = state->get<osg::GLExtensions>();
+            if (ext)
+            {
+                 ext->glDispatchCompute(mX, mY, mZ);
+                 if (mBarrier != 0)
+                     ext->glMemoryBarrier(mBarrier);
+            }
         }
 
     private:
@@ -319,6 +215,36 @@ namespace MWRender
             mRootNode->addChild(computeGeode);
             initialized = true;
         }
+    }
+
+    void Ocean::initGeometry()
+    {
+        // Create a simple quad for now, or a projected grid
+        mWaterGeom = new osg::Geometry;
+        
+        osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
+        const float size = 100000.f;
+        verts->push_back(osg::Vec3f(-size, -size, 0.f));
+        verts->push_back(osg::Vec3f(size, -size, 0.f));
+        verts->push_back(osg::Vec3f(size, size, 0.f));
+        verts->push_back(osg::Vec3f(-size, size, 0.f));
+        
+        mWaterGeom->setVertexArray(verts);
+        
+        osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
+        texcoords->push_back(osg::Vec2f(0.f, 0.f));
+        texcoords->push_back(osg::Vec2f(1.f, 0.f));
+        texcoords->push_back(osg::Vec2f(1.f, 1.f));
+        texcoords->push_back(osg::Vec2f(0.f, 1.f));
+        
+        mWaterGeom->setTexCoordArray(0, texcoords, osg::Array::BIND_PER_VERTEX);
+        
+        mWaterGeom->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::QUADS, 0, 4));
+        
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode;
+        geode->addDrawable(mWaterGeom);
+        
+        mRootNode->addChild(geode);
     }
 
 }

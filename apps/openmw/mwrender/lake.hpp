@@ -3,8 +3,8 @@
 
 #include "waterbody.hpp"
 
-#include <osg/Vec3f>
 #include <osg/ref_ptr>
+#include <osg/Vec3f>
 
 namespace osg
 {

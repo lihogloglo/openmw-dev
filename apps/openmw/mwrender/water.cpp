@@ -455,7 +455,7 @@ namespace MWRender
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
-        // mUseOcean = true; // Uncomment to enable ocean by default when ready
+        mUseOcean = true; // Uncomment to enable ocean by default when ready
 
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
 

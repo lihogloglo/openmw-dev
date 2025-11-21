@@ -4,6 +4,5 @@ varying vec2 vTexCoord;
 
 void main()
 {
-    // Simple blue color for now
-    gl_FragColor = vec4(0.0, 0.3, 0.5, 0.8);
+    gl_FragColor = vec4(0.0, 0.3, 0.8, 0.8); // Simple blue water
 }

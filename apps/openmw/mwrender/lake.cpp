@@ -8,6 +8,7 @@
 #include <components/shader/shadermanager.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/sceneutil/statesetupdater.hpp>
+#include <components/resource/scenemanager.hpp>
 
 namespace MWRender
 {
@@ -108,25 +109,12 @@ void Lake::initShaders()
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
     
     // Use ShaderManager to get our lake shaders
-    Shader::ShaderManager& shaderManager = *mResourceSystem->getShaderManager();
-    
-    // We assume "lake" shaders are registered or we request them by filename if possible,
-    // but ShaderManager usually works with program names.
-    // For now, let's try to use a simple program name "lake" and ensure we have the files.
-    // If ShaderManager requires specific setup, we might need to register it.
-    // However, standard OpenMW way is often just requesting the program.
-    
-    // NOTE: In the handover, it was mentioned ShaderManager is tailored for vert/frag.
-    // So we can just use it for Lake.
-    
-    // We might need to define the "lake" program in ShaderManager or just use getProgram if it supports loading by name.
-    // Let's assume we can use a custom technique or just set the program manually if ShaderManager is strict.
-    // For safety, let's manually load shaders like we did for Ocean compute, but for vert/frag.
+    Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
     
     osg::ref_ptr<osg::Program> program = new osg::Program;
     
-    auto vert = shaderManager.getShader(osg::Shader::VERTEX, "lake.vert", {});
-    auto frag = shaderManager.getShader(osg::Shader::FRAGMENT, "lake.frag", {});
+    auto vert = shaderManager.getShader("lake.vert", {}, osg::Shader::VERTEX);
+    auto frag = shaderManager.getShader("lake.frag", {}, osg::Shader::FRAGMENT);
     
     if (vert) program->addShader(vert);
     if (frag) program->addShader(frag);
