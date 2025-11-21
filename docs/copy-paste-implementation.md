@@ -344,7 +344,7 @@ For pasted instances:
 
 ## Implementation Status
 
-### Current Phase: Phase 2 - Commands
+### Current Phase: Phase 4 - 3D Scene Integration (Optional)
 
 ### Phase 1: Clipboard Infrastructure ✅ COMPLETE
 
@@ -357,25 +357,25 @@ For pasted instances:
 | Implement clipboard utility methods | ✅ Done | Commit e2b3101 |
 | Initialize clipboard in constructor | ✅ Done | Commit e2b3101 |
 
-### Phase 2: Commands
+### Phase 2: Commands ✅ COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Implement CopyCommand | 🔄 In Progress | |
-| Implement CutCommand | 🔲 Not Started | |
-| Implement PasteCommand | 🔲 Not Started | |
-| Test single object copy-paste | 🔲 Not Started | |
-| Test multi-object copy-paste | 🔲 Not Started | |
+| Implement CopyCommand | ✅ Done | Commit e4e106f |
+| Implement CutCommand | ✅ Done | Commit e4e106f |
+| Implement PasteCommand | ✅ Done | Commit e4e106f |
+| Test single object copy-paste | ⏸️ Deferred | Manual testing needed |
+| Test multi-object copy-paste | ⏸️ Deferred | Manual testing needed |
 
-### Phase 3: Table Integration
+### Phase 3: Table Integration ✅ COMPLETE
 
 | Task | Status | Notes |
 |------|--------|-------|
-| Add actions to Table | 🔲 Not Started | |
-| Add keyboard shortcuts | 🔲 Not Started | |
-| Update context menu | 🔲 Not Started | |
-| Implement CommandDispatcher methods | 🔲 Not Started | |
-| Test table copy-paste workflow | 🔲 Not Started | |
+| Add actions to Table | ✅ Done | Commit 50ee6bf |
+| Add keyboard shortcuts | ✅ Done | Commit 50ee6bf (Ctrl+C/X/V) |
+| Update context menu | ✅ Done | Commit 50ee6bf |
+| Implement slot methods | ✅ Done | Commit 50ee6bf |
+| Test table copy-paste workflow | ⏸️ Deferred | Manual testing needed |
 
 ### Phase 4: 3D Scene Integration
 
@@ -541,6 +541,24 @@ For pasted instances:
 - Documented architecture and key components
 - Created phased implementation plan
 - Next: Begin Phase 1 - Clipboard Infrastructure
+
+**2025-11-21 - Implementation Session 1: Phases 1-3 Complete**
+- ✅ Phase 1: Clipboard Infrastructure (Commit e2b3101)
+  - Added clipboard storage to CSMWorld::Data
+  - Implemented copyToClipboard(), getClipboard(), hasClipboard(), etc.
+  - Clipboard stores full record clones with type info
+- ✅ Phase 2: Command Classes (Commit e4e106f)
+  - Implemented CopyCommand, CutCommand, PasteCommand
+  - CutCommand uses composite pattern with child commands
+  - PasteCommand handles ID generation for references
+  - All commands integrate with Qt undo/redo framework
+- ✅ Phase 3: Table UI Integration (Commit 50ee6bf)
+  - Added mCopyAction, mCutAction, mPasteAction to Table
+  - Wired up Ctrl+C, Ctrl+X, Ctrl+V shortcuts
+  - Added context menu items with smart enable/disable
+  - Implemented copyRecord(), cutRecord(), pasteRecord() slots
+- **Status**: Core functionality complete and ready for testing!
+- **Next**: Manual testing, then optionally implement Phase 4 (3D scene)
 
 ---
 
