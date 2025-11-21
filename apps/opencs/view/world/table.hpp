@@ -65,6 +65,9 @@ namespace CSVWorld
         QAction* mEditAction;
         QAction* mCreateAction;
         QAction* mCloneAction;
+        QAction* mCopyAction;
+        QAction* mCutAction;
+        QAction* mPasteAction;
         QAction* mTouchAction;
         QAction* mRevertAction;
         QAction* mDeleteAction;
@@ -142,6 +145,12 @@ namespace CSVWorld
         void editRecord();
 
         void cloneRecord();
+
+        void copyRecord();
+
+        void cutRecord();
+
+        void pasteRecord();
 
         void touchRecord();
 

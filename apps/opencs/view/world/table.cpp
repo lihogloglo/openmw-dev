@@ -83,6 +83,22 @@ void CSVWorld::Table::contextMenuEvent(QContextMenuEvent* event)
                 menu.addAction(mCloneAction);
         }
 
+        // Copy/Cut/Paste menu items
+        if (selectedRows.size() > 0)
+        {
+            menu.addSeparator();
+            menu.addAction(mCopyAction);
+            menu.addAction(mCutAction);
+        }
+
+        if (mDocument.getData().hasClipboard())
+        {
+            menu.addAction(mPasteAction);
+        }
+
+        if (selectedRows.size() > 0 || mDocument.getData().hasClipboard())
+            menu.addSeparator();
+
         if (mTouchAction)
             menu.addAction(mTouchAction);
 
@@ -346,6 +362,28 @@ CSVWorld::Table::Table(const CSMWorld::UniversalId& id, bool createAndDelete, bo
         cloneShortcut->associateAction(mCloneAction);
     }
 
+    // Copy/Cut/Paste actions
+    mCopyAction = new QAction(tr("Copy Record"), this);
+    connect(mCopyAction, &QAction::triggered, this, &Table::copyRecord);
+    mCopyAction->setIcon(Misc::ScalableIcon::load(":edit-copy"));
+    addAction(mCopyAction);
+    CSMPrefs::Shortcut* copyShortcut = new CSMPrefs::Shortcut("table-copy", this);
+    copyShortcut->associateAction(mCopyAction);
+
+    mCutAction = new QAction(tr("Cut Record"), this);
+    connect(mCutAction, &QAction::triggered, this, &Table::cutRecord);
+    mCutAction->setIcon(Misc::ScalableIcon::load(":edit-cut"));
+    addAction(mCutAction);
+    CSMPrefs::Shortcut* cutShortcut = new CSMPrefs::Shortcut("table-cut", this);
+    cutShortcut->associateAction(mCutAction);
+
+    mPasteAction = new QAction(tr("Paste Record"), this);
+    connect(mPasteAction, &QAction::triggered, this, &Table::pasteRecord);
+    mPasteAction->setIcon(Misc::ScalableIcon::load(":edit-paste"));
+    addAction(mPasteAction);
+    CSMPrefs::Shortcut* pasteShortcut = new CSMPrefs::Shortcut("table-paste", this);
+    pasteShortcut->associateAction(mPasteAction);
+
     if (mModel->getFeatures() & CSMWorld::IdTableBase::Feature_AllowTouch)
     {
         mTouchAction = new QAction(tr("Touch Record"), this);
@@ -503,6 +541,50 @@ void CSVWorld::Table::cloneRecord()
             emit cloneRequest(toClone);
         }
     }
+}
+
+void CSVWorld::Table::copyRecord()
+{
+    QModelIndexList selectedRows = selectionModel()->selectedRows();
+    if (selectedRows.empty())
+        return;
+
+    std::vector<std::string> ids = getSelectedIds();
+    CSMWorld::UniversalId::Type type = getUniversalId(selectedRows.begin()->row()).getType();
+
+    mDocument.getUndoStack().push(new CSMWorld::CopyCommand(mDocument.getData(), ids, type));
+}
+
+void CSVWorld::Table::cutRecord()
+{
+    if (mEditLock || (mModel->getFeatures() & CSMWorld::IdTableBase::Feature_Constant))
+        return;
+
+    QModelIndexList selectedRows = selectionModel()->selectedRows();
+    if (selectedRows.empty())
+        return;
+
+    std::vector<std::string> ids = getSelectedIds();
+    CSMWorld::UniversalId::Type type = getUniversalId(selectedRows.begin()->row()).getType();
+    CSMWorld::IdTable* table = dynamic_cast<CSMWorld::IdTable*>(mModel);
+
+    if (table)
+        mDocument.getUndoStack().push(new CSMWorld::CutCommand(mDocument.getData(), *table, ids, type));
+}
+
+void CSVWorld::Table::pasteRecord()
+{
+    if (mEditLock || (mModel->getFeatures() & CSMWorld::IdTableBase::Feature_Constant))
+        return;
+
+    if (!mDocument.getData().hasClipboard())
+        return;
+
+    CSMWorld::UniversalId::Type clipboardType = mDocument.getData().getClipboardType();
+    CSMWorld::IdTable* table = dynamic_cast<CSMWorld::IdTable*>(mModel);
+
+    if (table)
+        mDocument.getUndoStack().push(new CSMWorld::PasteCommand(mDocument.getData(), *table, clipboardType));
 }
 
 void CSVWorld::Table::touchRecord()

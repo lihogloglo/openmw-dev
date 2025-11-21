@@ -139,6 +139,11 @@ namespace CSMWorld
         InfoOrderByTopic mJournalInfoOrder;
         InfoOrderByTopic mTopicInfoOrder;
 
+        // Clipboard support for copy/cut/paste operations
+        std::vector<std::unique_ptr<RecordBase>> mClipboard;
+        UniversalId::Type mClipboardType;
+        bool mClipboardIsCut;
+
         Data(const Data&) = delete;
         Data& operator=(const Data&) = delete;
 
@@ -322,6 +327,25 @@ namespace CSMWorld
 
         int count(RecordBase::State state) const;
         ///< Return number of top-level records with the given \a state.
+
+        // Clipboard operations
+        void copyToClipboard(const std::vector<std::string>& ids, UniversalId::Type type, bool isCut = false);
+        ///< Copy records to clipboard. If isCut is true, marks this as a cut operation.
+
+        const std::vector<std::unique_ptr<RecordBase>>& getClipboard() const;
+        ///< Get clipboard contents.
+
+        UniversalId::Type getClipboardType() const;
+        ///< Get the type of records in the clipboard.
+
+        bool hasClipboard() const;
+        ///< Check if clipboard has content.
+
+        bool isClipboardCut() const;
+        ///< Check if clipboard content came from a cut operation.
+
+        void clearClipboard();
+        ///< Clear the clipboard.
 
     signals:
 
