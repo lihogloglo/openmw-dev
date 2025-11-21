@@ -137,6 +137,8 @@ CSMWorld::Data::Data(ToUTF8::FromType encoding, const Files::PathContainer& data
     : mEncoder(encoding)
     , mPathgrids(mCells)
     , mRefs(mCells)
+    , mClipboardType(UniversalId::Type_None)
+    , mClipboardIsCut(false)
     , mDialogue(nullptr)
     , mReaderIndex(0)
     , mDataPaths(dataPaths)
@@ -1507,4 +1509,56 @@ void CSMWorld::Data::rowsChanged(const QModelIndex& parent, int start, int end)
 const VFS::Manager* CSMWorld::Data::getVFS() const
 {
     return mVFS.get();
+}
+
+void CSMWorld::Data::copyToClipboard(const std::vector<std::string>& ids, UniversalId::Type type, bool isCut)
+{
+    // Clear existing clipboard
+    mClipboard.clear();
+    mClipboardType = type;
+    mClipboardIsCut = isCut;
+
+    if (ids.empty())
+        return;
+
+    // Get the table model for this type
+    QAbstractItemModel* model = getTableModel(UniversalId(type));
+    IdTable* table = dynamic_cast<IdTable*>(model);
+
+    if (!table)
+        throw std::runtime_error("Cannot copy from this table type");
+
+    // Clone each record and add to clipboard
+    for (const std::string& id : ids)
+    {
+        const RecordBase& record = table->getRecord(id);
+        mClipboard.push_back(record.clone());
+    }
+}
+
+const std::vector<std::unique_ptr<CSMWorld::RecordBase>>& CSMWorld::Data::getClipboard() const
+{
+    return mClipboard;
+}
+
+CSMWorld::UniversalId::Type CSMWorld::Data::getClipboardType() const
+{
+    return mClipboardType;
+}
+
+bool CSMWorld::Data::hasClipboard() const
+{
+    return !mClipboard.empty();
+}
+
+bool CSMWorld::Data::isClipboardCut() const
+{
+    return mClipboardIsCut;
+}
+
+void CSMWorld::Data::clearClipboard()
+{
+    mClipboard.clear();
+    mClipboardType = UniversalId::Type_None;
+    mClipboardIsCut = false;
 }
