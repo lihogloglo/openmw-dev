@@ -454,6 +454,7 @@ namespace MWRender
         , mUseOcean(false)
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
+        mLake = std::make_unique<Lake>(mParent, mResourceSystem);
         // mUseOcean = true; // Uncomment to enable ocean by default when ready
 
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
@@ -766,8 +767,10 @@ namespace MWRender
     void WaterManager::setEnabled(bool enabled)
     {
         mEnabled = enabled;
-        if (mUseOcean && mOcean)
+        if (mUseOcean && mOcean && !mInterior)
             mOcean->setEnabled(enabled);
+        if (mLake && mInterior)
+            mLake->setEnabled(enabled);
         updateVisible();
     }
 
@@ -780,11 +783,26 @@ namespace MWRender
             mWaterNode->setPosition(
                 getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
+            
+            // Exterior: Use Ocean if enabled, otherwise fallback or Lake?
+            // For now, let's assume Ocean is for exterior with water.
+            if (mUseOcean && mOcean)
+            {
+                mOcean->setEnabled(mEnabled);
+                if (mLake) mLake->setEnabled(false);
+            }
         }
         else
         {
             mWaterNode->setPosition(osg::Vec3f(0, 0, mTop));
             mInterior = true;
+            
+            // Interior: Use Lake
+            if (mLake)
+            {
+                mLake->setEnabled(mEnabled);
+                if (mUseOcean && mOcean) mOcean->setEnabled(false);
+            }
         }
         if (mInterior != wasInterior && mReflection)
             mReflection->setInterior(mInterior);
@@ -796,6 +814,9 @@ namespace MWRender
 
         if (mUseOcean && mOcean)
             mOcean->setHeight(height);
+            
+        if (mLake)
+            mLake->setHeight(height);
 
         mSimulation->setWaterHeight(height);
 
@@ -823,8 +844,11 @@ namespace MWRender
 
     void WaterManager::update(float dt, bool paused)
     {
-        if (mUseOcean && mOcean)
+        if (mUseOcean && mOcean && mEnabled && !mInterior)
             mOcean->update(dt, paused);
+            
+        if (mLake && mEnabled && mInterior)
+            mLake->update(dt, paused);
 
         if (!paused)
         {

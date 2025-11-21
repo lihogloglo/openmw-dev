@@ -12,6 +12,7 @@
 #include <components/vfs/pathutil.hpp>
 
 #include "ocean.hpp"
+#include "lake.hpp"
 
 namespace osg
 {
@@ -80,6 +81,7 @@ namespace MWRender
         osg::ref_ptr<osg::Callback> mShaderWaterStateSetUpdater;
 
         std::unique_ptr<Ocean> mOcean;
+        std::unique_ptr<Lake> mLake;
         bool mUseOcean;
 
         osg::Vec3f getSceneNodeCoordinates(int gridX, int gridY);
