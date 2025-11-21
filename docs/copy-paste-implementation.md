@@ -510,7 +510,8 @@ For pasted instances:
 
 | # | Description | Impact | Future Enhancement? |
 |---|-------------|--------|---------------------|
-| | | | |
+| 1 | Right-click context menu in 3D view unavailable (right-click used for transformations) | Users cannot access copy/cut/paste via context menu in 3D scene | Keyboard shortcuts (Ctrl+C/X/V) implemented as workaround |
+| 2 | Pasted 3D instances appear at same position as originals (stacked/overlapping) | Users must manually reposition pasted instances using move tool | Yes - see Future Enhancements #1 |
 
 ---
 
@@ -641,6 +642,18 @@ For pasted instances:
 - **Total Implementation**: Phases 1-4 complete (7 commits on clean branch)
 - **Branch**: `claude/cs-copy-paste-clean-014Z889bU4f6ckzm3LXcAsT9` (based on cs-tinkering)
 - **Next Steps**: Manual testing, then optionally add position offset feature
+
+**2025-11-21 - Session 3: Keyboard Shortcuts for 3D View ✅**
+- **Issue Discovered**: Right-click context menu in 3D view doesn't work (right-click is used for transformations)
+- **Solution**: Added keyboard shortcuts directly to 3D view actions
+- **Implementation**:
+  - Added `mCopySelection->setShortcut(QKeySequence::Copy)` (Ctrl+C)
+  - Added `mCutSelection->setShortcut(QKeySequence::Cut)` (Ctrl+X)
+  - Added `mPasteSelection->setShortcut(QKeySequence::Paste)` (Ctrl+V)
+  - Modified: `apps/opencs/view/render/instanceselectionmode.cpp:58-61`
+- **Result**: Copy/cut/paste now accessible via keyboard in 3D view, matching Table view UX
+- **Workaround Status**: Users can now use Ctrl+C/X/V in 3D view even though right-click context menu is unavailable
+- **Note**: Table view uses CSMPrefs::Shortcut system, 3D view uses QAction::setShortcut (simpler approach)
 
 ---
 
