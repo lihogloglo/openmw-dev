@@ -646,13 +646,17 @@ For pasted instances:
 **2025-11-21 - Session 3: Keyboard Shortcuts for 3D View ✅**
 - **Issue Discovered**: Right-click context menu in 3D view doesn't work (right-click is used for transformations)
 - **Solution**: Added keyboard shortcuts directly to 3D view actions
-- **Implementation**:
+- **Implementation (Initial - Incomplete)**:
   - Added `mCopySelection->setShortcut(QKeySequence::Copy)` (Ctrl+C)
   - Added `mCutSelection->setShortcut(QKeySequence::Cut)` (Ctrl+X)
   - Added `mPasteSelection->setShortcut(QKeySequence::Paste)` (Ctrl+V)
   - Modified: `apps/opencs/view/render/instanceselectionmode.cpp:58-61`
-- **Result**: Copy/cut/paste now accessible via keyboard in 3D view, matching Table view UX
-- **Workaround Status**: Users can now use Ctrl+C/X/V in 3D view even though right-click context menu is unavailable
+- **Bug Found**: Shortcuts didn't trigger - actions weren't registered with the widget
+- **Fix**: Added `getWorldspaceWidget().addAction()` calls for each action
+  - In Qt, QAction shortcuts only work when added to a widget
+  - Table view does this with `addAction(mCopyAction)` at line 369
+  - Added same pattern for 3D view at lines 64-66
+- **Result**: Copy/cut/paste now functional via keyboard in 3D view
 - **Note**: Table view uses CSMPrefs::Shortcut system, 3D view uses QAction::setShortcut (simpler approach)
 
 ---
