@@ -1,0 +1,129 @@
+#version 430
+/**
+ * Generates a 2D texture representing the JONSWAP wave spectra
+ * w/ Hasselmann directional spreading.
+ *
+ * Sources: Jerry Tessendorf - Simulating Ocean Water
+ *          Christopher J. Horvath - Empirical Directional Wave Spectra for Computer Graphics
+ */
+
+#define PI (3.141592653589793)
+#define G  (9.81)
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(std430, binding = 0) restrict writeonly buffer SpectrumBuffer {
+    vec4 data[]; // map_size x map_size x num_cascades
+};
+
+uniform vec2 tile_length;
+uniform uint cascade_index;
+uniform float fetch_length;
+uniform float wind_speed;
+uniform float wind_direction;
+uniform float swell;
+uniform float spread;
+uniform vec2 spectrum_seed; // Used for random seeding
+
+// Hash function for randomness
+float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
+// Box-Muller transform for Gaussian random numbers
+vec2 gaussian_random(vec2 uv) {
+    float u = max(1e-6, hash(uv + spectrum_seed));
+    float v = max(1e-6, hash(uv + spectrum_seed + vec2(1.0, 1.0)));
+    float r = sqrt(-2.0 * log(u));
+    float theta = 2.0 * PI * v;
+    return vec2(r * cos(theta), r * sin(theta));
+}
+
+// JONSWAP Spectrum Calculation
+float jonswap(float omega, float omega_p, float alpha) {
+    float sigma = omega <= omega_p ? 0.07 : 0.09;
+    float r = exp(-(omega - omega_p)*(omega - omega_p) / (2.0 * sigma*sigma * omega_p*omega_p));
+    float gamma = 3.3;
+    return alpha * G*G / pow(omega, 5.0) * exp(-1.25 * pow(omega_p / omega, 4.0)) * pow(gamma, r);
+}
+
+// Directional Spreading Function (Hasselmann)
+float directional_spread(float omega, float theta, float wind_dir, float spread_val) {
+    float angle = theta - wind_dir;
+    // Wrap angle
+    if (angle > PI) angle -= 2.0 * PI;
+    if (angle < -PI) angle += 2.0 * PI;
+    
+    // Simple cosine spread for now, as full Hasselmann is complex and I don't have the full reference code
+    // spread_val controls the tightness
+    float s = spread_val; 
+    float norm = 1.0 / (2.0 * PI); // Normalization factor (simplified)
+    return max(0.0, pow(cos(angle/2.0), 2.0 * s)); 
+}
+
+void main() {
+    // Assuming map_size is derived from workgroup count
+    const uint map_size = gl_NumWorkGroups.x * gl_WorkGroupSize.x;
+    const ivec3 id = ivec3(gl_GlobalInvocationID.xy, cascade_index);
+    
+    vec2 k_vec = (vec2(id.xy) - float(map_size)*0.5) * 2.0 * PI / tile_length;
+    float k = length(k_vec);
+    
+    if (k < 0.0001) {
+        data[(id.z)*map_size*map_size + (id.y)*map_size + (id.x)] = vec4(0.0);
+        return;
+    }
+
+    float omega = sqrt(G * k);
+    
+    // JONSWAP parameters
+    float U = wind_speed;
+    float F = fetch_length;
+    float omega_p = 22.0 * pow(G*G / (U*F), 0.3333); // Peak frequency
+    float alpha = 0.076 * pow(U*U / (F*G), 0.22);    // Phillips constant
+    
+    float S = jonswap(omega, omega_p, alpha);
+    
+    // Directional spreading
+    float theta = atan(k_vec.y, k_vec.x);
+    float D = directional_spread(omega, theta, wind_direction, spread);
+    
+    // Random amplitudes
+    vec2 h0 = gaussian_random(vec2(id.xy));
+    
+    // Amplitude
+    float amp = sqrt(2.0 * S * D * (2.0 * PI / tile_length.x) * (2.0 * PI / tile_length.y)); // dkx * dky approx
+    
+    // Output: h0(k) and h0(-k)*
+    // We store complex number (real, imag)
+    vec2 res = h0 * amp;
+    
+    // We need to store h0(k) and h0(-k) conjugate for the modulation step?
+    // The modulation shader expects: vec4 h0 = imageLoad(spectrum, id); // xy=h0(k), zw=conj(h0(-k))
+    // So we need to calculate h0(-k) as well.
+    
+    vec2 k_vec_neg = (vec2(map_size - id.xy) - float(map_size)*0.5) * 2.0 * PI / tile_length;
+    // Actually, -k corresponds to index (N-x, N-y).
+    // But we can just compute it analytically here since it's random.
+    // Wait, h0(-k) must be consistent if we want Hermitian symmetry?
+    // If we generate random numbers based on ID, we can just sample the random number for -k.
+    
+    // But usually we just generate independent random numbers and enforce symmetry later or just store both.
+    // Let's generate h0_neg using the seed for the negative index.
+    // Note: (map_size - id.x) % map_size handles the wrap around.
+    
+    uvec2 neg_id = (uvec2(map_size) - uvec2(id.xy)) % uvec2(map_size);
+    vec2 h0_neg_rand = gaussian_random(vec2(neg_id));
+    
+    // Recompute S and D for -k? S is isotropic (depends on |k|). D depends on angle.
+    // Angle for -k is theta + PI.
+    float theta_neg = theta + PI;
+    float D_neg = directional_spread(omega, theta_neg, wind_direction, spread);
+    float amp_neg = sqrt(2.0 * S * D_neg * (2.0 * PI / tile_length.x) * (2.0 * PI / tile_length.y));
+    
+    vec2 res_neg = h0_neg_rand * amp_neg;
+    
+    // Store xy = h0(k), zw = conj(h0(-k))
+    // conj(a + ib) = a - ib
+    data[(id.z)*map_size*map_size + (id.y)*map_size + (id.x)] = vec4(res, res_neg.x, -res_neg.y);
+}

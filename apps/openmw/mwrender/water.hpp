@@ -11,6 +11,8 @@
 #include <components/settings/settings.hpp>
 #include <components/vfs/pathutil.hpp>
 
+#include "ocean.hpp"
+
 namespace osg
 {
     class Group;
@@ -50,8 +52,8 @@ namespace MWRender
     class RainSettingsUpdater;
     class Ripples;
 
-    /// Water rendering
-    class Water
+    /// Water rendering manager
+    class WaterManager
     {
         osg::ref_ptr<RainSettingsUpdater> mRainSettingsUpdater;
 
@@ -77,6 +79,9 @@ namespace MWRender
         osg::Callback* mCullCallback;
         osg::ref_ptr<osg::Callback> mShaderWaterStateSetUpdater;
 
+        std::unique_ptr<Ocean> mOcean;
+        bool mUseOcean;
+
         osg::Vec3f getSceneNodeCoordinates(int gridX, int gridY);
         void updateVisible();
 
@@ -87,9 +92,9 @@ namespace MWRender
         void updateWaterMaterial();
 
     public:
-        Water(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
+        WaterManager(osg::Group* parent, osg::Group* sceneRoot, Resource::ResourceSystem* resourceSystem,
             osgUtil::IncrementalCompileOperation* ico);
-        ~Water();
+        ~WaterManager();
 
         void setCullCallback(osg::Callback* callback);
 
