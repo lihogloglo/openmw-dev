@@ -861,6 +861,14 @@ namespace MWRender
     {
         bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
         
+        // Debug logging for WaterManager update
+        static float timer = 0.0f;
+        timer += dt;
+        if (timer > 2.0f) {
+            std::cout << "WaterManager::update: Enabled=" << mEnabled << " Interior=" << mInterior << " Top=" << mTop << " UseOcean=" << mUseOcean << " IsOcean=" << isOcean << std::endl;
+            timer = 0.0f;
+        }
+
         if (mUseOcean && mOcean && mEnabled && isOcean)
             mOcean->update(dt, paused, cameraPos);
             

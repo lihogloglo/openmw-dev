@@ -21,7 +21,9 @@
 #include <osg/State>
 #include <osg/Array>
 #include <osg/Depth>
+#include <osg/Depth>
 #include <osg/StateSet>
+#include <osg/BlendFunc>
 
 #include <osgUtil/CullVisitor>
 
@@ -78,7 +80,12 @@ namespace MWRender
         {
             // Don't actually draw, just dispatch compute shaders
             if (mOcean) {
-                // Log(Debug::Info) << "ComputeDispatchCallback::drawImplementation called"; // Uncomment for per-frame logging
+                // Reduced logging frequency to avoid spamming too much, but enough to verify it runs
+                static int frameCount = 0;
+                frameCount++;
+                if (frameCount % 60 == 0) {
+                     std::cout << "ComputeDispatchCallback::drawImplementation called (Frame " << frameCount << ")" << std::endl;
+                }
                 mOcean->dispatchCompute(renderInfo.getState());
             }
         }
@@ -123,6 +130,11 @@ namespace MWRender
         if (mEnabled == enabled)
             return;
         mEnabled = enabled;
+
+        if (mEnabled)
+            addToScene(mParent);
+        else
+            removeFromScene(mParent);
     }
 
     bool Ocean::isUnderwater(const osg::Vec3f& pos) const
@@ -147,14 +159,14 @@ namespace MWRender
         if (!paused)
             mTime += dt;
             
-        // Debug logging for Z-following issue
-        // static float timer = 0.0f;
-        // timer += dt;
-        // if (timer > 1.0f) {
-        //     osg::Vec3f pos = mRootNode->getPosition();
-        //     std::cout << "Ocean Height: " << mHeight << " Root Pos: " << pos.z() << " Camera Z: " << cameraPos.z() << std::endl;
-        //     timer = 0.0f;
-        // }
+        // Debug logging for time and Z-following
+        static float timer = 0.0f;
+        timer += dt;
+        if (timer > 1.0f) {
+            osg::Vec3f pos = mRootNode->getPosition();
+            std::cout << "Ocean Update: Time=" << mTime << " Height=" << mHeight << " RootZ=" << pos.z() << " CamZ=" << cameraPos.z() << std::endl;
+            timer = 0.0f;
+        }
     }
 
     void Ocean::setHeight(float height)
@@ -771,10 +783,15 @@ namespace MWRender
         
         // Ocean should be transparent and blend with the scene
         stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
-        stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+        // Note: Removed TRANSPARENT_BIN hint to allow proper depth testing
+        
+        // Explicitly set blending function (Source Alpha, One Minus Source Alpha)
+        osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc;
+        blendFunc->setFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        stateset->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
         osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-        depth->setWriteMask(false); // Don't write to depth buffer
+        depth->setWriteMask(true); // Enable depth writes so ocean doesn't render over terrain
         depth->setFunction(osg::Depth::LESS);
         stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 

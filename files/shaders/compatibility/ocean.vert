@@ -1,6 +1,18 @@
 #version 330 compatibility
 
-#include "lib/core/vertex.h.glsl"
+// Don't include lib/core/vertex.h.glsl due to version conflicts
+// Manually define the required functions
+uniform mat4 projectionMatrix;
+
+vec4 modelToView(vec4 pos)
+{
+    return gl_ModelViewMatrix * pos;
+}
+
+vec4 modelToClip(vec4 pos)
+{
+    return projectionMatrix * modelToView(pos);
+}
 
 varying vec4 position;
 varying float linearDepth;
