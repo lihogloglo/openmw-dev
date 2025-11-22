@@ -58,37 +58,20 @@ void main(void)
 
     normal = normalize(normal);
 
-    // Basic lighting
+
+    // Progressive test: Add back lighting, no fog yet
     vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
-    vec3 viewDir = normalize(position.xyz - cameraPos.xyz);
-    vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * vec4(lcalcPosition(0).xyz, 0.0)).xyz);
-
-    // Fresnel effect
-    float ior = (cameraPos.z > 0.0) ? (1.333/1.0) : (1.0/1.333);
-    float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
-
-    // Simple diffuse lighting
-    float diffuse = max(dot(normal, sunWorldDir), 0.0);
-
-    // Specular
-    vec3 halfVec = normalize(sunWorldDir - viewDir);
-    float specular = pow(max(dot(normal, halfVec), 0.0), 128.0);
-
-    // Combine
-    vec3 waterCol = WATER_COLOR;
-    vec3 color = waterCol * (0.3 + diffuse * 0.7) * shadow;
-    color += sunColor * specular * 1.5 * shadow;
-
-    // Apply fresnel for reflections (simplified - no actual reflection sampling)
-    color = mix(color, vec3(0.5, 0.7, 0.9), fresnel * 0.5); // Sky color approximation
-
-    // Fog - use already-declared cameraPos from line 61
-    float euclideanDepth = length(position.xyz - cameraPos);
-    vec4 colorWithFog = applyFogAtDist(vec4(color, 0.85), euclideanDepth, linearDepth, far);
-
+    float upFacing = max(0.0, normal.z);
+    vec3 testColor = WATER_COLOR * (0.3 + upFacing * 0.7);
+    gl_FragData[0] = vec4(testColor, 0.85);
+    
     // DEBUG: Uncomment one of these lines to visualize different components
     // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)
-    gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
+    // gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
+    // gl_FragData[0] = vec4(WATER_COLOR, 1.0); // Solid water color test
+    
+    // Full rendering (currently disabled for testing)
+    // gl_FragData[0] = colorWithFog;
     
     // DEBUG: Visualize Spectrum (Cascade 0)
     // vec4 spectrum = texture(spectrumMap, vec3(worldPos.xy * mapScales[0].x, 0.0));

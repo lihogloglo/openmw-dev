@@ -431,6 +431,22 @@ namespace MWRender
 
             // Bind butterfly buffer
             GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            
+            // ALLOCATE butterfly buffer before initialization shader runs
+            GLint bufSize = 0;
+            ext->glBindBuffer(GL_SHADER_STORAGE_BUFFER, butterflyBufferID);
+            ext->glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, 0x8764, &bufSize);
+            
+            if (bufSize == 0) {
+                std::cout << "Ocean: Allocating Butterfly Buffer..." << std::endl;
+                const size_t butterflyElements = numStages * L_SIZE * 4;
+                const size_t butterflySizeBytes = butterflyElements * sizeof(float);
+                ext->glBufferData(GL_SHADER_STORAGE_BUFFER, butterflySizeBytes, NULL, GL_STATIC_DRAW);
+                
+                ext->glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, 0x8764, &bufSize);
+                std::cout << "Ocean: Allocated Butterfly Buffer. Size: " << bufSize << " bytes" << std::endl;
+            }
+            
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
 
             // Dispatch: work groups cover L_SIZE/128 x numStages x 1
@@ -651,6 +667,33 @@ namespace MWRender
                 }
                 
                 ext->glDispatchCompute(L_SIZE / 32, L_SIZE / 32, NUM_SPECTRA);
+            }
+            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        }
+            
+        // 4. Vertical FFT (same as horizontal, but on transposed data)
+        if (mComputeFFT.valid())
+        {
+            state->applyAttribute(mComputeFFT.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+            
+            // Bind Butterfly Buffer (Binding 0)
+            GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
+            
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+            
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+                }
+                
+                ext->glDispatchCompute(1, L_SIZE, NUM_SPECTRA);
             }
             ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
