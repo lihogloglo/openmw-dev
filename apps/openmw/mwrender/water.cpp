@@ -768,7 +768,8 @@ namespace MWRender
     {
         mEnabled = enabled;
         
-        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        // Ocean if exterior and water level is near sea level (±10 units)
+        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
         
         if (mUseOcean && mOcean)
             mOcean->setEnabled(enabled && isOcean);
@@ -790,7 +791,8 @@ namespace MWRender
                 getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
             
-            bool isOcean = (std::abs(mTop) < 1.0f);
+            // Ocean if water level is near sea level (±10 units)
+            bool isOcean = (std::abs(mTop) <= 10.0f);
             
             if (mUseOcean && mOcean)
                 mOcean->setEnabled(mEnabled && isOcean);
@@ -817,7 +819,7 @@ namespace MWRender
     void WaterManager::setHeight(const float height)
     {
         mTop = height;
-        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
 
         if (mUseOcean && mOcean)
         {
@@ -859,7 +861,7 @@ namespace MWRender
 
     void WaterManager::update(float dt, bool paused, const osg::Vec3f& cameraPos)
     {
-        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
         
         // Debug logging for WaterManager update
         static float timer = 0.0f;
@@ -891,7 +893,7 @@ namespace MWRender
         bool visible = mEnabled && mToggled;
 
         // Hide old water geometry when using Ocean (exterior sea level) or Lake (interior or high altitude)
-        bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
+        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
         bool useNewWater = (mUseOcean && isOcean) || (mLake && !isOcean);
         mWaterNode->setNodeMask((visible && !useNewWater) ? ~0u : 0u);
 

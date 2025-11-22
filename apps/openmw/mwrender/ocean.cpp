@@ -1,9 +1,11 @@
 #include "ocean.hpp"
+#include "ocean.hpp"
 
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/sceneutil/color.hpp>
+#include <components/sceneutil/depth.hpp>
 
 #include "renderbin.hpp"
 
@@ -162,11 +164,23 @@ namespace MWRender
         // Debug logging for time and Z-following
         static float timer = 0.0f;
         timer += dt;
-        if (timer > 1.0f) {
             osg::Vec3f pos = mRootNode->getPosition();
             std::cout << "Ocean Update: Time=" << mTime << " Height=" << mHeight << " RootZ=" << pos.z() << " CamZ=" << cameraPos.z() << std::endl;
             timer = 0.0f;
-        }
+
+
+        // Infinite Ocean Logic: Snap grid to camera position
+        // We move the grid in steps of the largest cascade tile size to avoid popping artifacts
+        float gridSize = 2000.0f; // Largest cascade tile size
+        float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
+        float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
+
+        // Update root node position (keep Z fixed at sea level)
+        mRootNode->setPosition(osg::Vec3f(snapX, snapY, mHeight));
+
+        // Update shader uniform so the shader knows the world offset
+        if (mNodePositionUniform)
+            mNodePositionUniform->set(osg::Vec3f(snapX, snapY, mHeight));
     }
 
     void Ocean::setHeight(float height)
@@ -275,7 +289,7 @@ namespace MWRender
         unsigned char* zeroData = new unsigned char[dispSize];
         std::memset(zeroData, 0, dispSize);
         osg::ref_ptr<osg::Image> dispImage = new osg::Image;
-        dispImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA32F, GL_RGBA, GL_FLOAT,
+        dispImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA16F, GL_RGBA, GL_HALF_FLOAT,
             zeroData, osg::Image::USE_NEW_DELETE);
         mDisplacementMap->setImage(0, dispImage);
 
@@ -301,7 +315,7 @@ namespace MWRender
             normalData[i * 4 + 3] = 0.0f; // w (foam)
         }
         osg::ref_ptr<osg::Image> normalImage = new osg::Image;
-        normalImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA32F, GL_RGBA, GL_FLOAT,
+        normalImage->setImage(L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA16F, GL_RGBA, GL_FLOAT,
             reinterpret_cast<unsigned char*>(normalData), osg::Image::USE_NEW_DELETE);
         mNormalMap->setImage(0, normalImage);
 
@@ -487,16 +501,32 @@ namespace MWRender
             GLuint spectrumBufferID = mSpectrumBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, spectrumBufferID);
             
-            GLuint spectrumTextureID = mSpectrum->getTextureObject(contextID)->id();
-            glBindTexture(GL_TEXTURE_2D_ARRAY, spectrumTextureID);
+            osg::Texture::TextureObject* texObj = mSpectrum->getTextureObject(contextID);
+            if (!texObj) {
+                // Force texture object creation if it doesn't exist yet
+                mSpectrum->apply(*state);
+                texObj = mSpectrum->getTextureObject(contextID);
+            }
             
-            // The buffer contains floats (vec4), but the texture is RGBA16F.
-            // OpenGL will handle the conversion from GL_FLOAT to GL_HALF_FLOAT (GL_RGBA16F).
-            ext->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA, GL_FLOAT, 0);
+            if (texObj) {
+                GLuint spectrumTextureID = texObj->id();
+                glBindTexture(GL_TEXTURE_2D_ARRAY, spectrumTextureID);
+                
+                // The buffer contains floats (vec4), but the texture is RGBA16F.
+                // OpenGL will handle the conversion from GL_FLOAT to GL_HALF_FLOAT (GL_RGBA16F).
+                ext->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA, GL_FLOAT, 0);
+            } else {
+                 std::cerr << "Ocean::initializeComputeShaders: Failed to create spectrum texture object" << std::endl;
+            }
             
             glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
             glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
         }
+        
+        // Unbind resources to prevent state pollution
+        ext->glBindImageTexture(0, 0, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+
     }
 
     void Ocean::updateComputeShaders(osg::State* state, osg::GLExtensions* ext, unsigned int contextID)
@@ -531,8 +561,12 @@ namespace MWRender
             // Note: We need to bind the texture object to an image unit
             // Since OSG doesn't have a direct bindImageTexture for Texture2DArray easily accessible without extensions,
             // we use the extension directly.
-            GLuint spectrumID = mSpectrum->getTextureObject(contextID)->id();
-            ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
+            // Bind Spectrum Texture (Image Unit 0)
+            osg::Texture::TextureObject* texObj = mSpectrum->getTextureObject(contextID);
+            if (texObj) {
+                GLuint spectrumID = texObj->id();
+                ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
+            }
             
             // Bind FFT Buffer (Binding 1)
             GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
@@ -646,12 +680,22 @@ namespace MWRender
             const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
             // Bind Displacement Map (Image Unit 0, Write Only)
-            GLuint dispID = mDisplacementMap->getTextureObject(contextID)->id();
-            ext->glBindImageTexture(0, dispID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+            // Bind Displacement Map (Image Unit 0, Write Only)
+            osg::Texture::TextureObject* dispTexObj = mDisplacementMap->getTextureObject(contextID);
+            if (!dispTexObj) { mDisplacementMap->apply(*state); dispTexObj = mDisplacementMap->getTextureObject(contextID); }
+            if (dispTexObj) {
+                GLuint dispID = dispTexObj->id();
+                ext->glBindImageTexture(0, dispID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+            }
             
             // Bind Normal Map (Image Unit 1, Read/Write)
-            GLuint normID = mNormalMap->getTextureObject(contextID)->id();
-            ext->glBindImageTexture(1, normID, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+            // Bind Normal Map (Image Unit 1, Read/Write)
+            osg::Texture::TextureObject* normTexObj = mNormalMap->getTextureObject(contextID);
+            if (!normTexObj) { mNormalMap->apply(*state); normTexObj = mNormalMap->getTextureObject(contextID); }
+            if (normTexObj) {
+                GLuint normID = normTexObj->id();
+                ext->glBindImageTexture(1, normID, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+            }
             
             // Bind FFT Buffer (Binding 0)
             GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
@@ -679,6 +723,12 @@ namespace MWRender
             }
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
+
+        // Unbind resources to prevent state pollution
+        ext->glBindImageTexture(0, 0, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+        ext->glBindImageTexture(1, 0, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, 0);
     }
 
     void Ocean::initGeometry()
@@ -723,14 +773,14 @@ namespace MWRender
                 int i2 = (y + 1) * (gridSize + 1) + x;
                 int i3 = i2 + 1;
 
-                // First triangle
+                // First triangle (CCW)
                 indices->push_back(i0);
-                indices->push_back(i2);
                 indices->push_back(i1);
+                indices->push_back(i2);
 
-                // Second triangle
-                indices->push_back(i1);
+                // Second triangle (CCW)
                 indices->push_back(i2);
+                indices->push_back(i1);
                 indices->push_back(i3);
             }
         }
@@ -791,8 +841,8 @@ namespace MWRender
         stateset->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
         osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-        depth->setWriteMask(true); // Enable depth writes so ocean doesn't render over terrain
-        depth->setFunction(osg::Depth::LESS);
+        depth->setWriteMask(true);
+        depth->setFunction(osg::Depth::GEQUAL); // Reverse-Z: Pass if Greater or Equal (Closer)
         stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
         // Sun parameters (would normally come from the scene)

@@ -81,8 +81,7 @@ void main(void)
     // Apply fresnel for reflections (simplified - no actual reflection sampling)
     color = mix(color, vec3(0.5, 0.7, 0.9), fresnel * 0.5); // Sky color approximation
 
-    // Fog - calculate euclidean depth for proper fog application
-    vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
+    // Fog - use already-declared cameraPos from line 61
     float euclideanDepth = length(position.xyz - cameraPos);
     vec4 colorWithFog = applyFogAtDist(vec4(color, 0.85), euclideanDepth, linearDepth, far);
 
