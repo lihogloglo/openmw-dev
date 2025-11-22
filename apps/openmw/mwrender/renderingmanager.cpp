@@ -901,7 +901,7 @@ namespace MWRender
         mWater->setRainIntensity(rainIntensity);
         mWater->setRainRipplesEnabled(mSky->getRainRipplesEnabled());
 
-        mWater->update(dt, paused);
+        mWater->update(dt, paused, mCamera->getPosition());
         if (!paused)
         {
             mEffectManager->update(dt);

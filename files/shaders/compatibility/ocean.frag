@@ -85,7 +85,7 @@ void main(void)
     color = applyFog(color, linearDepth);
 
     gl_FragData[0].xyz = color;
-    gl_FragData[0].w = 1.0;
+    gl_FragData[0].w = 0.85;
 
     applyShadowDebugOverlay();
 }

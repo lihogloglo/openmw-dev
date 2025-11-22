@@ -26,7 +26,7 @@ namespace MWRender
         ~Lake() override;
 
         void setEnabled(bool enabled) override;
-        void update(float dt, bool paused) override;
+        void update(float dt, bool paused, const osg::Vec3f& cameraPos) override;
         void setHeight(float height) override;
         bool isUnderwater(const osg::Vec3f& pos) const override;
 

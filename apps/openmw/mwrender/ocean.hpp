@@ -33,7 +33,7 @@ namespace MWRender
         ~Ocean() override;
 
         void setEnabled(bool enabled) override;
-        void update(float dt, bool paused) override;
+        void update(float dt, bool paused, const osg::Vec3f& cameraPos) override;
         void setHeight(float height) override;
         bool isUnderwater(const osg::Vec3f& pos) const override;
 
@@ -57,6 +57,7 @@ namespace MWRender
 
         osg::ref_ptr<osg::PositionAttitudeTransform> mRootNode;
         osg::ref_ptr<osg::Geometry> mWaterGeom;
+        osg::ref_ptr<osg::Uniform> mNodePositionUniform;
 
         // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;

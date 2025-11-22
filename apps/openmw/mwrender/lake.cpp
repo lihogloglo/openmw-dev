@@ -34,15 +34,15 @@ void Lake::setEnabled(bool enabled)
 {
     if (mEnabled == enabled)
         return;
-        
     mEnabled = enabled;
+
     if (mEnabled)
         addToScene(mParent);
     else
         removeFromScene(mParent);
 }
 
-void Lake::update(float dt, bool paused)
+void Lake::update(float dt, bool paused, const osg::Vec3f& cameraPos)
 {
     // Lake logic here (e.g. texture animation)
 }

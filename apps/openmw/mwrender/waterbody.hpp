@@ -18,7 +18,7 @@ namespace MWRender
         virtual ~WaterBody() = default;
 
         virtual void setEnabled(bool enabled) = 0;
-        virtual void update(float dt, bool paused) = 0;
+        virtual void update(float dt, bool paused, const osg::Vec3f& cameraPos) = 0;
         virtual void setHeight(float height) = 0;
         virtual bool isUnderwater(const osg::Vec3f& pos) const = 0;
         

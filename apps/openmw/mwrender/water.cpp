@@ -857,15 +857,15 @@ namespace MWRender
             mRainSettingsUpdater->setRipplesEnabled(enableRipples);
     }
 
-    void WaterManager::update(float dt, bool paused)
+    void WaterManager::update(float dt, bool paused, const osg::Vec3f& cameraPos)
     {
         bool isOcean = !mInterior && (std::abs(mTop) < 1.0f);
         
         if (mUseOcean && mOcean && mEnabled && isOcean)
-            mOcean->update(dt, paused);
+            mOcean->update(dt, paused, cameraPos);
             
         if (mLake && mEnabled && !isOcean)
-            mLake->update(dt, paused);
+            mLake->update(dt, paused, cameraPos);
 
         if (!paused)
         {

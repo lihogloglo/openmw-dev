@@ -123,7 +123,7 @@ namespace MWRender
         void setRainIntensity(const float rainIntensity);
         void setRainRipplesEnabled(bool enableRipples);
 
-        void update(float dt, bool paused);
+        void update(float dt, bool paused, const osg::Vec3f& cameraPos);
 
         osg::Vec3d getPosition() const;
 

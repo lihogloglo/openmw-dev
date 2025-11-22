@@ -30,7 +30,7 @@ void main(void)
 
     // Displacement sampling
     for (int i = 0; i < numCascades && i < 4; ++i) {
-        vec2 uv = vertPos.xy * mapScales[i].x;
+        vec2 uv = (vertPos.xy + nodePosition.xy) * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
         totalDisplacement += disp;
     }

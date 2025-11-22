@@ -77,13 +77,19 @@ namespace MWRender
         void drawImplementation(osg::RenderInfo& renderInfo, const osg::Drawable* drawable) const override
         {
             // Don't actually draw, just dispatch compute shaders
-            if (mOcean)
+            if (mOcean) {
+                // Log(Debug::Info) << "ComputeDispatchCallback::drawImplementation called"; // Uncomment for per-frame logging
                 mOcean->dispatchCompute(renderInfo.getState());
+            }
         }
 
     private:
         Ocean* mOcean;
     };
+
+#include <iostream>
+
+    // ... (existing code)
 
     Ocean::Ocean(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : mParent(parent)
@@ -93,6 +99,7 @@ namespace MWRender
         , mTime(0.f)
         , mInitialized(false)
     {
+        std::cout << "Ocean::Ocean constructor called" << std::endl;
         mRootNode = new osg::PositionAttitudeTransform;
         mRootNode->setName("OceanRoot");
 
@@ -103,6 +110,7 @@ namespace MWRender
 
         // Initialize the compute pipeline once
         initializeComputePipeline();
+        std::cout << "Ocean::Ocean constructor finished" << std::endl;
     }
 
     Ocean::~Ocean()
@@ -115,25 +123,6 @@ namespace MWRender
         if (mEnabled == enabled)
             return;
         mEnabled = enabled;
-        if (mEnabled)
-            mParent->addChild(mRootNode);
-        else
-            mParent->removeChild(mRootNode);
-    }
-
-    void Ocean::update(float dt, bool paused)
-    {
-        if (!mEnabled || paused || !mInitialized)
-            return;
-
-        mTime += dt;
-        // The actual compute dispatch happens in the draw callback
-    }
-
-    void Ocean::setHeight(float height)
-    {
-        mHeight = height;
-        mRootNode->setPosition(osg::Vec3f(0.f, 0.f, mHeight));
     }
 
     bool Ocean::isUnderwater(const osg::Vec3f& pos) const
@@ -153,6 +142,29 @@ namespace MWRender
             parent->removeChild(mRootNode);
     }
 
+    void Ocean::update(float dt, bool paused, const osg::Vec3f& cameraPos)
+    {
+        if (!paused)
+            mTime += dt;
+            
+        // Debug logging for Z-following issue
+        // static float timer = 0.0f;
+        // timer += dt;
+        // if (timer > 1.0f) {
+        //     osg::Vec3f pos = mRootNode->getPosition();
+        //     std::cout << "Ocean Height: " << mHeight << " Root Pos: " << pos.z() << " Camera Z: " << cameraPos.z() << std::endl;
+        //     timer = 0.0f;
+        // }
+    }
+
+    void Ocean::setHeight(float height)
+    {
+        mHeight = height;
+        mRootNode->setPosition(osg::Vec3f(0.f, 0.f, mHeight));
+        if (mNodePositionUniform)
+            mNodePositionUniform->set(osg::Vec3f(0.f, 0.f, mHeight));
+    }
+
     osg::ref_ptr<osg::Program> createComputeProgram(Shader::ShaderManager& mgr, const std::string& name, const Shader::ShaderManager::DefineMap& defines)
     {
         osg::ref_ptr<osg::Shader> shader = mgr.getShader(name, defines, osg::Shader::COMPUTE);
@@ -166,17 +178,33 @@ namespace MWRender
 
     void Ocean::initShaders()
     {
+        std::cout << "Ocean::initShaders called" << std::endl;
         Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
         Shader::ShaderManager::DefineMap defines;
 
         // Load all compute shaders
-        mComputeButterfly = createComputeProgram(shaderManager, "lib/ocean/fft_butterfly", defines);
-        mComputeSpectrum = createComputeProgram(shaderManager, "lib/ocean/spectrum_compute", defines);
-        mComputeModulate = createComputeProgram(shaderManager, "lib/ocean/spectrum_modulate", defines);
-        mComputeFFT = createComputeProgram(shaderManager, "lib/ocean/fft_compute", defines);
-        mComputeTranspose = createComputeProgram(shaderManager, "lib/ocean/transpose", defines);
-        mComputeUnpack = createComputeProgram(shaderManager, "lib/ocean/fft_unpack", defines);
+        mComputeButterfly = createComputeProgram(shaderManager, "lib/ocean/fft_butterfly.comp", defines);
+        if (!mComputeButterfly) std::cerr << "Failed to load lib/ocean/fft_butterfly.comp" << std::endl;
+        
+        mComputeSpectrum = createComputeProgram(shaderManager, "lib/ocean/spectrum_compute.comp", defines);
+        if (!mComputeSpectrum) std::cerr << "Failed to load lib/ocean/spectrum_compute.comp" << std::endl;
+
+        mComputeModulate = createComputeProgram(shaderManager, "lib/ocean/spectrum_modulate.comp", defines);
+        if (!mComputeModulate) std::cerr << "Failed to load lib/ocean/spectrum_modulate.comp" << std::endl;
+
+        mComputeFFT = createComputeProgram(shaderManager, "lib/ocean/fft_compute.comp", defines);
+        if (!mComputeFFT) std::cerr << "Failed to load lib/ocean/fft_compute.comp" << std::endl;
+
+        mComputeTranspose = createComputeProgram(shaderManager, "lib/ocean/transpose.comp", defines);
+        if (!mComputeTranspose) std::cerr << "Failed to load lib/ocean/transpose.comp" << std::endl;
+
+        mComputeUnpack = createComputeProgram(shaderManager, "lib/ocean/fft_unpack.comp", defines);
+        if (!mComputeUnpack) std::cerr << "Failed to load lib/ocean/fft_unpack.comp" << std::endl;
+        
+        std::cout << "Ocean::initShaders finished" << std::endl;
     }
+
+
 
     void Ocean::initBuffers()
     {
@@ -296,6 +324,9 @@ namespace MWRender
 
         // Empty vertex array (we're not actually drawing anything)
         computeDispatcher->setVertexArray(new osg::Vec3Array);
+        
+        // Prevent culling by setting a large bounding box
+        computeDispatcher->setInitialBound(osg::BoundingBox(-1e9, -1e9, -1e9, 1e9, 1e9, 1e9));
 
         // Set the compute dispatch callback
         computeDispatcher->setDrawCallback(new ComputeDispatchCallback(this));
@@ -311,6 +342,8 @@ namespace MWRender
         mInitialized = true;
     }
 
+    // ...
+
     void Ocean::dispatchCompute(osg::State* state)
     {
         if (!state || !mInitialized)
@@ -319,7 +352,14 @@ namespace MWRender
         // Get OpenGL extensions for compute shaders
         osg::GLExtensions* ext = state->get<osg::GLExtensions>();
         if (!ext)
+        {
+            static bool warned = false;
+            if (!warned) {
+                 std::cerr << "Ocean::dispatchCompute: Failed to get GLExtensions" << std::endl;
+                 warned = true;
+            }
             return;
+        }
 
         unsigned int contextID = state->getContextID();
 
@@ -327,6 +367,7 @@ namespace MWRender
         static bool sInitialized = false;
         if (!sInitialized)
         {
+            std::cout << "Ocean::dispatchCompute: Running initialization shaders" << std::endl;
             initializeComputeShaders(state, ext, contextID);
             sInitialized = true;
         }
@@ -694,8 +735,8 @@ namespace MWRender
         // Get the ocean program (vert + frag)
         osg::ref_ptr<osg::Program> program = new osg::Program;
 
-        auto vert = shaderManager.getShader("ocean", defines, osg::Shader::VERTEX);
-        auto frag = shaderManager.getShader("ocean", defines, osg::Shader::FRAGMENT);
+        auto vert = shaderManager.getShader("ocean.vert", defines, osg::Shader::VERTEX);
+        auto frag = shaderManager.getShader("ocean.frag", defines, osg::Shader::FRAGMENT);
 
         if (vert) program->addShader(vert);
         if (frag) program->addShader(frag);
@@ -707,6 +748,8 @@ namespace MWRender
         stateset->setTextureAttributeAndModes(1, mNormalMap, osg::StateAttribute::ON);
 
         // Set uniforms
+        mNodePositionUniform = new osg::Uniform("nodePosition", osg::Vec3f(0,0,0));
+        stateset->addUniform(mNodePositionUniform);
         stateset->addUniform(new osg::Uniform("displacementMap", 0));
         stateset->addUniform(new osg::Uniform("normalMap", 1));
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
@@ -715,7 +758,9 @@ namespace MWRender
         osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
-            float scale = 1.0f / (1 << i); // Each cascade is half the scale of the previous
+            // Scale = 1 / (DomainSize). We increase domain size by factor of 2 for each cascade.
+            // Base size = L_SIZE (e.g. 512 meters if 1 unit = 1 meter)
+            float scale = 1.0f / (L_SIZE * (1 << i)); 
             mapScales->setElement(i, osg::Vec4f(scale, scale, 0.f, 0.f));
         }
         stateset->addUniform(mapScales);
@@ -724,9 +769,12 @@ namespace MWRender
         stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
         stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
         
-        // Ocean is currently opaque, so we write to depth
+        // Ocean should be transparent and blend with the scene
+        stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
+        stateset->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
         osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-        depth->setWriteMask(true);
+        depth->setWriteMask(false); // Don't write to depth buffer
         depth->setFunction(osg::Depth::LESS);
         stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
