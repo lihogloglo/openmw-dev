@@ -91,8 +91,8 @@ void main(void)
     gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
     
     // DEBUG: Visualize Spectrum (Cascade 0)
-    vec4 spectrum = texture(spectrumMap, vec3(worldPos.xy * mapScales[0].x, 0.0));
-    gl_FragData[0] = vec4(abs(spectrum.xy), 0.0, 1.0); // Raw values (noise should be visible ~1.0)
+    // vec4 spectrum = texture(spectrumMap, vec3(worldPos.xy * mapScales[0].x, 0.0));
+    // gl_FragData[0] = vec4(spectrum.xyz, 1.0); // Show raw S, D, Amp
     
     // gl_FragData[0] = vec4(vec3(shadow), 1.0); // Shadow
     // gl_FragData[0] = vec4(vec3(linearDepth / 5000.0), 1.0); // Depth

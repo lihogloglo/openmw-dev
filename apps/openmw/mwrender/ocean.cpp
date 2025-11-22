@@ -532,13 +532,38 @@ namespace MWRender
         // 1. Modulate Spectrum
         if (mComputeModulate.valid())
         {
+            static int modFrame = 0;
+            modFrame++;
+            
             state->applyAttribute(mComputeModulate.get());
             const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
-            // Bind Spectrum Texture (Image Unit 0)
-            // Note: We need to bind the texture object to an image unit
-            // Since OSG doesn't have a direct bindImageTexture for Texture2DArray easily accessible without extensions,
-            // we use the extension directly.
+            // Bind FFT Buffer (Binding 1)
+            GLuint fftBufferID_Local = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
+            
+            if (modFrame % 60 == 0) {
+                std::cout << "Ocean: Modulate Frame " << modFrame << std::endl;
+                std::cout << "  PCP Valid: " << (pcp ? "Yes" : "No") << std::endl;
+                std::cout << "  FFT Buffer ID: " << fftBufferID_Local << std::endl;
+                
+                GLint bufSize = 0;
+                ext->glBindBuffer(GL_SHADER_STORAGE_BUFFER, fftBufferID_Local);
+                ext->glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, 0x8764, &bufSize);
+                
+                if (bufSize == 0) {
+                    std::cout << "Ocean: Allocating FFT Buffer..." << std::endl;
+                    const size_t fftElements = L_SIZE * L_SIZE * NUM_SPECTRA * 2 * NUM_CASCADES * 2;
+                    const size_t fftSizeBytes = fftElements * sizeof(float);
+                    ext->glBufferData(GL_SHADER_STORAGE_BUFFER, fftSizeBytes, NULL, GL_DYNAMIC_DRAW);
+                    
+                    // Verify allocation
+                    ext->glGetBufferParameteriv(GL_SHADER_STORAGE_BUFFER, 0x8764, &bufSize);
+                    std::cout << "Ocean: Allocated FFT Buffer. New Size: " << bufSize << " bytes" << std::endl;
+                } else if (modFrame % 60 == 0) {
+                     std::cout << "  FFT Buffer Size: " << bufSize << " bytes" << std::endl;
+                }
+            }
+
             // Bind Spectrum Texture (Image Unit 0)
             osg::Texture::TextureObject* texObj = mSpectrum->getTextureObject(contextID);
             if (texObj) {
@@ -546,9 +571,10 @@ namespace MWRender
                 ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
             }
             
-            // Bind FFT Buffer (Binding 1)
-            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID_Local);
+            
+            GLenum err = glGetError();
+            if (err != GL_NO_ERROR) std::cerr << "Ocean: Modulate glBindBufferBase(1) failed: " << err << " BufID: " << fftBufferID_Local << std::endl;
             
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
@@ -569,6 +595,11 @@ namespace MWRender
                 }
                 
                 ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
+                
+                if (modFrame % 60 == 0 && cascade == 0) {
+                     GLenum dispatchErr = glGetError();
+                     if (dispatchErr != GL_NO_ERROR) std::cerr << "Ocean: Modulate Dispatch Error: " << dispatchErr << std::endl;
+                }
             }
             ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
@@ -623,40 +654,13 @@ namespace MWRender
             }
             ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
-
-        // 4. Vertical FFT (same shader as Horizontal)
-        if (mComputeFFT.valid())
-        {
-            state->applyAttribute(mComputeFFT.get());
-            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
-            // Bind Butterfly Buffer (Binding 0)
-            GLuint butterflyBufferID = mButterflyBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, butterflyBufferID);
-            
-            // Bind FFT Buffer (Binding 1)
-            GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
-            
-            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
-            {
-                if (pcp)
-                {
-                    GLint loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
-                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
-                }
-                
-                ext->glDispatchCompute(1, L_SIZE, NUM_SPECTRA);
-            }
-            ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        }
-
         // 5. Unpack to Textures
         if (mComputeUnpack.valid())
         {
             state->applyAttribute(mComputeUnpack.get());
             const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
-            
+
             // Bind Displacement Map (Image Unit 0, Write Only)
             osg::Texture::TextureObject* dispTexObj = mDisplacementMap->getTextureObject(contextID);
             if (!dispTexObj) { mDisplacementMap->apply(*state); dispTexObj = mDisplacementMap->getTextureObject(contextID); }
@@ -673,9 +677,12 @@ namespace MWRender
                 ext->glBindImageTexture(1, normID, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA16F);
             }
             
-            // Bind FFT Buffer (Binding 0)
+            // Bind FFT Buffer (Binding 1)
             GLuint fftBufferID = mFFTBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, fftBufferID);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, fftBufferID);
+
+            GLenum err2 = glGetError();
+            if (err2 != GL_NO_ERROR) std::cerr << "Ocean: Unpack glBindBufferBase(1) failed: " << err2 << " BufID: " << fftBufferID << std::endl;
             
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {

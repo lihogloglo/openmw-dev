@@ -96,11 +96,9 @@ void main() {
     
     // Output: h0(k) and h0(-k)*
     // We store complex number (real, imag)
-    vec2 res = h0 * amp;
-    
-    // We need to store h0(k) and h0(-k) conjugate for the modulation step?
-    // The modulation shader expects: vec4 h0 = imageLoad(spectrum, id); // xy=h0(k), zw=conj(h0(-k))
-    // So we need to calculate h0(-k) as well.
+    // DEBUG: Boost amplitude by 100x to verify visibility
+    float boost = 500.0;
+    vec2 res = h0 * amp * boost;
     
     vec2 k_vec_neg = (vec2(map_size - id.xy) - float(map_size)*0.5) * 2.0 * PI / tile_length;
     
@@ -113,11 +111,9 @@ void main() {
     float D_neg = directional_spread(omega, theta_neg, wind_direction, spread);
     float amp_neg = sqrt(2.0 * S * D_neg * (2.0 * PI / tile_length.x) * (2.0 * PI / tile_length.y));
     
-    vec2 res_neg = h0_neg_rand * amp_neg;
+    vec2 res_neg = h0_neg_rand * amp_neg * boost;
     
     // Store xy = h0(k), zw = conj(h0(-k))
     // conj(a + ib) = a - ib
-    // DEBUG: Output raw noise to verify RNG
-    imageStore(spectrum_image, id, vec4(h0, 0.0, 1.0));
-    // imageStore(spectrum_image, id, vec4(res, res_neg.x, -res_neg.y));
+    imageStore(spectrum_image, id, vec4(res, res_neg.x, -res_neg.y));
 }
