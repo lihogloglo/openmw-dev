@@ -439,6 +439,64 @@ namespace MWRender
             ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
 
+        // 2. Generate Initial Spectrum (once at startup)
+        if (mComputeSpectrum.valid())
+        {
+            state->applyAttribute(mComputeSpectrum.get());
+            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
+
+            // Bind Spectrum Texture (Image Unit 0, Write Only)
+            osg::Texture::TextureObject* texObj = mSpectrum->getTextureObject(contextID);
+            if (!texObj) { mSpectrum->apply(*state); texObj = mSpectrum->getTextureObject(contextID); }
+            if (texObj) {
+                GLuint spectrumID = texObj->id();
+                ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
+            }
+
+            // Uniforms
+            float windSpeed = 10.0f;
+            float fetchLength = 100000.0f;
+            float windDir = 0.0f;
+            float swell = 1.0f;
+            float spread = 0.5f;
+            float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
+
+            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
+            {
+                if (pcp)
+                {
+                    GLint loc;
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
+                    if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
+                    if (loc >= 0) ext->glUniform1ui(loc, cascade);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("fetch_length"));
+                    if (loc >= 0) ext->glUniform1f(loc, fetchLength);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
+                    if (loc >= 0) ext->glUniform1f(loc, windSpeed);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
+                    if (loc >= 0) ext->glUniform1f(loc, windDir);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("swell"));
+                    if (loc >= 0) ext->glUniform1f(loc, swell);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
+                    if (loc >= 0) ext->glUniform1f(loc, spread);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("spectrum_seed"));
+                    if (loc >= 0) ext->glUniform2f(loc, 12.34f, 56.78f); // Fixed seed for now
+                }
+
+                // Dispatch (L_SIZE / 16, L_SIZE / 16, 1)
+                ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
+            }
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        }
+
 
     }
 
@@ -734,8 +792,9 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("normalMap", 1));
         
         // DEBUG: Bind Spectrum for visualization
-        // stateset->setTextureAttributeAndModes(2, mSpectrum, osg::StateAttribute::ON);
-        // stateset->addUniform(new osg::Uniform("spectrumMap", 2));
+        // DEBUG: Bind Spectrum for visualization
+        stateset->setTextureAttributeAndModes(2, mSpectrum, osg::StateAttribute::ON);
+        stateset->addUniform(new osg::Uniform("spectrumMap", 2));
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)
