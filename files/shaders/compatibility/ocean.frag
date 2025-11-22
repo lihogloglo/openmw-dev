@@ -22,6 +22,7 @@ varying vec3 worldPos;
 varying vec2 texCoord;
 
 uniform sampler2DArray normalMap;
+uniform sampler2DArray spectrumMap; // DEBUG
 uniform int numCascades;
 uniform vec4 mapScales[4];
 uniform vec3 sunDir;
@@ -85,7 +86,16 @@ void main(void)
     float euclideanDepth = length(position.xyz - cameraPos);
     vec4 colorWithFog = applyFogAtDist(vec4(color, 0.85), euclideanDepth, linearDepth, far);
 
-    gl_FragData[0] = colorWithFog;
+    // DEBUG: Uncomment one of these lines to visualize different components
+    // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)
+    gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
+    
+    // DEBUG: Visualize Spectrum (Cascade 0)
+    // vec4 spectrum = texture(spectrumMap, vec3(worldPos.xy * mapScales[0].x, 0.0));
+    // gl_FragData[0] = vec4(abs(spectrum.xy) * 100.0, 0.0, 1.0); // Scale up to see small values
+    
+    // gl_FragData[0] = vec4(vec3(shadow), 1.0); // Shadow
+    // gl_FragData[0] = vec4(vec3(linearDepth / 5000.0), 1.0); // Depth
 
     applyShadowDebugOverlay();
 }

@@ -414,7 +414,10 @@ namespace MWRender
         {
             // Try to get it again if failed (maybe context wasn't ready first time?)
             glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
-            if (!glBindBufferBase) return; // Cannot run compute shaders without this
+            if (!glBindBufferBase) {
+                std::cerr << "Ocean::initializeComputeShaders: Failed to load glBindBufferBase extension!" << std::endl;
+                return; 
+            }
         }
 
         // Get glBindBuffer function pointer
@@ -436,96 +439,6 @@ namespace MWRender
             ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
         }
 
-        // 2. Generate initial wave spectrum h0(k) for each cascade
-        if (mComputeSpectrum.valid())
-        {
-            state->applyAttribute(mComputeSpectrum.get());
-
-            // Bind spectrum buffer
-            GLuint spectrumBufferID = mSpectrumBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, spectrumBufferID);
-
-            // Wave parameters (you can adjust these)
-            float windSpeed = 15.0f;  // m/s
-            float windDirection = 0.0f; // radians
-            float fetchLength = 100000.0f; // meters
-            float swell = 0.5f;
-            float spread = 2.0f;
-
-            // Cascade tile sizes (increasing with each cascade)
-            float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
-
-            // Get the program object after applying it
-            const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
-            if (!pcp) return;
-
-            for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
-            {
-                // Set uniforms using OSG uniform location API
-                GLint loc;
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
-                if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
-                if (loc >= 0) ext->glUniform1ui(loc, static_cast<unsigned int>(cascade));
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
-                if (loc >= 0) ext->glUniform1f(loc, windSpeed);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
-                if (loc >= 0) ext->glUniform1f(loc, windDirection);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("fetch_length"));
-                if (loc >= 0) ext->glUniform1f(loc, fetchLength);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("swell"));
-                if (loc >= 0) ext->glUniform1f(loc, swell);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
-                if (loc >= 0) ext->glUniform1f(loc, spread);
-
-                loc = pcp->getUniformLocation(osg::Uniform::getNameID("spectrum_seed"));
-                if (loc >= 0) ext->glUniform2f(loc, cascade * 1.234f, cascade * 5.678f);
-
-                // Dispatch: 16x16 thread groups to cover 512x512
-                ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
-                ext->glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-            }
-        }
-
-        // Copy spectrum buffer data to spectrum texture
-        // We use the buffer as a Pixel Unpack Buffer to upload data to the texture
-        if (glBindBuffer)
-        {
-            GLuint spectrumBufferID = mSpectrumBuffer->getOrCreateGLBufferObject(contextID)->getGLObjectID();
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, spectrumBufferID);
-            
-            osg::Texture::TextureObject* texObj = mSpectrum->getTextureObject(contextID);
-            if (!texObj) {
-                // Force texture object creation if it doesn't exist yet
-                mSpectrum->apply(*state);
-                texObj = mSpectrum->getTextureObject(contextID);
-            }
-            
-            if (texObj) {
-                GLuint spectrumTextureID = texObj->id();
-                glBindTexture(GL_TEXTURE_2D_ARRAY, spectrumTextureID);
-                
-                // The buffer contains floats (vec4), but the texture is RGBA16F.
-                // OpenGL will handle the conversion from GL_FLOAT to GL_HALF_FLOAT (GL_RGBA16F).
-                ext->glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0, 0, 0, 0, L_SIZE, L_SIZE, NUM_CASCADES, GL_RGBA, GL_FLOAT, 0);
-            } else {
-                 std::cerr << "Ocean::initializeComputeShaders: Failed to create spectrum texture object" << std::endl;
-            }
-            
-            glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
-            glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
-        }
-        
-        // Unbind resources to prevent state pollution
-        ext->glBindImageTexture(0, 0, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA16F);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, 0);
 
     }
 
@@ -539,7 +452,14 @@ namespace MWRender
         {
             // Try to get it again if failed (maybe context wasn't ready first time?)
             glBindBufferBase = (PFNGLBINDBUFFERBASEPROC)osg::getGLExtensionFuncPtr("glBindBufferBase");
-            if (!glBindBufferBase) return; // Cannot run compute shaders without this
+            if (!glBindBufferBase) {
+                 static bool warned = false;
+                 if (!warned) {
+                     std::cerr << "Ocean::updateComputeShaders: Failed to load glBindBufferBase extension!" << std::endl;
+                     warned = true;
+                 }
+                 return;
+            }
         }
 
         // Wave parameters
@@ -680,7 +600,6 @@ namespace MWRender
             const osg::Program::PerContextProgram* pcp = state->getLastAppliedProgramObject();
             
             // Bind Displacement Map (Image Unit 0, Write Only)
-            // Bind Displacement Map (Image Unit 0, Write Only)
             osg::Texture::TextureObject* dispTexObj = mDisplacementMap->getTextureObject(contextID);
             if (!dispTexObj) { mDisplacementMap->apply(*state); dispTexObj = mDisplacementMap->getTextureObject(contextID); }
             if (dispTexObj) {
@@ -688,7 +607,6 @@ namespace MWRender
                 ext->glBindImageTexture(0, dispID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
             }
             
-            // Bind Normal Map (Image Unit 1, Read/Write)
             // Bind Normal Map (Image Unit 1, Read/Write)
             osg::Texture::TextureObject* normTexObj = mNormalMap->getTextureObject(contextID);
             if (!normTexObj) { mNormalMap->apply(*state); normTexObj = mNormalMap->getTextureObject(contextID); }
@@ -721,7 +639,7 @@ namespace MWRender
                 
                 ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
             }
-            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
         }
 
         // Unbind resources to prevent state pollution
@@ -814,6 +732,10 @@ namespace MWRender
         stateset->addUniform(mNodePositionUniform);
         stateset->addUniform(new osg::Uniform("displacementMap", 0));
         stateset->addUniform(new osg::Uniform("normalMap", 1));
+        
+        // DEBUG: Bind Spectrum for visualization
+        // stateset->setTextureAttributeAndModes(2, mSpectrum, osg::StateAttribute::ON);
+        // stateset->addUniform(new osg::Uniform("spectrumMap", 2));
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)

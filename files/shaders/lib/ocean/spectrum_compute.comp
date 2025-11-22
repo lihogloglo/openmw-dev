@@ -12,6 +12,8 @@
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
 layout(std430, binding = 0) restrict writeonly buffer SpectrumBuffer {
     vec4 data[]; // map_size x map_size x num_cascades
 };
@@ -103,14 +105,6 @@ void main() {
     // So we need to calculate h0(-k) as well.
     
     vec2 k_vec_neg = (vec2(map_size - id.xy) - float(map_size)*0.5) * 2.0 * PI / tile_length;
-    // Actually, -k corresponds to index (N-x, N-y).
-    // But we can just compute it analytically here since it's random.
-    // Wait, h0(-k) must be consistent if we want Hermitian symmetry?
-    // If we generate random numbers based on ID, we can just sample the random number for -k.
-    
-    // But usually we just generate independent random numbers and enforce symmetry later or just store both.
-    // Let's generate h0_neg using the seed for the negative index.
-    // Note: (map_size - id.x) % map_size handles the wrap around.
     
     uvec2 neg_id = (uvec2(map_size) - uvec2(id.xy)) % uvec2(map_size);
     vec2 h0_neg_rand = gaussian_random(vec2(neg_id));

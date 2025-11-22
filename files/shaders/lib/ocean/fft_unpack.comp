@@ -62,6 +62,10 @@ void main() {
 
 			vec2 gradient = vec2(dhy_dx, dhy_dz) / (1.0 + abs(vec2(dhx_dx, dhz_dz)));
 			imageStore(normal_map, id, vec4(gradient, dhx_dx, foam));
+            
+            // DEBUG: Force a pattern to verify write
+            vec2 debugUV = vec2(id.xy) / float(map_size);
+            imageStore(normal_map, id, vec4(debugUV, 1.0, 1.0));
 			break;
 	}
 }
