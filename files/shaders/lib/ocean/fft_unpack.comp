@@ -30,8 +30,8 @@ void main() {
 	const ivec3 id = ivec3(gl_GlobalInvocationID.xy, cascade_index);
 	const uvec3 id_local = gl_LocalInvocationID;
 
-	// Sign correction for centered FFT
-	float sign_shift = ((id.x + id.y) % 2 == 0) ? 1.0 : -1.0;
+	// Multiplying output of inverse FFT by below factor is equivalent to ifftshift()
+	const float sign_shift = -2*((id.x & 1) ^ (id.y & 1)) + 1; // Equivalent: (-1^id.x)(-1^id.y)
 
 	tile[id_local.z*2][id_local.y][id_local.x] = FFT_DATA(id, id_local.z*2);
 	tile[id_local.z*2 + 1][id_local.y][id_local.x] = FFT_DATA(id, id_local.z*2 + 1);
@@ -59,10 +59,10 @@ void main() {
 			foam += foam_factor * foam_grow_rate;
 			foam = clamp(foam, 0.0, 1.0);
 
-            // DEBUG: Visualize FFT Buffer Data (passed through from Modulate)
-            // We expect (1,0), (0,1), (0.5,0.5)
-            vec2 val0 = tile[0][id_local.y][id_local.x];
-            imageStore(normal_map, id, vec4(val0, 0.0, 1.0));
+			// Store gradient (not full normal) for efficient reconstruction in fragment shader
+			// Divide by (1 + abs(displacement gradients)) to normalize
+			vec2 gradient = vec2(dhy_dx, dhy_dz) / (1.0 + abs(vec2(dhx_dx, dhz_dz)));
+			imageStore(normal_map, id, vec4(gradient, dhx_dx, foam));
 			break;
 	}
 }

@@ -52,22 +52,27 @@ void main(void)
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
     float shadow = unshadowedLightRatio(linearDepth);
 
-    // Sample normal from FFT cascade
+    // Sample gradients from FFT cascade
     // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
-    vec3 normal = vec3(0.0, 0.0, 1.0);
+    // normalMap stores: vec4(gradient.x, gradient.y, dhx_dx, foam)
+    vec3 gradient = vec3(0.0);
+    float foam = 0.0;
 
-    // Normal sampling from cascade with per-cascade amplitude scaling
+    // Gradient sampling from cascade with per-cascade amplitude scaling
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPos.xy * mapScales[i].x;
         vec4 normalSample = texture(normalMap, vec3(uv, float(i)));
-        // Apply per-cascade normal scale
-        normal.xy += normalSample.xy * mapScales[i].w;
+        // Apply per-cascade normal scale to gradient
+        gradient.xy += normalSample.xy * mapScales[i].w;
+        foam += normalSample.w; // Accumulate foam from all cascades
     }
 
-    normal = normalize(normal);
+    // Reconstruct normal from gradient (as done in Godot water shader)
+    vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
 
     // Debug: Visualize cascade coverage with color coding
-    if (debugVisualizeCascades == 1) {
+    // DISABLED: Force debug mode off regardless of uniform value
+    if (false && debugVisualizeCascades == 1) {
         // Cascade colors: Red, Green, Blue, Yellow
         vec3 cascadeColors[4] = vec3[4](
             vec3(1.0, 0.0, 0.0),  // Cascade 0: Red (finest detail, 50m tiles)
@@ -110,10 +115,21 @@ void main(void)
         return;
     }
 
-    // Progressive test: Add back lighting, no fog yet
+    // Clamp foam to reasonable range
+    foam = clamp(foam * 0.75, 0.0, 1.0); // Scale down since we accumulate from multiple cascades
+
+    // Mix water color with foam color
+    const vec3 FOAM_COLOR = vec3(0.95, 0.95, 0.95); // White foam
+    vec3 baseColor = mix(WATER_COLOR, FOAM_COLOR, smoothstep(0.0, 1.0, foam));
+
+    // Simple lighting with normal
     float upFacing = max(0.0, normal.z);
-    vec3 testColor = WATER_COLOR * (0.3 + upFacing * 0.7);
-    gl_FragData[0] = vec4(testColor, 0.85);
+    vec3 finalColor = baseColor * (0.3 + upFacing * 0.7);
+
+    // Reduce alpha where there's foam (foam is more opaque)
+    float alpha = mix(0.85, 0.95, foam);
+
+    gl_FragData[0] = vec4(finalColor, alpha);
     
     // DEBUG: Uncomment one of these lines to visualize different components
     // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)

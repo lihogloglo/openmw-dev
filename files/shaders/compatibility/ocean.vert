@@ -48,9 +48,6 @@ void main(void)
         totalDisplacement += disp * mapScales[i].z;
     }
 
-    // Amplify Z displacement by 10x for visibility
-    totalDisplacement.z *= 10.0;
-
     vertPos += totalDisplacement;
 
     worldPos = vertPos + nodePosition;

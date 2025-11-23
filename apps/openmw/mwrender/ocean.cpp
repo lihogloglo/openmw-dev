@@ -477,13 +477,21 @@ namespace MWRender
                 ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
             }
 
-            // Uniforms (physical parameters in meters, converted to Morrowind units)
+            // Uniforms (physical parameters in meters)
             // Based on Godot ocean reference implementation
-            float windSpeed = 10.0f; // m/s
-            float fetchLength = 100000.0f; // meters (100 km)
-            float windDir = 0.0f;
-            float swell = 1.0f;
-            float spread = 0.5f;
+            float windSpeed = 20.0f; // m/s (strong breeze ~45 mph - creates more visible waves)
+            float fetchLength = 550000.0f; // meters (550 km - allows waves to fully develop)
+            float windDir = 0.0f; // radians
+            float depth = 20.0f; // meters (shallow water enhances wave steepness, matching Godot)
+            float swell = 0.8f;
+            float spread = 0.2f;
+            float detail = 1.0f;
+
+            // Calculate JONSWAP parameters (same as Godot)
+            // Source: https://wikiwaves.org/Ocean-Wave_Spectra#JONSWAP_Spectrum
+            const float G = 9.81f;
+            float alpha = 0.076f * std::pow(windSpeed*windSpeed / (fetchLength*G), 0.22f);
+            float omega_p = 22.0f * std::pow(G*G / (windSpeed*fetchLength), 1.0f/3.0f);
 
             // Cascade tile sizes in METERS, will be converted to Morrowind units
             // These define the physical wave domain size for each cascade
@@ -505,8 +513,11 @@ namespace MWRender
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
                     if (loc >= 0) ext->glUniform1ui(loc, cascade);
 
-                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("fetch_length"));
-                    if (loc >= 0) ext->glUniform1f(loc, fetchLength);
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("alpha"));
+                    if (loc >= 0) ext->glUniform1f(loc, alpha);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("peak_frequency"));
+                    if (loc >= 0) ext->glUniform1f(loc, omega_p);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
                     if (loc >= 0) ext->glUniform1f(loc, windSpeed);
@@ -514,14 +525,20 @@ namespace MWRender
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
                     if (loc >= 0) ext->glUniform1f(loc, windDir);
 
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
+                    if (loc >= 0) ext->glUniform1f(loc, depth);
+
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("swell"));
                     if (loc >= 0) ext->glUniform1f(loc, swell);
+
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("detail"));
+                    if (loc >= 0) ext->glUniform1f(loc, detail);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
                     if (loc >= 0) ext->glUniform1f(loc, spread);
 
-                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("spectrum_seed"));
-                    if (loc >= 0) ext->glUniform2f(loc, 12.34f, 56.78f); // Fixed seed for now
+                    loc = pcp->getUniformLocation(osg::Uniform::getNameID("seed"));
+                    if (loc >= 0) ext->glUniform2i(loc, cascade * 13 + 42, cascade * 17 + 99); // Different seed per cascade
                 }
 
                 // Dispatch (L_SIZE / 16, L_SIZE / 16, 1)
@@ -871,7 +888,7 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("normalMap", 1));
 
         // Debug visualization uniform (0 = off, 1 = on)
-        mDebugVisualizeCascadesUniform = new osg::Uniform("debugVisualizeCascades", 1);
+        mDebugVisualizeCascadesUniform = new osg::Uniform("debugVisualizeCascades", 0);
         stateset->addUniform(mDebugVisualizeCascadesUniform);
         
         // DEBUG: Bind Spectrum for visualization
@@ -890,8 +907,10 @@ namespace MWRender
         // Displacement and normal scales for each cascade
         // Larger cascades (bigger waves) should have proportionally larger displacement
         // This creates the "wavelets inside small waves inside big waves" effect
-        // Values tuned to match original 4× additive behavior but distributed across scales
-        float displacementScales[NUM_CASCADES] = { 0.5f, 1.0f, 1.5f, 3.0f };
+        // Physical TMA spectrum produces realistic amplitudes, but we need to scale for visibility
+        // These values account for the fact that FFT outputs are in meters and need conversion to MW units
+        // Also compensates for the difference between physical reality and visually pleasing game waves
+        float displacementScales[NUM_CASCADES] = { 5.0f, 10.0f, 15.0f, 30.0f };
         float normalScales[NUM_CASCADES] = { 2.0f, 1.5f, 1.0f, 0.5f };
 
         for (int i = 0; i < NUM_CASCADES; ++i)
