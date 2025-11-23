@@ -797,64 +797,134 @@ namespace MWRender
 
     void Ocean::initGeometry()
     {
-        // Create a large ocean plane
+        // Create a large ocean plane with clipmap LOD system
+        // Uses concentric rings of different resolutions for optimal detail near player
         mWaterGeom = new osg::Geometry;
 
-        // Create a tessellated grid for better displacement
-        // Grid resolution should be high enough to capture wave detail from FFT
-        // We use 512x512 to match the FFT texture resolution for proper sampling
-        const int gridSize = 512;
-
-        // World size should cover the largest cascade's tile size
-        // Largest cascade: 400m = 400 * 72.53 = 29,012 MW units
-        // We use 2x this size to have margin around the camera
-        const float worldSize = 400.0f * METERS_TO_MW_UNITS * 2.0f; // ~58,024 units
-        const float step = worldSize / gridSize;
-
         osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
-        osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array;
+        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES);
 
-        // Generate grid vertices
-        for (int y = 0; y <= gridSize; ++y)
+        // Clipmap LOD Configuration
+        // 4 rings with decreasing resolution from center to edge
+        struct LODRing {
+            int gridSize;      // Number of grid cells per side
+            float radius;      // Outer radius in MW units
+            float innerRadius; // Inner radius (0 for center ring)
+        };
+
+        // Ring design:
+        // Ring 0 (center):  256x256 grid, radius 2000 units  (~7.8 units/vertex) - Very fine detail
+        // Ring 1 (near):    128x128 grid, radius 5000 units  (~39 units/vertex)  - Fine detail
+        // Ring 2 (medium):  64x64 grid,   radius 12000 units (~187 units/vertex) - Medium detail
+        // Ring 3 (far):     32x32 grid,   radius 30000 units (~937 units/vertex) - Coarse detail
+        LODRing rings[] = {
+            { 256, 2000.0f,  0.0f },      // Center - finest detail
+            { 128, 5000.0f,  2000.0f },   // Near
+            { 64,  12000.0f, 5000.0f },   // Medium
+            { 32,  30000.0f, 12000.0f }   // Far
+        };
+
+        const int numRings = 4;
+        int vertexOffset = 0;
+
+        // Generate each LOD ring
+        for (int ringIdx = 0; ringIdx < numRings; ++ringIdx)
         {
-            for (int x = 0; x <= gridSize; ++x)
-            {
-                float px = (x - gridSize * 0.5f) * step;
-                float py = (y - gridSize * 0.5f) * step;
-                verts->push_back(osg::Vec3f(px, py, 0.f));
+            const LODRing& ring = rings[ringIdx];
+            const int gridSize = ring.gridSize;
+            const float outerRadius = ring.radius;
+            const float innerRadius = ring.innerRadius;
 
-                float u = static_cast<float>(x) / gridSize;
-                float v = static_cast<float>(y) / gridSize;
-                texcoords->push_back(osg::Vec2f(u, v));
+            // For center ring (ringIdx == 0), create full square grid
+            if (ringIdx == 0)
+            {
+                // Full grid from -radius to +radius
+                const float step = (2.0f * outerRadius) / gridSize;
+
+                for (int y = 0; y <= gridSize; ++y)
+                {
+                    for (int x = 0; x <= gridSize; ++x)
+                    {
+                        float px = -outerRadius + x * step;
+                        float py = -outerRadius + y * step;
+                        verts->push_back(osg::Vec3f(px, py, 0.f));
+                    }
+                }
+
+                // Generate indices for full grid
+                for (int y = 0; y < gridSize; ++y)
+                {
+                    for (int x = 0; x < gridSize; ++x)
+                    {
+                        int i0 = vertexOffset + y * (gridSize + 1) + x;
+                        int i1 = i0 + 1;
+                        int i2 = i0 + (gridSize + 1);
+                        int i3 = i2 + 1;
+
+                        indices->push_back(i0);
+                        indices->push_back(i1);
+                        indices->push_back(i2);
+
+                        indices->push_back(i2);
+                        indices->push_back(i1);
+                        indices->push_back(i3);
+                    }
+                }
+
+                vertexOffset += (gridSize + 1) * (gridSize + 1);
+            }
+            else
+            {
+                // Outer rings: create hollow square (donut shape)
+                // Only generate vertices/faces in the area between innerRadius and outerRadius
+                const float step = (2.0f * outerRadius) / gridSize;
+                const int startVertex = vertexOffset;
+
+                // Generate all grid points, we'll skip inner ones when making faces
+                for (int y = 0; y <= gridSize; ++y)
+                {
+                    for (int x = 0; x <= gridSize; ++x)
+                    {
+                        float px = -outerRadius + x * step;
+                        float py = -outerRadius + y * step;
+                        verts->push_back(osg::Vec3f(px, py, 0.f));
+                    }
+                }
+
+                // Generate indices, skipping quads that are inside innerRadius
+                for (int y = 0; y < gridSize; ++y)
+                {
+                    for (int x = 0; x < gridSize; ++x)
+                    {
+                        // Check if this quad is outside the inner radius
+                        float px = -outerRadius + (x + 0.5f) * step;
+                        float py = -outerRadius + (y + 0.5f) * step;
+                        float distFromCenter = std::sqrt(px*px + py*py);
+
+                        // Only create triangles for quads outside inner ring
+                        if (distFromCenter >= innerRadius)
+                        {
+                            int i0 = vertexOffset + y * (gridSize + 1) + x;
+                            int i1 = i0 + 1;
+                            int i2 = i0 + (gridSize + 1);
+                            int i3 = i2 + 1;
+
+                            indices->push_back(i0);
+                            indices->push_back(i1);
+                            indices->push_back(i2);
+
+                            indices->push_back(i2);
+                            indices->push_back(i1);
+                            indices->push_back(i3);
+                        }
+                    }
+                }
+
+                vertexOffset += (gridSize + 1) * (gridSize + 1);
             }
         }
 
         mWaterGeom->setVertexArray(verts);
-        mWaterGeom->setTexCoordArray(0, texcoords, osg::Array::BIND_PER_VERTEX);
-
-        // Generate triangle indices
-        osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES);
-        for (int y = 0; y < gridSize; ++y)
-        {
-            for (int x = 0; x < gridSize; ++x)
-            {
-                int i0 = y * (gridSize + 1) + x;
-                int i1 = i0 + 1;
-                int i2 = (y + 1) * (gridSize + 1) + x;
-                int i3 = i2 + 1;
-
-                // First triangle (CCW)
-                indices->push_back(i0);
-                indices->push_back(i1);
-                indices->push_back(i2);
-
-                // Second triangle (CCW)
-                indices->push_back(i2);
-                indices->push_back(i1);
-                indices->push_back(i3);
-            }
-        }
-
         mWaterGeom->addPrimitiveSet(indices);
 
         // Set up state set with our ocean shaders
