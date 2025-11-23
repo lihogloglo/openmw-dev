@@ -21,7 +21,9 @@ uniform float whitecap;
 uniform float foam_grow_rate;
 uniform float foam_decay_rate;
 
-#define FFT_DATA(id, layer) (data[(id.z)*map_size*map_size*NUM_SPECTRA*2 + (layer)*map_size*map_size + (id.y)*map_size + (id.x)])
+// Note: There is an assumption that the FFT does not transpose a second time. Thus,
+//       we access the FFT buffer at an offset of NUM_SPECTRA*map_size*map_size
+#define FFT_DATA(id, layer) (data[(id.z)*map_size*map_size*NUM_SPECTRA*2 + NUM_SPECTRA*map_size*map_size + (layer)*map_size*map_size + (id.y)*map_size + (id.x)])
 
 shared vec2 tile[4][TILE_SIZE][TILE_SIZE];
 
