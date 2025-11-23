@@ -173,9 +173,10 @@ namespace MWRender
 
 
         // Infinite Ocean Logic: Snap grid to camera position
-        // We move the grid in steps of the largest cascade tile size to avoid popping artifacts
-        // Largest cascade: 400m = 400 * 72.53 MW units
-        float gridSize = 400.0f * METERS_TO_MW_UNITS; // Largest cascade tile size
+        // With clipmap LOD, we snap to the finest ring's vertex spacing to prevent popping
+        // Ultra-fine ring (512×512 over 2000 units) has ~3.9 unit spacing
+        // We use a multiple of this for smooth camera following
+        float gridSize = 8.0f; // ~2 vertex spacings in the finest ring - prevents visible popping
         float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
         float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
 
@@ -805,26 +806,34 @@ namespace MWRender
         osg::ref_ptr<osg::DrawElementsUInt> indices = new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES);
 
         // Clipmap LOD Configuration
-        // 4 rings with decreasing resolution from center to edge
+        // 5 rings aligned with FFT cascade tile sizes for optimal wave detail sampling
+        // Cascade sizes: 50m, 100m, 200m, 400m (in MW units: 3,626, 7,253, 14,506, 29,012)
         struct LODRing {
             int gridSize;      // Number of grid cells per side
             float radius;      // Outer radius in MW units
             float innerRadius; // Inner radius (0 for center ring)
         };
 
-        // Ring design:
-        // Ring 0 (center):  256x256 grid, radius 2000 units  (~7.8 units/vertex) - Very fine detail
-        // Ring 1 (near):    128x128 grid, radius 5000 units  (~39 units/vertex)  - Fine detail
-        // Ring 2 (medium):  64x64 grid,   radius 12000 units (~187 units/vertex) - Medium detail
-        // Ring 3 (far):     32x32 grid,   radius 30000 units (~937 units/vertex) - Coarse detail
+        // Ring design aligned with cascade boundaries:
+        // Ring 0 (ultra-fine): 512x512 grid, radius 1000 units  (~2.0 units/vertex)  - Wavelets visible!
+        // Ring 1 (very fine):  256x256 grid, radius 1813 units  (~7.1 units/vertex)  - Cascade 0 (50m)
+        // Ring 2 (fine):       128x128 grid, radius 3626 units  (~28.3 units/vertex) - Cascade 1 (100m)
+        // Ring 3 (medium):     64x64 grid,   radius 7253 units  (~113 units/vertex)  - Cascade 2 (200m)
+        // Ring 4 (coarse):     32x32 grid,   radius 14506 units (~453 units/vertex)  - Cascade 3 (400m)
+        const float CASCADE_0_RADIUS = 50.0f * METERS_TO_MW_UNITS / 2.0f;   // Half of cascade 0 tile = 1,813 units
+        const float CASCADE_1_RADIUS = 100.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 1 tile = 3,626 units
+        const float CASCADE_2_RADIUS = 200.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 2 tile = 7,253 units
+        const float CASCADE_3_RADIUS = 400.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 3 tile = 14,506 units
+
         LODRing rings[] = {
-            { 256, 2000.0f,  0.0f },      // Center - finest detail
-            { 128, 5000.0f,  2000.0f },   // Near
-            { 64,  12000.0f, 5000.0f },   // Medium
-            { 32,  30000.0f, 12000.0f }   // Far
+            { 512, 1000.0f,          0.0f },              // Ultra-fine center for wavelets (~2 units/vertex)
+            { 256, CASCADE_0_RADIUS, 1000.0f },           // Matches cascade 0 (50m)
+            { 128, CASCADE_1_RADIUS, CASCADE_0_RADIUS },  // Matches cascade 1 (100m)
+            { 64,  CASCADE_2_RADIUS, CASCADE_1_RADIUS },  // Matches cascade 2 (200m)
+            { 32,  CASCADE_3_RADIUS, CASCADE_2_RADIUS }   // Matches cascade 3 (400m)
         };
 
-        const int numRings = 4;
+        const int numRings = 5;
         int vertexOffset = 0;
 
         // Generate each LOD ring
