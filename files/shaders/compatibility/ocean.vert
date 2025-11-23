@@ -36,15 +36,16 @@ void main(void)
     vec3 totalDisplacement = vec3(0.0);
 
     // Sample displacement from cascades
-    // Note: In a full implementation, we'd sample all cascades and blend them
-    // For now, simplified version
+    // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
     vec3 vertPos = position.xyz;
 
-    // Displacement sampling
+    // Displacement sampling with per-cascade amplitude scaling
+    // This creates "wavelets inside small waves inside big waves" effect
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = (vertPos.xy + nodePosition.xy) * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
-        totalDisplacement += disp;
+        // Apply per-cascade displacement scale (larger cascades = bigger waves)
+        totalDisplacement += disp * mapScales[i].z;
     }
 
     // Amplify Z displacement by 10x for visibility

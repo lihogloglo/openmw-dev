@@ -883,14 +883,23 @@ namespace MWRender
         // Set cascade scales (each cascade covers a different area)
         // Scale = how to map world coordinates to UV coordinates [0,1]
         // UV scale = 1 / tile_size (in Morrowind units)
+        // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
         osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
         float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+
+        // Displacement and normal scales for each cascade
+        // Larger cascades (bigger waves) should have proportionally larger displacement
+        // This creates the "wavelets inside small waves inside big waves" effect
+        // Values tuned to match original 4× additive behavior but distributed across scales
+        float displacementScales[NUM_CASCADES] = { 0.5f, 1.0f, 1.5f, 3.0f };
+        float normalScales[NUM_CASCADES] = { 2.0f, 1.5f, 1.0f, 0.5f };
+
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
             // Convert tile size from meters to Morrowind units, then compute UV scale
             float tileSizeMW = tileSizesMeters[i] * METERS_TO_MW_UNITS;
             float uvScale = 1.0f / tileSizeMW;
-            mapScales->setElement(i, osg::Vec4f(uvScale, uvScale, 0.f, 0.f));
+            mapScales->setElement(i, osg::Vec4f(uvScale, uvScale, displacementScales[i], normalScales[i]));
         }
         stateset->addUniform(mapScales);
 

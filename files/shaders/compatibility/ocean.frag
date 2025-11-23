@@ -52,14 +52,16 @@ void main(void)
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
     float shadow = unshadowedLightRatio(linearDepth);
 
-    // Sample normal from FFT cascade (simplified - normally would blend multiple cascades)
+    // Sample normal from FFT cascade
+    // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
     vec3 normal = vec3(0.0, 0.0, 1.0);
 
-    // Normal sampling from cascade
+    // Normal sampling from cascade with per-cascade amplitude scaling
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPos.xy * mapScales[i].x;
         vec4 normalSample = texture(normalMap, vec3(uv, float(i)));
-        normal.xy += normalSample.xy; // gradient
+        // Apply per-cascade normal scale
+        normal.xy += normalSample.xy * mapScales[i].w;
     }
 
     normal = normalize(normal);
@@ -124,6 +126,16 @@ void main(void)
 
     // DEBUG: Visualize worldPos (should change as you move)
     // gl_FragData[0] = vec4(fract(worldPos.xyz * 0.0001), 1.0); return;
+
+    // DEBUG: Visualize displacement magnitude from all cascades
+    // vec3 totalDisp = vec3(0.0);
+    // for (int i = 0; i < numCascades && i < 4; ++i) {
+    //     vec2 uv = worldPos.xy * mapScales[i].x;
+    //     vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
+    //     totalDisp += disp * mapScales[i].z;
+    // }
+    // float dispMag = length(totalDisp);
+    // gl_FragData[0] = vec4(vec3(dispMag * 0.01), 1.0); return; // Scale for visibility
     
     // Full rendering (currently disabled for testing)
     // gl_FragData[0] = colorWithFog;
