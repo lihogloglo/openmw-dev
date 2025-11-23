@@ -10,27 +10,31 @@
 
 ## 🔴 CRITICAL ISSUES (Blocking Realistic Ocean)
 
-### 1. ❌ Broken Displacement Rendering
-**Status:** BROKEN in commit 89983bf722
+### 1. ✅ ~~Broken Displacement Rendering~~ **FIXED!**
+**Status:** ~~BROKEN~~ **FIXED** - 2025-11-23
 **Symptom:** "foam but no deform" - foam renders but waves are flat
-**Priority:** IMMEDIATE
-**Files Affected:**
-- `files/shaders/lib/ocean/spectrum_compute.comp`
-- `files/shaders/lib/ocean/spectrum_modulate.comp`
-- `files/shaders/lib/ocean/fft_unpack.comp`
-- `files/shaders/compatibility/ocean.vert`
-- `files/shaders/compatibility/ocean.frag`
-- `apps/openmw/mwrender/ocean.cpp`
+**Root Cause:** Missing buffer offset in `fft_unpack.comp` after FFT transpose
+**Priority:** ~~IMMEDIATE~~ COMPLETE
 
-**Investigation Steps:**
-- [ ] Verify displacement texture contains non-zero data
-- [ ] Check UV mapping in vertex shader
-- [ ] Verify mapScales uniform values are correct
-- [ ] Compare spectrum_compute.comp with previous commit
-- [ ] Debug displacement sampling in ocean.vert:44-49
-- [ ] Test with cascade visualization enabled
+**The Problem:**
+In commit 89983bf722, `spectrum_modulate.comp` was updated to use the correct complex packing scheme (matching Godot), but `fft_unpack.comp` was not updated with the correct buffer offset to account for the FFT not transposing a second time.
 
-**Expected Result:** Visible wave displacement with heights ~50+ units
+**The Fix:**
+Changed `fft_unpack.comp` line 26 from:
+```glsl
+#define FFT_DATA(id, layer) (data[(id.z)*map_size*map_size*NUM_SPECTRA*2 + (layer)*map_size*map_size + (id.y)*map_size + (id.x)])
+```
+To:
+```glsl
+#define FFT_DATA(id, layer) (data[(id.z)*map_size*map_size*NUM_SPECTRA*2 + NUM_SPECTRA*map_size*map_size + (layer)*map_size*map_size + (id.y)*map_size + (id.x)])
+```
+
+Added the `+ NUM_SPECTRA*map_size*map_size` offset to correctly read the transposed FFT output.
+
+**Files Modified:**
+- ✅ `files/shaders/lib/ocean/fft_unpack.comp` (line 26)
+
+**Result:** ✅ Displacement working! Waves are now visible with proper heights.
 
 ---
 
@@ -102,7 +106,69 @@ void light() {
 
 ---
 
-### 3. ❌ Missing Bicubic Texture Filtering
+### 3. ❌ Low-Poly Mesh Near Player (No LOD System)
+**Status:** NOT IMPLEMENTED
+**Current:** Single 512x512 grid covering ~58,000 MW units
+**Priority:** HIGH (User-reported: "crude, extremely low poly")
+**Location:** `apps/openmw/mwrender/ocean.cpp:806`
+
+**The Problem:**
+Currently using a uniform 512x512 vertex grid covering a massive area (58,024 MW units). This creates:
+- **Very large triangles near the player** (~113 units per triangle edge)
+- Crude, blocky appearance close-up
+- Wasted vertices at far distances where detail isn't needed
+
+**Current Implementation:**
+```cpp
+const int gridSize = 512;
+const float worldSize = 400.0f * METERS_TO_MW_UNITS * 2.0f; // ~58,024 units
+const float step = worldSize / gridSize; // ~113.3 units per vertex
+```
+
+**Godot Reference:** Uses **clipmap LOD system** with two mesh levels
+- **High-res mesh:** `clipmap_high.obj` (656,295 lines, very dense geometry near player)
+- **Low-res mesh:** `clipmap_low.obj` (46,792 lines, for distant ocean)
+- Mesh selection: `mesh = WATER_MESH_HIGH if mesh_quality == MeshQuality.HIGH else WATER_MESH_LOW`
+
+**Proposed Solutions:**
+
+#### Option 1: Multiple Concentric Grids (Clipmap LOD)
+- Ring 0 (near player): 256×256 grid, 1,000 unit radius, ~8 units/vertex
+- Ring 1 (medium): 128×128 grid, 5,000 unit radius, ~78 units/vertex
+- Ring 2 (far): 64×64 grid, 30,000 unit radius, ~938 units/vertex
+- Update rings to follow camera position
+
+#### Option 2: Increase Uniform Grid Resolution
+- Simple fix: Increase `gridSize` from 512 to 2048 or 4096
+- Pros: Easy to implement
+- Cons:
+  - 4096×4096 = 16.7 million vertices (too expensive!)
+  - 2048×2048 = 4.2 million vertices (still heavy)
+  - Still wastes detail at distance
+
+#### Option 3: Adaptive Tessellation (Modern Approach)
+- Use OpenGL tessellation shaders (requires GL 4.0+)
+- Dynamically tessellate based on distance to camera
+- Optimal detail distribution
+- Requires significant shader work
+
+**Recommendation:** Option 1 (Clipmap LOD) - Best balance of quality and performance
+- Matches Godot approach
+- Industry-standard technique
+- Reasonable implementation complexity
+
+**Implementation Steps:**
+- [ ] Design clipmap ring structure (3-4 rings with different resolutions)
+- [ ] Create geometry generation for concentric rings
+- [ ] Implement camera-following logic (snap to grid to avoid popping)
+- [ ] Add seamless blending between LOD levels
+- [ ] Test performance impact
+
+**Expected Result:** Smooth, detailed ocean surface near player, efficient rendering at distance
+
+---
+
+### 4. ❌ Missing Bicubic Texture Filtering
 **Status:** NOT IMPLEMENTED
 **Current:** Standard bilinear (GL_LINEAR)
 **Priority:** HIGH
@@ -455,8 +521,9 @@ const float SPREAD = 0.2f;
 | | Hasselmann directional | ✅ | - | Working |
 | | Dispersion relation | ✅ | - | Working |
 | | Small-wave suppression | ✅ | - | Working |
-| **Displacement** | 3D displacement | ❌ BROKEN | 🔴 CRITICAL | Fix immediately |
-| | Distance falloff | ❌ | 🟡 MEDIUM | After displacement fixed |
+| **Displacement** | 3D displacement | ✅ FIXED | - | Buffer offset fixed! |
+| | Distance falloff | ❌ | 🟡 MEDIUM | - |
+| **Mesh LOD** | Clipmap/LOD system | ❌ | 🔴 HIGH | Crude near player |
 | **Normals** | Gradient computation | ✅ | - | Working |
 | | Distance falloff | ❌ | 🟡 MEDIUM | - |
 | **Foam** | Jacobian detection | ✅ | - | Working |
@@ -486,38 +553,45 @@ const float SPREAD = 0.2f;
 
 ## 🎯 RECOMMENDED IMPLEMENTATION ORDER
 
-### Phase 1: Fix Critical Bugs (Week 1)
-1. **Fix displacement rendering** - Make waves visible again
-   - Debug commit 89983bf722 changes
-   - Verify texture data and UV mapping
-   - Test with all 4 cascades
+### Phase 1: Fix Critical Bugs ✅ COMPLETE
+1. ✅ **Fix displacement rendering** - Waves are now visible!
+   - Fixed buffer offset in fft_unpack.comp
+   - Verified texture data is correct
+   - Tested with all 4 cascades working
+
+### Phase 1.5: Improve Mesh Detail (NEW - High Priority)
+2. **Implement clipmap LOD system** - Fix crude appearance near player
+   - Design 3-4 concentric grid rings with varying resolution
+   - Implement camera-following logic
+   - Add seamless LOD transitions
+   - Test performance vs. visual quality
 
 ### Phase 2: Core Visual Quality (Week 2-3)
-2. **Implement GGX PBR shading** - Biggest visual improvement
+3. **Implement GGX PBR shading** - Biggest visual improvement
    - Add helper functions (GGX, Fresnel, Smith)
    - Integrate with OpenMW lighting
    - Test sun/moon specular highlights
 
-3. **Add bicubic texture filtering** - Eliminate aliasing
+4. **Add bicubic texture filtering** - Eliminate aliasing
    - Implement cubic weights and sampler
    - Add adaptive mixing by pixel density
    - Test at various distances
 
 ### Phase 3: Realism Polish (Week 4)
-4. **Add distance-based falloffs**
+5. **Add distance-based falloffs**
    - Normal strength falloff
    - Displacement falloff (>150m)
    - Foam intensity falloff
 
-5. **Implement subsurface scattering**
+6. **Implement subsurface scattering**
    - Add SSS lighting term
    - Apply green color modifier
    - Test backlit conditions
 
 ### Phase 4: Optional Enhancements (Future)
-6. **Sea spray particles** (if feasible in OpenMW)
-7. **Cascade load balancing** (smoother frame times)
-8. **Runtime configuration** (settings UI)
+7. **Sea spray particles** (if feasible in OpenMW)
+8. **Cascade load balancing** (smoother frame times)
+9. **Runtime configuration** (settings UI)
 
 ---
 
@@ -627,6 +701,34 @@ git diff eacaf9f154 89983bf722 -- files/shaders/
 
 ---
 
+---
+
+## 📈 SESSION SUMMARY (2025-11-23)
+
+### ✅ Completed:
+1. **Fixed broken displacement rendering**
+   - Root cause: Missing buffer offset in `fft_unpack.comp`
+   - Solution: Added `+ NUM_SPECTRA*map_size*map_size` offset
+   - Result: Waves now visible with proper displacement!
+
+2. **Identified mesh LOD issue**
+   - Problem: Single 512×512 grid over massive area = crude appearance
+   - Current: ~113 units per triangle edge
+   - Solution needed: Clipmap LOD system with concentric rings
+
+### 🎯 Next Priority:
+**Implement clipmap LOD system** to fix crude/blocky ocean near player
+
+### 📊 Updated Progress:
+- **Overall:** ~72% Complete (was 70%)
+- **Core FFT:** ✅ 100% Complete
+- **Wave Physics:** ✅ 100% Complete
+- **Displacement:** ✅ 100% Complete (FIXED!)
+- **Mesh Quality:** ❌ 0% (NEW ISSUE)
+- **Rendering/Shading:** ❌ ~20% (basic only)
+
+---
+
 **Last Updated:** 2025-11-23
-**Next Review:** After fixing displacement rendering
-**Overall Status:** 70% Complete - Core simulation ✅, Rendering quality ❌
+**Next Review:** After implementing clipmap LOD or PBR shading
+**Overall Status:** 72% Complete - Core simulation ✅, Mesh detail ❌, Rendering quality ❌
