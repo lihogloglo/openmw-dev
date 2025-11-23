@@ -43,6 +43,9 @@ namespace MWRender
         // Called from compute dispatch callback
         void dispatchCompute(osg::State* state);
 
+        // Debug visualization
+        void setDebugVisualizeCascades(bool enabled);
+
     private:
         void initShaders();
         void initTextures();
@@ -58,6 +61,7 @@ namespace MWRender
         osg::ref_ptr<osg::PositionAttitudeTransform> mRootNode;
         osg::ref_ptr<osg::Geometry> mWaterGeom;
         osg::ref_ptr<osg::Uniform> mNodePositionUniform;
+        osg::ref_ptr<osg::Uniform> mDebugVisualizeCascadesUniform;
 
         // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;

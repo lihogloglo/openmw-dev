@@ -46,6 +46,10 @@ void main(void)
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
         totalDisplacement += disp;
     }
+
+    // Amplify Z displacement by 10x for visibility
+    totalDisplacement.z *= 10.0;
+
     vertPos += totalDisplacement;
 
     worldPos = vertPos + nodePosition;

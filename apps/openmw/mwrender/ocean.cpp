@@ -62,6 +62,9 @@ namespace MWRender
     const int L_SIZE = 512;
     const int NUM_SPECTRA = 4; // hx, hy, hz, and gradients
 
+    // Morrowind unit conversion: 22.1 units = 1 foot, 1 meter = 3.28084 feet
+    const float METERS_TO_MW_UNITS = 72.53f; // 22.1 * 3.28084
+
     // Calculate number of FFT stages (log2)
     int getNumStages(int size) {
         int stages = 0;
@@ -171,7 +174,8 @@ namespace MWRender
 
         // Infinite Ocean Logic: Snap grid to camera position
         // We move the grid in steps of the largest cascade tile size to avoid popping artifacts
-        float gridSize = 2000.0f; // Largest cascade tile size
+        // Largest cascade: 400m = 400 * 72.53 MW units
+        float gridSize = 400.0f * METERS_TO_MW_UNITS; // Largest cascade tile size
         float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
         float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
 
@@ -469,13 +473,22 @@ namespace MWRender
                 ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
             }
 
-            // Uniforms
-            float windSpeed = 10.0f;
-            float fetchLength = 100000.0f;
+            // Uniforms (physical parameters in meters, converted to Morrowind units)
+            // Based on Godot ocean reference implementation
+            float windSpeed = 10.0f; // m/s
+            float fetchLength = 100000.0f; // meters (100 km)
             float windDir = 0.0f;
             float swell = 1.0f;
             float spread = 0.5f;
-            float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
+
+            // Cascade tile sizes in METERS, will be converted to Morrowind units
+            // These define the physical wave domain size for each cascade
+            // Smaller cascades = finer detail, larger cascades = broader waves
+            float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+            float tileSizes[NUM_CASCADES];
+            for (int i = 0; i < NUM_CASCADES; ++i) {
+                tileSizes[i] = tileSizesMeters[i] * METERS_TO_MW_UNITS;
+            }
 
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
@@ -537,13 +550,17 @@ namespace MWRender
         }
 
         // Wave parameters
-        float depth = 1000.0f; // Deep water
+        float depth = 1000.0f * METERS_TO_MW_UNITS; // Deep water (1000m in MW units)
         float whitecap = 1.0f;
         float foamGrowRate = 1.0f;
         float foamDecayRate = 0.05f;
-        
-        // Cascade tile sizes (must match initBuffers)
-        float tileSizes[NUM_CASCADES] = { 250.0f, 500.0f, 1000.0f, 2000.0f };
+
+        // Cascade tile sizes in Morrowind units (must match initializeComputeShaders)
+        float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+        float tileSizes[NUM_CASCADES];
+        for (int i = 0; i < NUM_CASCADES; ++i) {
+            tileSizes[i] = tileSizesMeters[i] * METERS_TO_MW_UNITS;
+        }
 
         // 1. Modulate Spectrum
         if (mComputeModulate.valid())
@@ -763,8 +780,14 @@ namespace MWRender
         mWaterGeom = new osg::Geometry;
 
         // Create a tessellated grid for better displacement
-        const int gridSize = 256;
-        const float worldSize = 100000.f;
+        // Grid resolution should be high enough to capture wave detail from FFT
+        // We use 512x512 to match the FFT texture resolution for proper sampling
+        const int gridSize = 512;
+
+        // World size should cover the largest cascade's tile size
+        // Largest cascade: 400m = 400 * 72.53 = 29,012 MW units
+        // We use 2x this size to have margin around the camera
+        const float worldSize = 400.0f * METERS_TO_MW_UNITS * 2.0f; // ~58,024 units
         const float step = worldSize / gridSize;
 
         osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array;
@@ -840,6 +863,10 @@ namespace MWRender
         stateset->addUniform(mNodePositionUniform);
         stateset->addUniform(new osg::Uniform("displacementMap", 0));
         stateset->addUniform(new osg::Uniform("normalMap", 1));
+
+        // Debug visualization uniform (0 = off, 1 = on)
+        mDebugVisualizeCascadesUniform = new osg::Uniform("debugVisualizeCascades", 1);
+        stateset->addUniform(mDebugVisualizeCascadesUniform);
         
         // DEBUG: Bind Spectrum for visualization
         // DEBUG: Bind Spectrum for visualization
@@ -848,13 +875,16 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)
+        // Scale = how to map world coordinates to UV coordinates [0,1]
+        // UV scale = 1 / tile_size (in Morrowind units)
         osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
+        float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
-            // Scale = 1 / (DomainSize). We increase domain size by factor of 2 for each cascade.
-            // Base size = L_SIZE (e.g. 512 meters if 1 unit = 1 meter)
-            float scale = 1.0f / (L_SIZE * (1 << i)); 
-            mapScales->setElement(i, osg::Vec4f(scale, scale, 0.f, 0.f));
+            // Convert tile size from meters to Morrowind units, then compute UV scale
+            float tileSizeMW = tileSizesMeters[i] * METERS_TO_MW_UNITS;
+            float uvScale = 1.0f / tileSizeMW;
+            mapScales->setElement(i, osg::Vec4f(uvScale, uvScale, 0.f, 0.f));
         }
         stateset->addUniform(mapScales);
 
@@ -885,6 +915,12 @@ namespace MWRender
         geode->addDrawable(mWaterGeom);
 
         mRootNode->addChild(geode);
+    }
+
+    void Ocean::setDebugVisualizeCascades(bool enabled)
+    {
+        if (mDebugVisualizeCascadesUniform)
+            mDebugVisualizeCascadesUniform->set(enabled ? 1 : 0);
     }
 
 }

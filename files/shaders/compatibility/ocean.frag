@@ -33,6 +33,9 @@ uniform float near;
 uniform float far;
 uniform vec2 screenRes;
 
+// Debug visualization toggle
+uniform int debugVisualizeCascades; // 0 = off, 1 = on
+
 #define PER_PIXEL_LIGHTING 0
 
 #include "shadows_fragment.glsl"
@@ -58,6 +61,50 @@ void main(void)
 
     normal = normalize(normal);
 
+    // Debug: Visualize cascade coverage with color coding
+    if (debugVisualizeCascades == 1) {
+        // Cascade colors: Red, Green, Blue, Yellow
+        vec3 cascadeColors[4] = vec3[4](
+            vec3(1.0, 0.0, 0.0),  // Cascade 0: Red (finest detail, 50m tiles)
+            vec3(0.0, 1.0, 0.0),  // Cascade 1: Green (100m tiles)
+            vec3(0.0, 0.5, 1.0),  // Cascade 2: Blue (200m tiles)
+            vec3(1.0, 1.0, 0.0)   // Cascade 3: Yellow (broadest, 400m tiles)
+        );
+
+        // Calculate camera position in world space
+        vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
+        float distToCamera = length(worldPos.xy - cameraPos.xy);
+
+        // Select cascade based on distance from camera
+        // Make transitions more gradual to avoid flickering
+        // Cascade 0 (red): 0-5000 units
+        // Cascade 1 (green): 5000-10000 units
+        // Cascade 2 (blue): 10000-20000 units
+        // Cascade 3 (yellow): 20000+ units
+        int selectedCascade = 3;
+        if (distToCamera < 5000.0) selectedCascade = 0;
+        else if (distToCamera < 10000.0) selectedCascade = 1;
+        else if (distToCamera < 20000.0) selectedCascade = 2;
+
+        vec3 debugColor = cascadeColors[selectedCascade];
+
+        // Draw grid for selected cascade only
+        vec2 uv = worldPos.xy * mapScales[selectedCascade].x;
+        vec2 uvFrac = fract(uv);
+
+        // Grid lines for this cascade
+        float gridLineX = step(0.99, uvFrac.x) + step(uvFrac.x, 0.01);
+        float gridLineY = step(0.99, uvFrac.y) + step(uvFrac.y, 0.01);
+        float isOnGrid = max(gridLineX, gridLineY);
+
+        if (isOnGrid > 0.5) {
+            debugColor = vec3(0.0); // Black grid lines
+        }
+
+        gl_FragData[0] = vec4(debugColor, 0.9);
+        applyShadowDebugOverlay();
+        return;
+    }
 
     // Progressive test: Add back lighting, no fog yet
     vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
