@@ -36,6 +36,9 @@ uniform vec2 screenRes;
 // Debug visualization toggle
 uniform int debugVisualizeCascades; // 0 = off, 1 = on
 
+// Camera position in world space (for cascade selection)
+uniform vec3 cameraPosition;
+
 #define PER_PIXEL_LIGHTING 0
 
 #include "shadows_fragment.glsl"
@@ -71,20 +74,19 @@ void main(void)
             vec3(1.0, 1.0, 0.0)   // Cascade 3: Yellow (broadest, 400m tiles)
         );
 
-        // Calculate camera position in world space
-        vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
-        float distToCamera = length(worldPos.xy - cameraPos.xy);
+        // Use camera position uniform (already in world space)
+        float distToCamera = length(worldPos.xy - cameraPosition.xy);
 
         // Select cascade based on distance from camera
-        // Make transitions more gradual to avoid flickering
-        // Cascade 0 (red): 0-5000 units
-        // Cascade 1 (green): 5000-10000 units
-        // Cascade 2 (blue): 10000-20000 units
-        // Cascade 3 (yellow): 20000+ units
+        // Thresholds based on cascade tile sizes (in MW units):
+        // Cascade 0 (red):    0-7,253 units (50-100m tiles)
+        // Cascade 1 (green):  7,253-14,506 units (100-200m tiles)
+        // Cascade 2 (blue):   14,506-29,012 units (200-400m tiles)
+        // Cascade 3 (yellow): 29,012+ units (400m+ tiles)
         int selectedCascade = 3;
-        if (distToCamera < 5000.0) selectedCascade = 0;
-        else if (distToCamera < 10000.0) selectedCascade = 1;
-        else if (distToCamera < 20000.0) selectedCascade = 2;
+        if (distToCamera < 7253.0) selectedCascade = 0;
+        else if (distToCamera < 14506.0) selectedCascade = 1;
+        else if (distToCamera < 29012.0) selectedCascade = 2;
 
         vec3 debugColor = cascadeColors[selectedCascade];
 
@@ -107,7 +109,6 @@ void main(void)
     }
 
     // Progressive test: Add back lighting, no fog yet
-    vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0,0,0,1)).xyz;
     float upFacing = max(0.0, normal.z);
     vec3 testColor = WATER_COLOR * (0.3 + upFacing * 0.7);
     gl_FragData[0] = vec4(testColor, 0.85);
@@ -116,6 +117,13 @@ void main(void)
     // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)
     // gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
     // gl_FragData[0] = vec4(WATER_COLOR, 1.0); // Solid water color test
+
+    // DEBUG: Visualize distance to camera (gray gradient, darker = closer)
+    // float distToCamera = length(worldPos.xy - cameraPosition.xy);
+    // gl_FragData[0] = vec4(vec3(distToCamera / 50000.0), 1.0); return;
+
+    // DEBUG: Visualize worldPos (should change as you move)
+    // gl_FragData[0] = vec4(fract(worldPos.xyz * 0.0001), 1.0); return;
     
     // Full rendering (currently disabled for testing)
     // gl_FragData[0] = colorWithFog;

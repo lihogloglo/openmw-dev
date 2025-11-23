@@ -185,6 +185,10 @@ namespace MWRender
         // Update shader uniform so the shader knows the world offset
         if (mNodePositionUniform)
             mNodePositionUniform->set(osg::Vec3f(snapX, snapY, mHeight));
+
+        // Update camera position uniform for cascade selection
+        if (mCameraPositionUniform)
+            mCameraPositionUniform->set(cameraPos);
     }
 
     void Ocean::setHeight(float height)
@@ -861,6 +865,8 @@ namespace MWRender
         // Set uniforms
         mNodePositionUniform = new osg::Uniform("nodePosition", osg::Vec3f(0,0,0));
         stateset->addUniform(mNodePositionUniform);
+        mCameraPositionUniform = new osg::Uniform("cameraPosition", osg::Vec3f(0,0,0));
+        stateset->addUniform(mCameraPositionUniform);
         stateset->addUniform(new osg::Uniform("displacementMap", 0));
         stateset->addUniform(new osg::Uniform("normalMap", 1));
 

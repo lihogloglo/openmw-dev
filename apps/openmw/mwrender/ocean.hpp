@@ -61,6 +61,7 @@ namespace MWRender
         osg::ref_ptr<osg::PositionAttitudeTransform> mRootNode;
         osg::ref_ptr<osg::Geometry> mWaterGeom;
         osg::ref_ptr<osg::Uniform> mNodePositionUniform;
+        osg::ref_ptr<osg::Uniform> mCameraPositionUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeCascadesUniform;
 
         // FFT Textures
