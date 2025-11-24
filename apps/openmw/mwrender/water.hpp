@@ -130,6 +130,27 @@ namespace MWRender
         void processChangedSettings(const Settings::CategorySettingVector& settings);
 
         void showWorld(bool show);
+
+        // Ocean parameter accessors for console commands
+        void setOceanWaterColor(const osg::Vec3f& color);
+        void setOceanFoamColor(const osg::Vec3f& color);
+        void setOceanWindSpeed(float speed);
+        void setOceanWindDirection(float degrees);
+        void setOceanFetchLength(float length);
+        void setOceanSwell(float swell);
+        void setOceanDetail(float detail);
+        void setOceanSpread(float spread);
+        void setOceanFoamAmount(float amount);
+
+        osg::Vec3f getOceanWaterColor() const;
+        osg::Vec3f getOceanFoamColor() const;
+        float getOceanWindSpeed() const;
+        float getOceanWindDirection() const;
+        float getOceanFetchLength() const;
+        float getOceanSwell() const;
+        float getOceanDetail() const;
+        float getOceanSpread() const;
+        float getOceanFoamAmount() const;
     };
 
 }

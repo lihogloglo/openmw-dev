@@ -110,6 +110,17 @@ namespace MWRender
         , mEnabled(false)
         , mTime(0.f)
         , mInitialized(false)
+        // Initialize default ocean parameters (matching Godot's water.gdshader and wave_cascade_parameters.gd)
+        , mWaterColor(0.15f, 0.25f, 0.35f)  // Brightened ocean blue
+        , mFoamColor(1.0f, 1.0f, 1.0f)       // White foam
+        , mWindSpeed(20.0f)                   // 20 m/s
+        , mWindDirection(0.0f)                // 0 degrees (north)
+        , mFetchLength(550000.0f)             // 550 km
+        , mSwell(0.8f)
+        , mDetail(1.0f)
+        , mSpread(0.2f)
+        , mFoamAmount(5.0f)
+        , mNeedsSpectrumRegeneration(false)
     {
         std::cout << "Ocean::Ocean constructor called" << std::endl;
         mRootNode = new osg::PositionAttitudeTransform;
@@ -484,35 +495,20 @@ namespace MWRender
             // Matching Godot's pattern: large->medium->small for varied wave scales
             float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
 
-            // Wind speeds per cascade (m/s) - varied for realistic wave complexity
-            float windSpeeds[NUM_CASCADES] = { 10.0f, 5.0f, 20.0f, 20.0f };
+            // Use runtime configurable parameters for all cascades
+            // Wind direction converted from degrees to radians
+            float windDirectionRad = mWindDirection * 3.14159265359f / 180.0f;
 
-            // Fetch lengths per cascade (meters) - how far wind has blown over water
-            float fetchLengths[NUM_CASCADES] = { 150000.0f, 150000.0f, 550000.0f, 550000.0f };
-
-            // Wind directions per cascade (radians) - slight variations for realism
-            float windDirections[NUM_CASCADES] = {
-                0.349f,  // 20 degrees
-                0.262f,  // 15 degrees
-                0.349f,  // 20 degrees
-                0.349f   // 20 degrees
-            };
-
-            // Spread parameter per cascade - controls directional spreading
-            float spreads[NUM_CASCADES] = { 0.2f, 0.4f, 0.4f, 0.4f };
-
-            // Common parameters
+            // Common parameters (now runtime configurable)
             float depth = 20.0f; // meters (shallow water enhances wave steepness)
-            float swell = 0.8f;
-            float detail = 1.0f;
 
             const float G = 9.81f;
 
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
-                // Calculate JONSWAP parameters per cascade (wind/fetch specific)
-                float alpha = 0.076f * std::pow(windSpeeds[cascade]*windSpeeds[cascade] / (fetchLengths[cascade]*G), 0.22f);
-                float omega_p = 22.0f * std::pow(G*G / (windSpeeds[cascade]*fetchLengths[cascade]), 1.0f/3.0f);
+                // Calculate JONSWAP parameters using runtime wind speed and fetch length
+                float alpha = 0.076f * std::pow(mWindSpeed*mWindSpeed / (mFetchLength*G), 0.22f);
+                float omega_p = 22.0f * std::pow(G*G / (mWindSpeed*mFetchLength), 1.0f/3.0f);
 
                 if (pcp)
                 {
@@ -531,22 +527,22 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, omega_p);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
-                    if (loc >= 0) ext->glUniform1f(loc, windSpeeds[cascade]);
+                    if (loc >= 0) ext->glUniform1f(loc, mWindSpeed);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
-                    if (loc >= 0) ext->glUniform1f(loc, windDirections[cascade]);
+                    if (loc >= 0) ext->glUniform1f(loc, windDirectionRad);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
                     if (loc >= 0) ext->glUniform1f(loc, depth);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("swell"));
-                    if (loc >= 0) ext->glUniform1f(loc, swell);
+                    if (loc >= 0) ext->glUniform1f(loc, mSwell);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("detail"));
-                    if (loc >= 0) ext->glUniform1f(loc, detail);
+                    if (loc >= 0) ext->glUniform1f(loc, mDetail);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
-                    if (loc >= 0) ext->glUniform1f(loc, spreads[cascade]);
+                    if (loc >= 0) ext->glUniform1f(loc, mSpread);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("seed"));
                     if (loc >= 0) ext->glUniform2i(loc, cascade * 13 + 42, cascade * 17 + 99); // Different seed per cascade
@@ -588,26 +584,17 @@ namespace MWRender
         // IMPORTANT: Compute shaders work in meters, only convert to MW units in vertex shader
         float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
 
-        // Per-cascade foam parameters matching Godot's main.tscn:
-        // Cascade 0: whitecap=0.5, foam_amount=8.0
-        // Cascade 1: whitecap=0.5, foam_amount=0.0 (no foam)
-        // Cascade 2: whitecap=0.25, foam_amount=3.0
-        // Cascade 3: whitecap=0.25, foam_amount=3.0 (duplicate)
-        //
+        // Per-cascade foam parameters
+        // Using runtime configurable foam_amount for all cascades
+        // Whitecap threshold determines how steep a wave must be before foam accumulates
         // Godot formula: foam_grow_rate = delta * foam_amount * 7.5
         //                foam_decay_rate = delta * max(0.5, 10.0 - foam_amount) * 1.15
-        // Assuming delta = 0.016s (60fps):
-        float foamAmounts[NUM_CASCADES] = { 8.0f, 0.0f, 3.0f, 3.0f };
         float whitecaps[NUM_CASCADES] = { 0.5f, 0.5f, 0.25f, 0.25f };
 
-        // Calculate foam rates per cascade (at 60fps)
+        // Calculate foam rates using runtime mFoamAmount (at 60fps)
         const float DELTA_TIME = 0.016f;
-        float foamGrowRates[NUM_CASCADES];
-        float foamDecayRates[NUM_CASCADES];
-        for (int i = 0; i < NUM_CASCADES; ++i) {
-            foamGrowRates[i] = DELTA_TIME * foamAmounts[i] * 7.5f;
-            foamDecayRates[i] = DELTA_TIME * std::max(0.5f, 10.0f - foamAmounts[i]) * 1.15f;
-        }
+        float foamGrowRate = DELTA_TIME * mFoamAmount * 7.5f;
+        float foamDecayRate = DELTA_TIME * std::max(0.5f, 10.0f - mFoamAmount) * 1.15f;
 
         // 1. Modulate Spectrum
         if (mComputeModulate.valid())
@@ -806,10 +793,10 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, whitecaps[cascade]);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_grow_rate"));
-                    if (loc >= 0) ext->glUniform1f(loc, foamGrowRates[cascade]);
+                    if (loc >= 0) ext->glUniform1f(loc, foamGrowRate);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_decay_rate"));
-                    if (loc >= 0) ext->glUniform1f(loc, foamDecayRates[cascade]);
+                    if (loc >= 0) ext->glUniform1f(loc, foamDecayRate);
                 }
 
                 ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
@@ -1101,6 +1088,12 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("sunDir", osg::Vec3f(0.5f, 0.5f, 0.7f)));
         stateset->addUniform(new osg::Uniform("sunColor", osg::Vec3f(1.0f, 0.95f, 0.8f)));
 
+        // Runtime configurable water/foam colors
+        mWaterColorUniform = new osg::Uniform("waterColor", mWaterColor);
+        stateset->addUniform(mWaterColorUniform);
+        mFoamColorUniform = new osg::Uniform("foamColor", mFoamColor);
+        stateset->addUniform(mFoamColorUniform);
+
         // Add to scene
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
         geode->addDrawable(mWaterGeom);
@@ -1118,6 +1111,63 @@ namespace MWRender
     {
         if (mDebugVisualizeLODUniform)
             mDebugVisualizeLODUniform->set(enabled ? 1 : 0);
+    }
+
+    // Runtime parameter setters
+    void Ocean::setWaterColor(const osg::Vec3f& color)
+    {
+        mWaterColor = color;
+        if (mWaterColorUniform)
+            mWaterColorUniform->set(mWaterColor);
+    }
+
+    void Ocean::setFoamColor(const osg::Vec3f& color)
+    {
+        mFoamColor = color;
+        if (mFoamColorUniform)
+            mFoamColorUniform->set(mFoamColor);
+    }
+
+    void Ocean::setWindSpeed(float speed)
+    {
+        mWindSpeed = speed;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setWindDirection(float degrees)
+    {
+        mWindDirection = degrees;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setFetchLength(float length)
+    {
+        mFetchLength = length;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setSwell(float swell)
+    {
+        mSwell = swell;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setDetail(float detail)
+    {
+        mDetail = detail;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setSpread(float spread)
+    {
+        mSpread = spread;
+        mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setFoamAmount(float amount)
+    {
+        mFoamAmount = amount;
+        mNeedsSpectrumRegeneration = true;
     }
 
 }

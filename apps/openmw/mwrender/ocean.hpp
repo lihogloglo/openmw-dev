@@ -47,6 +47,27 @@ namespace MWRender
         void setDebugVisualizeCascades(bool enabled);
         void setDebugVisualizeLOD(bool enabled);
 
+        // Runtime configurable parameters
+        void setWaterColor(const osg::Vec3f& color);
+        void setFoamColor(const osg::Vec3f& color);
+        void setWindSpeed(float speed);
+        void setWindDirection(float degrees);
+        void setFetchLength(float length);
+        void setSwell(float swell);
+        void setDetail(float detail);
+        void setSpread(float spread);
+        void setFoamAmount(float amount);
+
+        osg::Vec3f getWaterColor() const { return mWaterColor; }
+        osg::Vec3f getFoamColor() const { return mFoamColor; }
+        float getWindSpeed() const { return mWindSpeed; }
+        float getWindDirection() const { return mWindDirection; }
+        float getFetchLength() const { return mFetchLength; }
+        float getSwell() const { return mSwell; }
+        float getDetail() const { return mDetail; }
+        float getSpread() const { return mSpread; }
+        float getFoamAmount() const { return mFoamAmount; }
+
     private:
         void initShaders();
         void initTextures();
@@ -65,6 +86,8 @@ namespace MWRender
         osg::ref_ptr<osg::Uniform> mCameraPositionUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeCascadesUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeLODUniform;
+        osg::ref_ptr<osg::Uniform> mWaterColorUniform;
+        osg::ref_ptr<osg::Uniform> mFoamColorUniform;
 
         // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;
@@ -88,6 +111,18 @@ namespace MWRender
         bool mEnabled;
         float mTime;
         bool mInitialized;
+
+        // Runtime configurable parameters (default values from Godot reference)
+        osg::Vec3f mWaterColor;
+        osg::Vec3f mFoamColor;
+        float mWindSpeed;       // m/s
+        float mWindDirection;   // degrees
+        float mFetchLength;     // meters
+        float mSwell;           // 0-2
+        float mDetail;          // 0-1
+        float mSpread;          // 0-1
+        float mFoamAmount;      // 0-10
+        bool mNeedsSpectrumRegeneration;
     };
 }
 

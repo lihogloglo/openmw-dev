@@ -40,10 +40,10 @@ float sampleRefractionDepthMap(vec2 uv)
 const float VISIBILITY = 2500.0;
 const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
 const float DEPTH_FADE = 0.15;
-// Water color - brightened and more blue/cyan to match Godot appearance
-// Godot reference was (0.1, 0.15, 0.18) but appeared much brighter in-game
-// Increased brightness and blue/cyan tones for more realistic ocean color
-const vec3 WATER_COLOR = vec3(0.15, 0.25, 0.35);
+// Water and foam colors - now runtime configurable via uniforms
+// Default: waterColor = vec3(0.15, 0.25, 0.35), foamColor = vec3(1.0, 1.0, 1.0)
+uniform vec3 waterColor;
+uniform vec3 foamColor;
 
 // Reflection/refraction distortion
 const float REFL_BUMP = 0.20;  // reflection distortion amount (increased to hide reflection map seams)
@@ -339,11 +339,10 @@ void main(void)
 
     // Mix water color with foam color
     // Water color darkens at night, foam stays bright (like original water shader)
-    // Using white foam - Godot's beige (0.73, 0.67, 0.62) looked too brown in OpenMW's lighting
-    const vec3 FOAM_COLOR = vec3(1.0, 1.0, 1.0);
+    // Using runtime configurable foam color (default: white)
     float foamFactor = smoothstep(0.0, 1.0, foam);
-    vec3 waterColorModulated = WATER_COLOR * sunFade;
-    vec3 albedo = mix(waterColorModulated, FOAM_COLOR, foamFactor);
+    vec3 waterColorModulated = waterColor * sunFade;
+    vec3 albedo = mix(waterColorModulated, foamColor, foamFactor);
 
     // Get view direction (camera position in view space is at origin)
     // Extract camera world position from inverse view matrix
@@ -416,7 +415,7 @@ void main(void)
     // Godot line 123: float sss_height = 1.0*max(0.0, wave_height + 2.5) * pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) * ...
     // In Godot: LIGHT points to sun, VIEW points to camera, so -VIEW points away from camera (like our viewDir)
     // So we need: dot(sunWorldDir, viewDir)
-    float sss_height = 2.0 * max(0.0, waveHeight + 2.5) *
+    float sss_height = 1.0 * max(0.0, waveHeight + 2.5) *
                        pow(max(dot(sunWorldDir, viewDir), 0.0), 4.0) *
                        pow(0.5 - 0.5 * dot(sunWorldDir, normal), 3.0);
 
@@ -424,7 +423,7 @@ void main(void)
     // Increased from 0.5 to 1.0 for more ambient SSS glow
     // Godot line 124: float sss_near = 0.5*pow(dot_nv, 2.0);
     // dot_nv is already calculated correctly above
-    float sss_near = 1.0 * pow(dot_nv, 2.0);
+    float sss_near = 0.5 * pow(dot_nv, 2.0);
 
     // Standard Lambertian diffuse
     float lambertian = 0.5 * dot_nl;
@@ -435,7 +434,7 @@ void main(void)
     //                  * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
     vec3 diffuse_color = mix(
         (sss_height + sss_near) * SSS_MODIFIER / (1.0 + light_mask) + lambertian,
-        FOAM_COLOR,
+        foamColor,
         foamFactor
     );
 
@@ -528,7 +527,7 @@ void main(void)
     // TEMPORARY DEBUG: Uncomment to test basic rendering
     //gl_FragData[0] = vec4(albedo, 1.0); applyShadowDebugOverlay(); return;
     //gl_FragData[0] = vec4(vec3(foam), 1.0); applyShadowDebugOverlay(); return; // Visualize foam
-    //gl_FragData[0] = vec4(WATER_COLOR, 1.0); applyShadowDebugOverlay(); return; // Test water color
+    //gl_FragData[0] = vec4(waterColor, 1.0); applyShadowDebugOverlay(); return; // Test water color
     //gl_FragData[0] = vec4(waterColorModulated, 1.0); applyShadowDebugOverlay(); return; // Test modulated water color
     //gl_FragData[0] = vec4(reflection, 1.0); applyShadowDebugOverlay(); return; // Visualize raw reflection
     //gl_FragData[0] = vec4(refrReflColor, 1.0); applyShadowDebugOverlay(); return; // Visualize combined refr/refl

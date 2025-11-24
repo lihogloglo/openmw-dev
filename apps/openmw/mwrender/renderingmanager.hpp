@@ -235,6 +235,9 @@ namespace MWRender
         // camera stuff
         Camera* getCamera() { return mCamera.get(); }
 
+        // water manager access for console commands
+        WaterManager* getWater() { return mWater.get(); }
+
         /// temporarily override the field of view with given value.
         void overrideFieldOfView(float val);
         void setFieldOfView(float val);

@@ -962,4 +962,104 @@ namespace MWRender
         mShowWorld = show;
     }
 
+    // Ocean parameter accessors for console commands
+    void WaterManager::setOceanWaterColor(const osg::Vec3f& color)
+    {
+        if (mOcean)
+            mOcean->setWaterColor(color);
+    }
+
+    void WaterManager::setOceanFoamColor(const osg::Vec3f& color)
+    {
+        if (mOcean)
+            mOcean->setFoamColor(color);
+    }
+
+    void WaterManager::setOceanWindSpeed(float speed)
+    {
+        if (mOcean)
+            mOcean->setWindSpeed(speed);
+    }
+
+    void WaterManager::setOceanWindDirection(float degrees)
+    {
+        if (mOcean)
+            mOcean->setWindDirection(degrees);
+    }
+
+    void WaterManager::setOceanFetchLength(float length)
+    {
+        if (mOcean)
+            mOcean->setFetchLength(length);
+    }
+
+    void WaterManager::setOceanSwell(float swell)
+    {
+        if (mOcean)
+            mOcean->setSwell(swell);
+    }
+
+    void WaterManager::setOceanDetail(float detail)
+    {
+        if (mOcean)
+            mOcean->setDetail(detail);
+    }
+
+    void WaterManager::setOceanSpread(float spread)
+    {
+        if (mOcean)
+            mOcean->setSpread(spread);
+    }
+
+    void WaterManager::setOceanFoamAmount(float amount)
+    {
+        if (mOcean)
+            mOcean->setFoamAmount(amount);
+    }
+
+    osg::Vec3f WaterManager::getOceanWaterColor() const
+    {
+        return mOcean ? mOcean->getWaterColor() : osg::Vec3f(0.15f, 0.25f, 0.35f);
+    }
+
+    osg::Vec3f WaterManager::getOceanFoamColor() const
+    {
+        return mOcean ? mOcean->getFoamColor() : osg::Vec3f(1.0f, 1.0f, 1.0f);
+    }
+
+    float WaterManager::getOceanWindSpeed() const
+    {
+        return mOcean ? mOcean->getWindSpeed() : 20.0f;
+    }
+
+    float WaterManager::getOceanWindDirection() const
+    {
+        return mOcean ? mOcean->getWindDirection() : 0.0f;
+    }
+
+    float WaterManager::getOceanFetchLength() const
+    {
+        return mOcean ? mOcean->getFetchLength() : 550000.0f;
+    }
+
+    float WaterManager::getOceanSwell() const
+    {
+        return mOcean ? mOcean->getSwell() : 0.8f;
+    }
+
+    float WaterManager::getOceanDetail() const
+    {
+        return mOcean ? mOcean->getDetail() : 1.0f;
+    }
+
+    float WaterManager::getOceanSpread() const
+    {
+        return mOcean ? mOcean->getSpread() : 0.2f;
+    }
+
+    float WaterManager::getOceanFoamAmount() const
+    {
+        return mOcean ? mOcean->getFoamAmount() : 5.0f;
+    }
+
 }
