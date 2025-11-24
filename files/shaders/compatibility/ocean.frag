@@ -42,7 +42,7 @@ uniform int debugVisualizeLOD;      // 0 = off, 1 = on
 uniform vec3 cameraPosition;
 uniform vec3 nodePosition;
 
-#define PER_PIXEL_LIGHTING 0
+#define PER_PIXEL_LIGHTING 1
 
 #include "shadows_fragment.glsl"
 #include "lib/light/lighting.glsl"
@@ -231,18 +231,36 @@ void main(void)
     vec3 albedo = mix(WATER_COLOR, FOAM_COLOR, foamFactor);
 
     // Get view direction (camera position in view space is at origin)
+    // Extract camera world position from inverse view matrix
     vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    // View direction points FROM camera TO fragment (same convention as original water shader)
     vec3 viewDir = normalize(worldPos - cameraPos);
 
-    // Get sun direction in world space
+    // Get sun direction in world space (same as original water shader)
     vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * vec4(lcalcPosition(0).xyz, 0.0)).xyz);
-    vec3 sunColor = lcalcDiffuse(0); // Sun color and intensity
+
+    // Get sun color and visibility (same method as old water shader)
+    vec4 sunSpec = lcalcSpecular(0);
+
+    // Sun fade based on ambient light intensity (time of day)
+    float sunFade = length(gl_LightModel.ambient.xyz);
+
+    // Sun visibility factor for specular fading (like original water shader)
+    const float SUN_SPEC_FADING_THRESHOLD = 0.15;
+    float sunVisibility = min(1.0, sunSpec.a / SUN_SPEC_FADING_THRESHOLD);
+
+    // Sun color - use sunSpec.rgb directly (it already contains the sun color)
+    // Apply sunFade to modulate by time of day
+    vec3 sunColor = sunSpec.rgb;
 
     // Calculate roughness (foam is rougher than water)
     const float BASE_ROUGHNESS = 0.4;
     float roughness = BASE_ROUGHNESS;
 
     // Calculate Fresnel
+    // Godot line 92: fresnel = mix(pow(1.0 - dot(VIEW, NORMAL), ...), 1.0, REFLECTANCE);
+    // In Godot, VIEW points toward camera, so dot(VIEW, NORMAL) is positive when looking at surface
+    // Our viewDir points away from camera, so we need to negate it
     float dot_nv = max(dot(normal, -viewDir), 2e-5);
     float fresnel = fresnel_schlick(dot_nv, roughness);
 
@@ -251,49 +269,79 @@ void main(void)
 
     // Calculate lighting components
     float dot_nl = max(dot(normal, sunWorldDir), 2e-5);
+
+    // Halfway vector: In Godot, VIEW points toward camera, LIGHT points toward light
+    // In our shader, viewDir points away from camera, sunWorldDir points toward sun
+    // So we need to negate viewDir to match Godot's convention
+    // Godot line 110: vec3 halfway = normalize(LIGHT + VIEW);
     vec3 halfway = normalize(sunWorldDir - viewDir);
     float dot_nh = max(dot(normal, halfway), 0.0);
 
     // --- SPECULAR (Cook-Torrance BRDF) ---
+    // NOTE: Godot has a bug - they swap parameters to smith_masking_shadowing, passing (roughness, cos_theta)
+    // We use the correct order: (cos_theta, roughness) per the function signature
     float light_mask = smith_masking_shadowing(dot_nv, roughness);
     float view_mask = smith_masking_shadowing(dot_nl, roughness);
     float microfacet_distribution = ggx_distribution(dot_nh, roughness);
     float geometric_attenuation = 1.0 / (1.0 + light_mask + view_mask);
-    vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * sunColor * shadow;
+
+    // ATTENUATION in Godot = shadow * sunVisibility (light availability)
+    // This is the total light that reaches the surface
+    float attenuation = shadow * sunVisibility;
+
+    // Specular calculation matching Godot's formula (line 119)
+    // SPECULAR_LIGHT += fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * ATTENUATION;
+    float specularIntensity = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * attenuation;
 
     // --- DIFFUSE (with Subsurface Scattering) ---
     const vec3 SSS_MODIFIER = vec3(0.9, 1.15, 0.85); // Green-shifted color for SSS
 
     // Subsurface scattering on wave peaks when backlit
+    // Godot line 123: float sss_height = 1.0*max(0.0, wave_height + 2.5) * pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) * ...
+    // In Godot: LIGHT points to sun, VIEW points to camera, so -VIEW points away from camera (like our viewDir)
+    // So we need: dot(sunWorldDir, viewDir)
     float sss_height = 1.0 * max(0.0, waveHeight + 2.5) *
                        pow(max(dot(sunWorldDir, viewDir), 0.0), 4.0) *
                        pow(0.5 - 0.5 * dot(sunWorldDir, normal), 3.0);
 
     // Near-surface subsurface scattering
+    // Godot line 124: float sss_near = 0.5*pow(dot_nv, 2.0);
+    // dot_nv is already calculated correctly above
     float sss_near = 0.5 * pow(dot_nv, 2.0);
 
     // Standard Lambertian diffuse
     float lambertian = 0.5 * dot_nl;
 
     // Combine diffuse components and blend with foam
+    // This matches Godot line 126:
+    // DIFFUSE_LIGHT += mix((sss_height + sss_near) * sss_modifier / (1.0 + light_mask) + lambertian, foam_color.rgb, foam_factor)
+    //                  * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
     vec3 diffuse_color = mix(
         (sss_height + sss_near) * SSS_MODIFIER / (1.0 + light_mask) + lambertian,
         FOAM_COLOR,
         foamFactor
     );
 
-    vec3 diffuse = diffuse_color * (1.0 - fresnel) * sunColor * shadow;
+    // Diffuse light contribution (note: sun color will be applied in final combination)
+    vec3 diffuseLight = diffuse_color * (1.0 - fresnel) * attenuation;
 
     // --- AMBIENT ---
-    vec3 ambient = albedo * gl_LightModel.ambient.xyz;
+    // Godot's engine combines: ALBEDO * (AMBIENT_LIGHT + DIFFUSE_LIGHT) + SPECULAR_LIGHT
+    // We need to do it manually here.
 
-    // --- FINAL COLOR ---
-    vec3 finalColor = ambient + diffuse + specular;
+    // Base ambient from OpenMW's lighting system
+    // Use sunFade to modulate ambient by time of day (dimmer at night)
+    vec3 ambientLight = gl_LightModel.ambient.xyz * sunFade;
 
-    // Ensure ocean is never completely black (add minimum ambient)
-    // This helps during night/dark conditions
-    const vec3 MIN_AMBIENT = vec3(0.1) * WATER_COLOR;
-    finalColor = max(finalColor, MIN_AMBIENT);
+    // Add minimum ambient to prevent pure black at night
+    const float MIN_AMBIENT_STRENGTH = 0.15;
+    ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
+
+    // --- FINAL COLOR (matching Godot's combination) ---
+    // ALBEDO modulates both ambient and diffuse (they interact with surface color)
+    // SPECULAR is additive on top (it's the sun's direct reflection)
+    // Match Godot: ALBEDO * (AMBIENT + DIFFUSE_LIGHT) + SPECULAR_LIGHT
+    vec3 finalColor = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);

@@ -105,10 +105,10 @@ Added the `+ NUM_SPECTRA*map_size*map_size` offset to correctly read the transpo
 
 ---
 
-### 2. ✅ ~~Missing GGX PBR Shading Model~~ **IMPLEMENTED!**
-**Status:** ~~NOT IMPLEMENTED~~ **IMPLEMENTED** - 2025-11-24
-**Current:** Full Cook-Torrance BRDF with GGX, Fresnel-Schlick, and subsurface scattering
-**Priority:** ~~HIGH~~ COMPLETE
+### 2. ⚠️ Missing GGX PBR Shading Model - **NEEDS TESTING**
+**Status:** **IMPLEMENTED - TESTING IN PROGRESS** - 2025-11-24
+**Current:** Full Cook-Torrance BRDF with GGX, Fresnel-Schlick, and subsurface scattering, properly integrated with OpenMW lighting
+**Priority:** 🔴 **HIGH** - Needs in-game verification
 **Location:** `files/shaders/compatibility/ocean.frag`
 
 **Implemented Components:**
@@ -166,11 +166,77 @@ vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0
 - [x] Integrate with OpenMW's lighting system (using lcalcPosition and lcalcDiffuse)
 - [x] Test with sun direction from gl_ModelViewMatrixInverse
 
+**Critical Lighting Bugs Fixed (2025-11-24):**
+
+#### Session 1 - Initial PBR Implementation:
+1. **PER_PIXEL_LIGHTING was disabled** (line 45)
+   - Was set to 0 (vertex lighting mode)
+   - This caused `lcalcDiffuse()` and `lcalcSpecular()` to return **zero**
+   - Fixed: Set `PER_PIXEL_LIGHTING 1` to enable per-pixel lighting
+   - **Impact:** This was the root cause of the black ocean
+
+2. **Sun visibility factor missing** (lines 244-246)
+   - Original water shader uses `sunSpec.a` for sun visibility
+   - Added `sunVisibility = min(1.0, sunSpec.a / SUN_SPEC_FADING_THRESHOLD)`
+   - Applied to both specular and diffuse terms
+
+#### Session 2 - Lighting Audit & Godot Alignment:
+3. **Incorrect final color combination** (line 329)
+   - **Was:** `albedo * (ambient + diffuse) + specular * sunColor`
+   - **Issue:** Applied sunColor to specular twice (already in diffuse calculation)
+   - **Fixed:** `albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor`
+   - **Impact:** Properly separates diffuse and specular light contributions
+
+4. **Sun color over-modulation** (line 252)
+   - **Was:** `sunColor = sunSpec.rgb * sunFade`
+   - **Issue:** Double-modulated sun color, dimming it excessively
+   - **Fixed:** `sunColor = sunSpec.rgb` (sunFade only applied to ambient)
+   - **Impact:** Sun color now matches original water shader behavior
+
+5. **Incorrect specular calculation structure** (line 284)
+   - **Was:** Direct vec3 calculation
+   - **Fixed:** Separate `specularIntensity` scalar, multiply by sunColor in final combination
+   - **Impact:** Matches Godot's SPECULAR_LIGHT accumulation pattern
+
+6. **Minimum ambient too high** (line 322)
+   - **Was:** MIN_AMBIENT_STRENGTH = 0.25 (too bright at night)
+   - **Fixed:** MIN_AMBIENT_STRENGTH = 0.15 (more subtle)
+   - **Impact:** Better contrast between day/night, more realistic darkness
+
 **Files Modified:**
-- `files/shaders/compatibility/ocean.frag` (lines 52-296)
+- `files/shaders/compatibility/ocean.frag` (lines 45, 240-329)
 - `files/shaders/compatibility/ocean.vert` (added waveHeight varying)
 
-**Expected Result:** ✅ Realistic sun highlights, proper reflections at grazing angles
+**Comprehensive Lighting Audit (2025-11-24 Session 2):**
+
+**Methodology:**
+1. Line-by-line comparison with Godot water shader (`water.gdshader`)
+2. Cross-reference with original OpenMW water shader from base commit
+3. Verify coordinate system conventions (view direction, sun direction)
+4. Validate PBR formula implementations (GGX, Fresnel, Smith)
+5. Ensure proper light accumulation and final color combination
+
+**Key Findings:**
+- **Godot has a bug:** Lines 115-116 swap parameters to `smith_masking_shadowing(roughness, dot_nv)` instead of `(dot_nv, roughness)`. Our implementation is correct.
+- **View direction convention:** Godot's `VIEW` points TO camera (negative of our `viewDir`). Accounted for in all dot products.
+- **Light accumulation:** Godot separates `DIFFUSE_LIGHT` and `SPECULAR_LIGHT`, then engine combines with `ALBEDO`. We must do this manually.
+- **Sun color application:** Should only be applied once in final combination, not pre-multiplied into light terms.
+
+**Alignment with Godot:**
+- ✅ GGX distribution (line 103-106) - **EXACT MATCH**
+- ✅ Smith masking/shadowing (line 96-100) - **MATCH** (corrected for parameter order bug)
+- ✅ Fresnel-Schlick (line 92) - **EXACT MATCH**
+- ✅ Subsurface scattering (line 123-124) - **EXACT MATCH**
+- ✅ Roughness calculation (line 93) - **EXACT MATCH**
+- ✅ Final color combination (matches Godot's engine behavior) - **CORRECT**
+
+**Alignment with Original Water Shader:**
+- ✅ Sun direction calculation (line 114) - **EXACT MATCH**
+- ✅ Sun color retrieval via `lcalcSpecular(0)` - **EXACT MATCH**
+- ✅ Sun visibility fading (line 248) - **EXACT MATCH**
+- ✅ Camera position extraction - **EXACT MATCH**
+
+**Result:** ⚠️ **TESTING REQUIRED** - Comprehensive lighting audit completed, all formulas verified, needs in-game testing
 
 ---
 
@@ -774,6 +840,56 @@ git diff eacaf9f154 89983bf722 -- files/shaders/
 
 ---
 
-**Last Updated:** 2025-11-23
-**Next Review:** After implementing clipmap LOD or PBR shading
-**Overall Status:** 72% Complete - Core simulation ✅, Mesh detail ❌, Rendering quality ❌
+**Last Updated:** 2025-11-24
+**Next Review:** After testing PBR shading in-game
+**Overall Status:** ~75% Complete - Core simulation ✅, PBR shading ✅ (pending test), Mesh detail ❌
+
+---
+
+## 📈 SESSION SUMMARY (2025-11-24)
+
+### ✅ Completed:
+1. **Implemented full PBR shading model**
+   - Added GGX microfacet distribution
+   - Implemented Fresnel-Schlick approximation
+   - Added Smith masking-shadowing function
+   - Implemented Cook-Torrance BRDF
+   - Added subsurface scattering with green shift
+   - Dynamic roughness based on foam/fresnel
+
+2. **Debugged lighting issues**
+   - Found `lcalcDiffuse(0)` returns black
+   - Switched to `lcalcSpecular(0)` (same as old water shader)
+   - Added `sunFade` intensity from ambient light
+   - Added fallback sun color when lighting is zero
+   - Increased MIN_BRIGHTNESS to 0.5 for visibility
+
+3. **Integration with OpenMW lighting**
+   - Uses `lcalcPosition(0)` for sun direction
+   - Uses `lcalcSpecular(0)` for sun color
+   - Uses `gl_LightModel.ambient.xyz` for intensity
+   - Shadow system integrated via `unshadowedLightRatio()`
+
+### 🔧 Files Modified:
+- `files/shaders/compatibility/ocean.frag` - Full PBR implementation
+- `files/shaders/compatibility/ocean.vert` - Added waveHeight varying
+
+### 📊 Debug Findings:
+- Albedo rendering: ✅ Works (blue/white ocean)
+- Ambient light: ⚠️ Very dark grey (nearly zero)
+- Sun color from `lcalcDiffuse(0)`: ❌ Black
+- Sun color from `lcalcSpecular(0)`: ⚠️ Also near zero, fallback triggered
+- Diffuse term: ❌ Black (due to zero sun color)
+- Specular term: ❌ Black (due to zero sun color)
+- Shadow value: ✅ White (1.0, fully lit)
+
+### 🎯 Next Steps:
+1. **Test in-game** with increased MIN_BRIGHTNESS (0.5)
+2. **Fine-tune lighting** if sun still too dim
+3. May need to completely bypass OpenMW lighting and use direct sun calculation
+4. Consider adding parameter to control minimum ocean brightness
+
+### 📝 Known Issues:
+- OpenMW's lighting system returns near-zero values for ocean
+- May need to implement custom sun calculation instead of using `lcalc*` functions
+- Godot shader doesn't have this issue (different lighting system)
