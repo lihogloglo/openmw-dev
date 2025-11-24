@@ -43,16 +43,15 @@ void main(void)
     const float RING_0_GRID_SIZE = 512.0;
     float gridSnapSize = (2.0 * CASCADE_0_RADIUS) / RING_0_GRID_SIZE; // ~7.082 units
 
-    // Snap camera position to grid to prevent texture swimming
+    // Snap camera position to grid for mesh positioning
     vec2 snappedCameraPos = floor(cameraPosition.xy / gridSnapSize) * gridSnapSize;
 
-    // Offset vertex position to follow snapped camera position
-    // This makes the clipmap mesh follow the camera smoothly
-    vec2 worldPosXY = vertPos.xy + snappedCameraPos;
+    // Calculate world position for UV sampling using UNSNAPPED camera position
+    // This ensures displacement is continuous as camera moves
+    vec2 worldPosXY = vertPos.xy + cameraPosition.xy;
 
-    // Calculate UVs from snapped world position (prevents swimming)
     vec3 totalDisplacement = vec3(0.0);
-    float dist = length(worldPosXY - cameraPosition.xy);
+    float dist = length(vertPos.xy);
 
     // Displacement sampling with per-cascade amplitude scaling
     for (int i = 0; i < numCascades && i < 4; ++i) {
@@ -70,14 +69,18 @@ void main(void)
         totalDisplacement += disp * mapScales[i].z * falloff;
     }
 
-    vertPos += totalDisplacement;
+    // Apply displacement AND camera offset to local vertex position
+    // We need to offset the mesh vertices to follow the camera
+    vec3 displacedLocalPos = vertPos + vec3(snappedCameraPos, 0.0) + totalDisplacement;
 
     // World position for fragment shader (used for normal sampling)
-    worldPos = vec3(worldPosXY, vertPos.z) + nodePosition;
+    // This is the actual world-space position after offsetting and displacement
+    worldPos = vec3(worldPosXY, vertPos.z) + totalDisplacement + nodePosition;
 
-    gl_Position = modelToClip(vec4(vertPos + vec3(snappedCameraPos, 0.0), 1.0));
+    // Transform to clip space using the offset local coordinates
+    gl_Position = modelToClip(vec4(displacedLocalPos, 1.0));
 
-    vec4 viewPos = modelToView(vec4(vertPos + vec3(snappedCameraPos, 0.0), 1.0));
+    vec4 viewPos = modelToView(vec4(displacedLocalPos, 1.0));
     linearDepth = getLinearDepth(gl_Position.z, viewPos.z);
 
     setupShadowCoords(viewPos, normalize((gl_NormalMatrix * gl_Normal).xyz));
