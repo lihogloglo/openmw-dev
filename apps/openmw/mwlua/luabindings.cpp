@@ -18,6 +18,7 @@
 #include "menuscripts.hpp"
 #include "nearbybindings.hpp"
 #include "objectbindings.hpp"
+#include "oceanbindings.hpp"
 #include "postprocessingbindings.hpp"
 #include "soundbindings.hpp"
 #include "types/types.hpp"
@@ -72,6 +73,7 @@ namespace MWLua
             { "openmw.camera", initCameraPackage(context.sol()) },
             { "openmw.debug", initDebugPackage(context) },
             { "openmw.input", initInputPackage(context) },
+            { "openmw.ocean", initOceanPackage(context.sol()) },
             { "openmw.postprocessing", initPostprocessingPackage(context) },
             { "openmw.ui", initUserInterfacePackage(context) },
         };

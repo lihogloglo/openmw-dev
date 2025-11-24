@@ -47,9 +47,9 @@ void main(void)
     // Snap camera position to grid for mesh positioning
     vec2 snappedCameraPos = floor(cameraPosition.xy / gridSnapSize) * gridSnapSize;
 
-    // Calculate world position for UV sampling using UNSNAPPED camera position
-    // This ensures displacement is continuous as camera moves
-    vec2 worldPosXY = vertPos.xy + cameraPosition.xy;
+    // Calculate world position for UV sampling using SNAPPED camera position
+    // This ensures vertices land on consistent UV coordinates and prevents texture swimming
+    vec2 worldPosXY = vertPos.xy + snappedCameraPos;
 
     vec3 totalDisplacement = vec3(0.0);
     float dist = length(vertPos.xy);

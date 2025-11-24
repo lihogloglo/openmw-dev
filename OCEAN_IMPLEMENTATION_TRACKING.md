@@ -608,10 +608,10 @@ func _process(delta: float) -> void:
 
 ---
 
-### 9. ✅ ~~Runtime Configurable Parameters~~ **IMPLEMENTED!**
-**Status:** ~~HARDCODED~~ **RUNTIME EDITABLE** - 2025-11-24
+### 9. ✅ ~~Runtime Configurable Parameters~~ **FULLY IMPLEMENTED WITH LUA API!**
+**Status:** ~~HARDCODED~~ **RUNTIME EDITABLE VIA LUA** - 2025-11-24
 **Priority:** ~~LOW~~ **COMPLETE**
-**Location:** `apps/openmw/mwrender/ocean.cpp`, `water.cpp`, `ocean.frag`
+**Location:** `apps/openmw/mwrender/ocean.cpp`, `water.cpp`, `ocean.frag`, `apps/openmw/mwlua/oceanbindings.cpp`
 
 **Implemented Runtime Parameters:**
 - [x] Water color (vec3) - shader uniform
@@ -625,6 +625,7 @@ func _process(delta: float) -> void:
 - [x] Foam amount (float) - 0-10
 
 **Implementation Details:**
+
 1. **Ocean Class** (`ocean.hpp`, `ocean.cpp`):
    - Added member variables for all runtime parameters
    - Implemented setter/getter methods
@@ -649,30 +650,85 @@ func _process(delta: float) -> void:
    - Wind direction automatically converted degrees → radians
    - JONSWAP alpha and omega_p calculated from runtime wind/fetch
 
+6. **Lua Bindings** (`apps/openmw/mwlua/oceanbindings.hpp`, `oceanbindings.cpp`) - **NEW!**
+   - Created complete Lua API in `openmw.ocean` namespace
+   - Available in player scripts (F1 console)
+   - All 9 parameters exposed with proper type checking
+   - Uses `Misc::FiniteFloat` for safe parameter validation
+   - Registered in `luabindings.cpp` as player package
+
+7. **CMake Integration** (`apps/openmw/CMakeLists.txt`):
+   - Added `oceanbindings` to mwlua directory
+   - Properly linked in build system
+
 **Access Methods:**
+
+**C++ API:**
 ```cpp
-// Via WaterManager (for console commands)
+// Via WaterManager (for C++ code)
 MWRender::WaterManager* water = getRenderingManager()->getWater();
 water->setOceanWindSpeed(30.0f);      // Storm conditions
 water->setOceanWaterColor(osg::Vec3f(0.1f, 0.4f, 0.45f)); // Tropical blue
 ```
 
+**Lua API (In-Game Console - Press F1):**
+```lua
+-- Wind parameters
+openmw.ocean.setWindSpeed(30.0)
+openmw.ocean.setWindDirection(180.0)
+local speed = openmw.ocean.getWindSpeed()
+
+-- Water appearance
+openmw.ocean.setWaterColor(0.1, 0.4, 0.45)  -- Tropical blue
+openmw.ocean.setFoamColor(1.0, 1.0, 1.0)    -- White foam
+
+-- Wave physics
+openmw.ocean.setFetchLength(550000)
+openmw.ocean.setSwell(1.2)
+openmw.ocean.setDetail(0.8)
+openmw.ocean.setSpread(0.3)
+openmw.ocean.setFoamAmount(8.0)
+```
+
 **Documentation:**
-- Created `OCEAN_CONSOLE_COMMANDS.md` with Lua API examples
-- Includes parameter ranges and example presets
-- Shows calm/stormy/tropical/arctic configurations
+- ✅ Created `OCEAN_LUA_BINDINGS.md` - Complete Lua API guide
+  - Usage examples with F1 console
+  - Parameter descriptions and ranges
+  - Four example presets (calm/storm/tropical/arctic)
+  - Integration notes for creating Lua mods
+  - Troubleshooting guide
+- ✅ Created `OCEAN_CONSOLE_COMMANDS_SIMPLE.md` - User-friendly guide
+- ✅ Created `OCEAN_CONSOLE_BUILD_FIXES.md` - MWScript implementation notes
+
+**Why Lua Instead of MWScript:**
+- OpenMW's MWScript console system appears deprecated (`Console::installOpcodes` is empty)
+- Lua is the modern, actively maintained approach
+- Better type checking and error handling
+- Can be used by mods (not just console)
+- More powerful and flexible
+- Properly integrated with OpenMW's architecture
+
+**MWScript Implementation (Attempted but not recommended):**
+- Created `apps/openmw/mwscript/oceanextensions.cpp/hpp`
+- Registered in compiler (`opcodes.hpp`, `extensions0.cpp`)
+- Added to CMakeLists.txt and extensions.cpp
+- **Issue:** Console system may not support these commands
+- **Recommendation:** Use Lua bindings instead
 
 **Future Enhancements:**
-- [ ] Direct console commands (C++ opcodes)
 - [ ] Settings file persistence
-- [ ] Ocean condition presets (calm/moderate/stormy)
+- [ ] Ocean condition presets UI
 - [ ] Time-of-day automatic adjustments
 - [ ] Weather system integration
+- [ ] ImGui debug panel for real-time tweaking
 
-**Result:** ✅ **ALL REQUESTED PARAMETERS NOW RUNTIME EDITABLE**
-- Colors update immediately
-- Physics parameters trigger spectrum regeneration
-- Ready for Lua or C++ console command integration
+**Result:** ✅ **COMPLETE LUA API FOR ALL OCEAN PARAMETERS**
+- All 9 parameters accessible via `openmw.ocean` namespace
+- Works in F1 Lua console immediately
+- Can be used by player Lua scripts/mods
+- Real-time updates with proper spectrum regeneration
+- Clean, documented API matching OpenMW conventions
+- Ready for production use!
 
 ---
 

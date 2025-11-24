@@ -12,6 +12,7 @@
 #include "dialogueextensions.hpp"
 #include "guiextensions.hpp"
 #include "miscextensions.hpp"
+#include "oceanextensions.hpp"
 #include "skyextensions.hpp"
 #include "soundextensions.hpp"
 #include "statsextensions.hpp"
@@ -40,6 +41,7 @@ namespace MWScript
         {
             Console::installOpcodes(interpreter);
             User::installOpcodes(interpreter);
+            Ocean::installOpcodes(interpreter);
         }
     }
 }

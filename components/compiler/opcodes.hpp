@@ -555,6 +555,21 @@ namespace Compiler
         const int opcodeUser4 = 0x2000170;
         const int opcodeUser4Explicit = 0x2000171;
     }
+
+    namespace Ocean
+    {
+        const int opcodeSetOceanWaterColor = 0x2000400;
+        const int opcodeSetOceanFoamColor = 0x2000401;
+        const int opcodeSetOceanWindSpeed = 0x2000402;
+        const int opcodeSetOceanWindDirection = 0x2000403;
+        const int opcodeSetOceanFetchLength = 0x2000404;
+        const int opcodeSetOceanSwell = 0x2000405;
+        const int opcodeSetOceanDetail = 0x2000406;
+        const int opcodeSetOceanSpread = 0x2000407;
+        const int opcodeSetOceanFoamAmount = 0x2000408;
+        const int opcodeGetOceanWindSpeed = 0x2000409;
+        const int opcodeGetOceanWindDirection = 0x200040a;
+    }
 }
 
 #endif

@@ -76,6 +76,11 @@ namespace Compiler
     {
         void registerExtensions(Extensions& extensions);
     }
+
+    namespace Ocean
+    {
+        void registerExtensions(Extensions& extensions);
+    }
 }
 
 #endif

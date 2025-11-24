@@ -24,6 +24,7 @@ namespace Compiler
         {
             Console::registerExtensions(extensions);
             User::registerExtensions(extensions);
+            Ocean::registerExtensions(extensions);
         }
     }
 
@@ -547,6 +548,27 @@ namespace Compiler
             extensions.registerInstruction("user2", "", opcodeUser2);
             extensions.registerInstruction("user3", "", opcodeUser3, opcodeUser3);
             extensions.registerInstruction("user4", "", opcodeUser4, opcodeUser4);
+        }
+    }
+
+    namespace Ocean
+    {
+        void registerExtensions(Extensions& extensions)
+        {
+            // Ocean parameter setters (console only)
+            extensions.registerInstruction("setoceanwatercolor", "fff", opcodeSetOceanWaterColor);
+            extensions.registerInstruction("setoceanfoamcolor", "fff", opcodeSetOceanFoamColor);
+            extensions.registerInstruction("setoceanwindspeed", "f", opcodeSetOceanWindSpeed);
+            extensions.registerInstruction("setoceanwinddirection", "f", opcodeSetOceanWindDirection);
+            extensions.registerInstruction("setoceanfetchlength", "f", opcodeSetOceanFetchLength);
+            extensions.registerInstruction("setoceanswell", "f", opcodeSetOceanSwell);
+            extensions.registerInstruction("setoceandetail", "f", opcodeSetOceanDetail);
+            extensions.registerInstruction("setoceanspread", "f", opcodeSetOceanSpread);
+            extensions.registerInstruction("setoceanfoamamount", "f", opcodeSetOceanFoamAmount);
+
+            // Ocean parameter getters (return float)
+            extensions.registerFunction("getoceanwindspeed", 'f', "", opcodeGetOceanWindSpeed);
+            extensions.registerFunction("getoceanwinddirection", 'f', "", opcodeGetOceanWindDirection);
         }
     }
 }
