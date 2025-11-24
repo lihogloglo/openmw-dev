@@ -40,9 +40,10 @@ float sampleRefractionDepthMap(vec2 uv)
 const float VISIBILITY = 2500.0;
 const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
 const float DEPTH_FADE = 0.15;
-// Water color matching Godot reference: Color(0.1, 0.15, 0.18) in sRGB
-// OpenMW expects sRGB color values (not linear), so use values directly from Godot
-const vec3 WATER_COLOR = vec3(0.1, 0.15, 0.18);
+// Water color - brightened and more blue/cyan to match Godot appearance
+// Godot reference was (0.1, 0.15, 0.18) but appeared much brighter in-game
+// Increased brightness and blue/cyan tones for more realistic ocean color
+const vec3 WATER_COLOR = vec3(0.15, 0.25, 0.35);
 
 // Reflection/refraction distortion
 const float REFL_BUMP = 0.20;  // reflection distortion amount (increased to hide reflection map seams)
@@ -406,20 +407,24 @@ void main(void)
     float specularIntensity = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * attenuation;
 
     // --- DIFFUSE (with Subsurface Scattering) ---
-    const vec3 SSS_MODIFIER = vec3(0.9, 1.15, 0.85); // Green-shifted color for SSS
+    // Blue-green color for SSS to match Godot's brighter wave crests
+    // Increased green and blue channels for more visible SSS effect
+    const vec3 SSS_MODIFIER = vec3(0.8, 1.5, 1.3);
 
     // Subsurface scattering on wave peaks when backlit
+    // Increased multiplier from 1.0 to 2.0 for more visible SSS on wave crests
     // Godot line 123: float sss_height = 1.0*max(0.0, wave_height + 2.5) * pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) * ...
     // In Godot: LIGHT points to sun, VIEW points to camera, so -VIEW points away from camera (like our viewDir)
     // So we need: dot(sunWorldDir, viewDir)
-    float sss_height = 1.0 * max(0.0, waveHeight + 2.5) *
+    float sss_height = 2.0 * max(0.0, waveHeight + 2.5) *
                        pow(max(dot(sunWorldDir, viewDir), 0.0), 4.0) *
                        pow(0.5 - 0.5 * dot(sunWorldDir, normal), 3.0);
 
     // Near-surface subsurface scattering
+    // Increased from 0.5 to 1.0 for more ambient SSS glow
     // Godot line 124: float sss_near = 0.5*pow(dot_nv, 2.0);
     // dot_nv is already calculated correctly above
-    float sss_near = 0.5 * pow(dot_nv, 2.0);
+    float sss_near = 1.0 * pow(dot_nv, 2.0);
 
     // Standard Lambertian diffuse
     float lambertian = 0.5 * dot_nl;
@@ -487,8 +492,8 @@ void main(void)
     vec3 ambientLight = gl_LightModel.ambient.xyz * sunFade;
 
     // Add minimum ambient to prevent pure black at night
-    // Increased from 0.15 to 0.25 to brighten ocean
-    const float MIN_AMBIENT_STRENGTH = 0.25;
+    // Increased to 0.35 for brighter, more visible ocean matching Godot
+    const float MIN_AMBIENT_STRENGTH = 0.35;
     ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
 
     // --- FINAL COLOR ---
@@ -514,8 +519,8 @@ void main(void)
 
     // Combine: lighting + reflections (additive, not mix)
     // This gives proper water appearance: lit surface with reflections on top
-    // Reduced from 0.5 to 0.35 to reduce visibility of reflection map artifacts
-    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.35;
+    // Increased from 0.35 to 0.45 for more visible sky reflections (brighter ocean)
+    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.45;
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);

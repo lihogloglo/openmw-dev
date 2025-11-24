@@ -754,20 +754,23 @@ const float SPREAD = 0.2f;
 | | Dispersion relation | ✅ | - | Working |
 | | Small-wave suppression | ✅ | - | Working |
 | **Displacement** | 3D displacement | ✅ FIXED | - | Buffer offset fixed! |
-| | Distance falloff | ❌ | 🟡 MEDIUM | - |
-| **Mesh LOD** | Clipmap/LOD system | ❌ | 🔴 HIGH | Crude near player |
+| | Distance falloff | ✅ | - | 2× extended range |
+| **Mesh LOD** | Clipmap/LOD system | ⚠️ | - | Working (outer rings have artifacts) |
 | **Normals** | Gradient computation | ✅ | - | Working |
-| | Distance falloff | ❌ | 🟡 MEDIUM | - |
+| | Distance falloff | ✅ | - | 2× extended range |
+| | Micro-detail (Cascade 2/3) | ✅ | - | 4× increased! |
 | **Foam** | Jacobian detection | ✅ | - | Working |
 | | Accumulation/decay | ✅ | - | Working |
-| | Distance falloff | ❌ | 🟡 MEDIUM | - |
+| | Distance falloff | ✅ | - | 2× extended range |
 | **Shading** | GGX microfacet | ✅ | - | Implemented! |
 | | Fresnel-Schlick | ✅ | - | Implemented! |
 | | Smith geometry | ✅ | - | Implemented! |
 | | Subsurface scattering | ✅ | - | Implemented! |
 | | Roughness model | ✅ | - | Implemented! |
-| **Filtering** | Bicubic sampling | ❌ | 🔴 HIGH | Reduces aliasing |
-| | Adaptive bilinear/bicubic | ❌ | 🔴 HIGH | With bicubic |
+| **Filtering** | Bicubic sampling | ✅ | - | Implemented! |
+| | Adaptive bilinear/bicubic | ✅ | - | Implemented! |
+| **Reflections** | Screen-space reflections | ✅ | - | With distortion |
+| | Reflection artifact fixes | ✅ | - | Distance fade added |
 | **Effects** | Sea spray particles | ❌ | 🟢 LOW | Optional |
 | **Performance** | Cascade load balance | ❌ | 🟢 LOW | Reduces stutter |
 | | Update rate control | ⚠️ | 🟢 LOW | Hardcoded only |
@@ -964,6 +967,95 @@ git diff eacaf9f154 89983bf722 -- files/shaders/
 **Last Updated:** 2025-11-24
 **Next Review:** After any additional visual tuning
 **Overall Status:** ~90% Complete - Core simulation ✅, PBR shading ✅, Distance falloffs ✅, Visual quality improvements complete!
+
+---
+
+## 📈 SESSION SUMMARY (2025-11-24 - Session 5: VISUAL QUALITY & MICRO-DETAIL)
+
+### ✅ Completed:
+
+1. **Enhanced Micro-Detail Surface Texture**
+   - **Problem:** Ocean lacked fine surface detail and texture
+   - **Solution:** Increased Cascade 2/3 normal scales from 0.25 → 1.0 (4× increase)
+   - **File:** `apps/openmw/mwrender/ocean.cpp` line 1069
+   - **Impact:** High-frequency ripples and micro-detail now visible on water surface
+
+2. **Implemented Distance-Based Falloffs (All Three)**
+   - **Problem:** Far ocean too detailed/bumpy, overbright speculars at horizon
+   - **Solution:** Implemented Godot's three falloff systems with 2× extended range
+
+   **A. Normal Strength Falloff**
+   - File: `ocean.frag:209-218`
+   - Rate: `0.00875` (2× slower than Godot's `0.0175`)
+   - Blends normals to nearly flat (1.5%) at far distances
+   - Impact: Smooth far ocean, reduced specular overbright
+
+   **B. Displacement Falloff**
+   - File: `ocean.vert:65-73`
+   - Starts at: `300m` (2× farther than Godot's `150m`)
+   - Rate: `0.0035` (2× slower than Godot's `0.007`)
+   - Impact: Smooth far ocean geometry, better performance
+
+   **C. Foam Intensity Falloff**
+   - File: `ocean.frag:317-327`
+   - Rate: `0.00375` (2× slower than Godot's `0.0075`)
+   - Impact: Cleaner horizon, natural foam fade
+
+3. **Fixed Ocean Darkness Issue**
+   - **Problem:** Ocean too dark after initial falloff implementation
+   - **Root Cause:** Falloff rates worked on MW units instead of meters (72× too aggressive)
+   - **Solution:** Convert distances to meters before applying falloff rates
+   - **File:** `ocean.frag` line 93 (added `MW_UNITS_TO_METERS` constant)
+   - **Impact:** Proper falloff behavior matching Godot reference
+
+4. **Increased Ambient Lighting**
+   - **Change:** `MIN_AMBIENT_STRENGTH` from `0.15` → `0.25` (+67% brightness)
+   - **File:** `ocean.frag` line 479
+   - **Impact:** Brighter ocean, especially at night/dawn/dusk
+
+5. **Fixed Reflection Map Artifacts**
+   - **Problem:** Stationary texture overlay from reflection map seam (old water plane gap)
+   - **Solution A:** Increased distortion amounts
+     - `REFL_BUMP`: `0.10` → `0.20` (reflection distortion)
+     - `REFR_BUMP`: `0.07` → `0.12` (refraction distortion)
+   - **Solution B:** Distance-based reflection fade
+     - Fade start: `500m`
+     - Fade end: `1500m`
+     - File: `ocean.frag:496-513`
+   - **Impact:** Reflection artifacts no longer visible, smooth horizon
+
+6. **Balanced Reflection Strength**
+   - **Change:** Reflection multiplier from `0.5` → `0.35`
+   - **File:** `ocean.frag` line 506
+   - **Impact:** Reduced artifact visibility while maintaining realistic reflections
+
+### 🔧 Files Modified:
+- `apps/openmw/mwrender/ocean.cpp` (cascade normal scales)
+- `files/shaders/compatibility/ocean.frag` (falloffs, brightness, reflections)
+- `files/shaders/compatibility/ocean.vert` (displacement falloff)
+
+### 📊 Visual Quality Improvements Achieved:
+- ✅ **Micro-detail:** 4× more surface texture detail
+- ✅ **Smooth far ocean:** Natural distance-based smoothing
+- ✅ **Reduced specular overbright:** Normals fade at horizon
+- ✅ **Clean horizon:** Foam and detail fade naturally
+- ✅ **Proper brightness:** Balanced ambient and reflections
+- ✅ **No artifacts:** Reflection map seams hidden with fade and distortion
+
+### 🎯 User Feedback:
+- ✅ Falloff distances doubled as requested (2× farther transitions)
+- ✅ Reflection artifacts no longer visible
+- ✅ Ocean has proper material appearance (not too dark, not too bright)
+- ✅ Micro-detail visible on water surface
+
+### 📊 Updated Progress:
+- **Overall:** ~90% Complete (was 85%)
+- **Core FFT:** ✅ 100% Complete
+- **Wave Physics:** ✅ 100% Complete
+- **Displacement:** ✅ 100% Complete
+- **Mesh Quality:** ⚠️ 85% (clipmap LOD working, outer ring artifacts remain)
+- **Rendering/Shading:** ✅ 95% Complete (distance falloffs ✅, micro-detail ✅)
+- **Visual Polish:** ✅ 90% Complete
 
 ---
 
