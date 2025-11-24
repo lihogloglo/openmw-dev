@@ -571,9 +571,16 @@ namespace MWRender
 
         // Wave parameters
         float depth = 1000.0f * METERS_TO_MW_UNITS; // Deep water (1000m in MW units)
-        float whitecap = 1.0f;
-        float foamGrowRate = 1.0f;
-        float foamDecayRate = 0.05f;
+
+        // Foam parameters matching Godot reference values
+        // Godot: whitecap = 0.5, foam_amount = 5.0-8.0
+        // These rates should be scaled by delta time (~0.016s per frame at 60fps)
+        // Godot formula: foam_grow_rate = delta * foam_amount * 7.5
+        //                foam_decay_rate = delta * max(0.5, 10.0 - foam_amount) * 1.15
+        // For foam_amount=5.0: grow = 0.016*5*7.5 = 0.6, decay = 0.016*5*1.15 = 0.092
+        float whitecap = 0.5f;           // Threshold for foam detection (Jacobian < whitecap)
+        float foamGrowRate = 0.6f;       // Foam accumulation rate per frame
+        float foamDecayRate = 0.092f;    // Foam decay rate per frame
 
         // Cascade tile sizes in Morrowind units (must match initializeComputeShaders)
         float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };

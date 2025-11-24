@@ -40,9 +40,9 @@ float sampleRefractionDepthMap(vec2 uv)
 const float VISIBILITY = 2500.0;
 const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
 const float DEPTH_FADE = 0.15;
-// Water color matching Godot reference: Color(0.1, 0.15, 0.18) in sRGB -> linear approximation
-// Much darker and less saturated than typical "ocean blue"
-const vec3 WATER_COLOR = vec3(0.01, 0.02, 0.03);
+// Water color matching Godot reference: Color(0.1, 0.15, 0.18) in sRGB
+// OpenMW expects sRGB color values (not linear), so use values directly from Godot
+const vec3 WATER_COLOR = vec3(0.1, 0.15, 0.18);
 
 // Reflection/refraction distortion
 const float REFL_BUMP = 0.10;  // reflection distortion amount
@@ -326,8 +326,8 @@ void main(void)
 
     // Mix water color with foam color
     // Water color darkens at night, foam stays bright (like original water shader)
-    // Foam color matching Godot reference: Color(0.73, 0.67, 0.62) in sRGB -> beige/tan, not pure white
-    const vec3 FOAM_COLOR = vec3(0.73, 0.67, 0.62);
+    // Using white foam - Godot's beige (0.73, 0.67, 0.62) looked too brown in OpenMW's lighting
+    const vec3 FOAM_COLOR = vec3(1.0, 1.0, 1.0);
     float foamFactor = smoothstep(0.0, 1.0, foam);
     vec3 waterColorModulated = WATER_COLOR * sunFade;
     vec3 albedo = mix(waterColorModulated, FOAM_COLOR, foamFactor);
@@ -479,23 +479,26 @@ void main(void)
     ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
 
     // --- FINAL COLOR ---
-    // Start with reflection/refraction base, then add lighting on top
-    // This combines the "glass/mirror" quality with the PBR shading
+    // Simplified approach: Start with reflection/refraction, then add PBR lighting contributions
 
-    // Lighting contribution (diffuse + specular)
+    // Base color from reflections/refractions (this provides the "water" look)
+    vec3 baseColor = refrReflColor;
+
+    // PBR lighting contributions (diffuse + specular)
     vec3 lighting = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
 
-    // Blend reflection/refraction with lighting based on foam
-    // More foam = more opaque = less reflection visible, more lighting visible
-    // Less foam = more transparent/reflective = more reflection visible
-    float reflectionVisibility = 1.0 - foamFactor * 0.7; // Foam reduces reflection
-    vec3 finalColor = mix(lighting, refrReflColor, reflectionVisibility * 0.8) + lighting * 0.2;
+    // Blend: mostly use reflections for water appearance, add lighting for foam and surface detail
+    // Foam is opaque (uses lighting), water is reflective (uses reflections)
+    vec3 finalColor = mix(baseColor, lighting, foamFactor * 0.6);
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);
 
     // TEMPORARY DEBUG: Uncomment to test basic rendering
     //gl_FragData[0] = vec4(albedo, 1.0); applyShadowDebugOverlay(); return;
+    //gl_FragData[0] = vec4(vec3(foam), 1.0); applyShadowDebugOverlay(); return; // Visualize foam
+    //gl_FragData[0] = vec4(WATER_COLOR, 1.0); applyShadowDebugOverlay(); return; // Test water color
+    //gl_FragData[0] = vec4(waterColorModulated, 1.0); applyShadowDebugOverlay(); return; // Test modulated water color
 
     gl_FragData[0] = vec4(finalColor, alpha);
 
