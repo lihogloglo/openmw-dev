@@ -33,43 +33,51 @@ void main(void)
     position = gl_Vertex;
     texCoord = gl_MultiTexCoord0.xy;
 
-    // Apply FFT displacement
-    vec3 totalDisplacement = vec3(0.0);
-
-    // Sample displacement from cascades
-    // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
+    // Clipmap approach: mesh is stationary, vertices offset to follow camera
+    // This prevents texture swimming when the mesh moves
     vec3 vertPos = position.xyz;
 
+    // Calculate world position by offsetting vertex relative to camera
+    // Mesh stays at origin, but we offset vertices to center on camera
+    const float CASCADE_0_RADIUS = 50.0 * 72.53 / 2.0;  // 1813.25 units
+    const float RING_0_GRID_SIZE = 512.0;
+    float gridSnapSize = (2.0 * CASCADE_0_RADIUS) / RING_0_GRID_SIZE; // ~7.082 units
+
+    // Snap camera position to grid to prevent texture swimming
+    vec2 snappedCameraPos = floor(cameraPosition.xy / gridSnapSize) * gridSnapSize;
+
+    // Offset vertex position to follow snapped camera position
+    // This makes the clipmap mesh follow the camera smoothly
+    vec2 worldPosXY = vertPos.xy + snappedCameraPos;
+
+    // Calculate UVs from snapped world position (prevents swimming)
+    vec3 totalDisplacement = vec3(0.0);
+    float dist = length(worldPosXY - cameraPosition.xy);
+
     // Displacement sampling with per-cascade amplitude scaling
-    // This creates "wavelets inside small waves inside big waves" effect
     for (int i = 0; i < numCascades && i < 4; ++i) {
-        vec2 uv = (vertPos.xy + nodePosition.xy) * mapScales[i].x;
+        vec2 uv = worldPosXY * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
-        
+
         // Distance-based falloff for displacement
-        // Suppress small waves at distance to prevent aliasing/shimmering
-        float dist = length(vertPos.xy + nodePosition.xy - cameraPosition.xy);
         float falloff = 1.0;
-        
+
         // Cascade 0 (50m) fades out after 1000m (in MW units: 72530)
-        // We use MW units for distance comparison since 'dist' is in MW units
-        // 500m = 36265 units, 1000m = 72530 units
         if (i == 0) falloff = clamp(1.0 - (dist - 36265.0) / 36265.0, 0.0, 1.0);
         // Cascade 1 (100m) fades out after 3000m (in MW units: 217590)
-        // 2000m = 145060 units, 1000m range = 72530 units
         else if (i == 1) falloff = clamp(1.0 - (dist - 145060.0) / 72530.0, 0.0, 1.0);
-        
-        // Apply per-cascade displacement scale (larger cascades = bigger waves)
+
         totalDisplacement += disp * mapScales[i].z * falloff;
     }
 
     vertPos += totalDisplacement;
 
-    worldPos = vertPos + nodePosition;
+    // World position for fragment shader (used for normal sampling)
+    worldPos = vec3(worldPosXY, vertPos.z) + nodePosition;
 
-    gl_Position = modelToClip(vec4(vertPos, 1.0));
+    gl_Position = modelToClip(vec4(vertPos + vec3(snappedCameraPos, 0.0), 1.0));
 
-    vec4 viewPos = modelToView(vec4(vertPos, 1.0));
+    vec4 viewPos = modelToView(vec4(vertPos + vec3(snappedCameraPos, 0.0), 1.0));
     linearDepth = getLinearDepth(gl_Position.z, viewPos.z);
 
     setupShadowCoords(viewPos, normalize((gl_NormalMatrix * gl_Normal).xyz));

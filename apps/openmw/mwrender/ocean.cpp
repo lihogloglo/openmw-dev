@@ -172,21 +172,18 @@ namespace MWRender
             timer = 0.0f;
 
 
-        // Infinite Ocean Logic: Snap grid to camera position
-        // With clipmap LOD, we snap to the finest ring's vertex spacing to prevent popping
-        // We align the vertex spacing with the texture texel size to prevent texture aliasing/shimmering
-        // Cascade 0 Tile = 50m * 72.53 = 3626.5 units. Grid = 512. Texel = 7.083 units.
-        float tileSize0 = 50.0f * METERS_TO_MW_UNITS;
-        float gridSize = tileSize0 / 512.0f; // ~7.083 units
-        float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
-        float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
+        // Clipmap Ocean: Keep mesh stationary, only update camera position for shader
+        // Unlike traditional infinite ocean, clipmap mesh stays at origin (0,0,height)
+        // The vertex shader will calculate world positions using camera offset
+        // This prevents texture swimming caused by mesh movement
 
-        // Update root node position (keep Z fixed at sea level)
-        mRootNode->setPosition(osg::Vec3f(snapX, snapY, mHeight));
+        // Keep mesh at origin (only set Z to sea level)
+        mRootNode->setPosition(osg::Vec3f(0.f, 0.f, mHeight));
 
-        // Update shader uniform so the shader knows the world offset
+        // Pass camera position to shader for world-space calculations
+        // The shader will use this to compute world UVs relative to a snapped grid
         if (mNodePositionUniform)
-            mNodePositionUniform->set(osg::Vec3f(snapX, snapY, mHeight));
+            mNodePositionUniform->set(osg::Vec3f(0.f, 0.f, mHeight));
 
         // Update camera position uniform for cascade selection
         if (mCameraPositionUniform)

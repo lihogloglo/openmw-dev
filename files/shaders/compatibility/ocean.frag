@@ -39,6 +39,7 @@ uniform int debugVisualizeLOD;      // 0 = off, 1 = on
 
 // Camera position in world space (for cascade selection)
 uniform vec3 cameraPosition;
+uniform vec3 nodePosition;
 
 #define PER_PIXEL_LIGHTING 0
 
@@ -53,32 +54,34 @@ void main(void)
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
     float shadow = unshadowedLightRatio(linearDepth);
 
-    // Sample gradients from FFT cascade
+    // Sample gradients from FFT cascade using snapped world position
     // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
     // normalMap stores: vec4(gradient.x, gradient.y, dhx_dx, foam)
     vec3 gradient = vec3(0.0);
     float foam = 0.0;
 
-    // Gradient sampling from cascade with per-cascade amplitude scaling
-    // Gradient sampling from cascade with per-cascade amplitude scaling
-    float distToCamera = length(worldPos.xy - cameraPosition.xy);
+    // worldPos is calculated in vertex shader as: vec3(worldPosXY, vertPos.z) + nodePosition
+    // Since nodePosition is (0, 0, height), worldPos.xy already contains the snapped world XY
+    // We just need to subtract the Z offset to get the actual 2D world position
+    vec2 worldPosXY = worldPos.xy;
+
+    float distToCamera = length(worldPosXY - cameraPosition.xy);
 
     for (int i = 0; i < numCascades && i < 4; ++i) {
-        vec2 uv = worldPos.xy * mapScales[i].x;
+        vec2 uv = worldPosXY * mapScales[i].x;
         vec4 normalSample = texture(normalMap, vec3(uv, float(i)));
-        
+
         // Distance-based falloff for normals
-        // Suppress high-frequency noise in the distance
         float falloff = 1.0;
-        
-        // Cascade 0 (50m) fades out after 1000m
-        if (i == 0) falloff = clamp(1.0 - (distToCamera - 500.0) / 500.0, 0.0, 1.0);
+
+        // Cascade 0 (50m) fades out after 1000m (36265 MW units)
+        if (i == 0) falloff = clamp(1.0 - (distToCamera - 36265.0) / 36265.0, 0.0, 1.0);
         // Cascade 1 (100m) fades out after 3000m
-        else if (i == 1) falloff = clamp(1.0 - (distToCamera - 2000.0) / 1000.0, 0.0, 1.0);
-        
+        else if (i == 1) falloff = clamp(1.0 - (distToCamera - 145060.0) / 72530.0, 0.0, 1.0);
+
         // Apply per-cascade normal scale to gradient
         gradient.xy += normalSample.xy * mapScales[i].w * falloff;
-        foam += normalSample.w * falloff; // Accumulate foam from all cascades
+        foam += normalSample.w * falloff;
     }
 
     // Reconstruct normal from gradient (as done in Godot water shader)

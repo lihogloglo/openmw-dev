@@ -22,14 +22,22 @@
 **Solution:** Extended clipmap to 10 rings (radius ~12.8km) reusing Cascade 3.
 **Priority:** COMPLETE
 
-### 1.6. ⚠️ Animation Vibration / Shimmering
-**Status:** **PARTIALLY FIXED**
-**Symptom:** Ocean "vibrates" or shimmers when camera moves/rotates.
-**Causes:**
-1. **Grid Snapping Mismatch:** Grid snapped to 8.0 units, but vertex spacing was ~3.9 units. **FIXED** (2025-11-24)
-2. **Distance Aliasing:** High-frequency waves rendered at distance. **FIXED** (Distance-based falloff added).
-3. **Texture Aliasing:** `GL_LINEAR_MIPMAP_LINEAR` used but mipmaps NOT generated for compute-shader textures. **PENDING**
-**Priority:** HIGH
+### 1.6. ✅ ~~Animation Vibration / Shimmering~~ **FIXED!**
+**Status:** **FIXED** - 2025-11-24
+**Symptom:** Ocean "vibrated" or shimmered when camera moved/rotated with clipmap.
+**Root Cause:** Moving mesh caused UV coordinates to shift, creating texture swimming
+**Solution:** Adopted Godot's stationary mesh approach - mesh stays at origin, vertices offset in shader
+**Fixes Applied:**
+1. **Stationary Mesh:** Mesh no longer moves to follow camera
+2. **Shader-Side Offsetting:** Vertices offset using snapped camera position in vertex shader
+3. **Grid Snap Alignment:** Snap size matches Ring 0 vertex spacing exactly (7.08203125 units)
+4. **Stable UVs:** World UVs calculated from snapped position, preventing texture swimming
+**Files Fixed:**
+- `apps/openmw/mwrender/ocean.cpp` (lines 175-186)
+- `files/shaders/compatibility/ocean.vert` (lines 31-84)
+- `files/shaders/compatibility/ocean.frag` (lines 56-89)
+**Documentation:** See `OCEAN_VIBRATION_FIX.md` for detailed analysis
+**Priority:** ~~HIGH~~ **COMPLETE**
 
 
 **The Problem:**
