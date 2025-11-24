@@ -45,8 +45,8 @@ const float DEPTH_FADE = 0.15;
 const vec3 WATER_COLOR = vec3(0.1, 0.15, 0.18);
 
 // Reflection/refraction distortion
-const float REFL_BUMP = 0.10;  // reflection distortion amount
-const float REFR_BUMP = 0.07;  // refraction distortion amount
+const float REFL_BUMP = 0.20;  // reflection distortion amount (increased to hide reflection map seams)
+const float REFR_BUMP = 0.12;  // refraction distortion amount (increased from 0.07)
 const float BUMP_SUPPRESS_DEPTH = 300.0; // suppress distortion at shores
 
 varying vec4 position;
@@ -90,6 +90,7 @@ uniform vec3 nodePosition;
 
 const float PI = 3.14159265359;
 const float REFLECTANCE = 0.02; // Air to water reflectance (eta=1.33)
+const float MW_UNITS_TO_METERS = 1.0 / 72.53; // Conversion factor for distance calculations
 
 // GGX microfacet distribution function
 // Source: https://github.com/godotengine/godot/blob/7b56111c297f24304eb911fe75082d8cdc3d4141/drivers/gles3/shaders/scene.glsl#L995
@@ -199,20 +200,23 @@ void main(void)
             min(1.0, ppm * 0.1)
         );
 
-        // Distance-based falloff for normals
-        float falloff = 1.0;
-
-        // Cascade 0 (50m) fades out after 1000m (36265 MW units)
-        if (i == 0) falloff = clamp(1.0 - (distToCamera - 36265.0) / 36265.0, 0.0, 1.0);
-        // Cascade 1 (100m) fades out after 3000m
-        else if (i == 1) falloff = clamp(1.0 - (distToCamera - 145060.0) / 72530.0, 0.0, 1.0);
-
         // Apply per-cascade normal scale to gradient
         // Godot line 83: gradient += ... * vec3(scales.ww, 1.0);
         // scales.w is the normal scale, which is mapScales[i].w for us
-        gradient.xy += normalSample.xy * mapScales[i].w * falloff;
-        foam += normalSample.w * falloff;
+        gradient.xy += normalSample.xy * mapScales[i].w;
+        foam += normalSample.w;
     }
+
+    // Distance-based normal strength falloff
+    // Godot line 89: gradient *= mix(0.015, normal_strength, exp(-dist*0.0175));
+    // This blends normals to nearly flat (0.015) at far distances using exponential falloff
+    // This is the KEY to preventing overly detailed/bumpy far ocean and over-bright speculars
+    // IMPORTANT: Godot's falloff rate works on METERS, so convert MW units to meters first
+    // Halved the falloff rate (0.0175 -> 0.00875) to make falloff happen 2x farther away
+    const float NORMAL_STRENGTH = 1.0;
+    float distToCamera_meters = distToCamera * MW_UNITS_TO_METERS;
+    float normalFalloff = mix(0.015, NORMAL_STRENGTH, exp(-distToCamera_meters * 0.00875));
+    gradient *= normalFalloff;
 
     // Reconstruct normal from gradient (as done in Godot water shader)
     vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
@@ -313,6 +317,14 @@ void main(void)
         applyShadowDebugOverlay();
         return;
     }
+
+    // Distance-based foam intensity falloff
+    // Godot line 86: foam_factor = smoothstep(0.0, 1.0, gradient.z*0.75) * exp(-dist*0.0075);
+    // This makes foam fade out at distance for a cleaner horizon
+    // IMPORTANT: Godot's falloff rate works on METERS, so convert MW units to meters first
+    // Halved the falloff rate (0.0075 -> 0.00375) to make falloff happen 2x farther away
+    float foamFalloff = exp(-distToCamera_meters * 0.00375);
+    foam *= foamFalloff;
 
     // Clamp foam to reasonable range
     foam = clamp(foam * 0.75, 0.0, 1.0); // Scale down since we accumulate from multiple cascades
@@ -475,7 +487,8 @@ void main(void)
     vec3 ambientLight = gl_LightModel.ambient.xyz * sunFade;
 
     // Add minimum ambient to prevent pure black at night
-    const float MIN_AMBIENT_STRENGTH = 0.15;
+    // Increased from 0.15 to 0.25 to brighten ocean
+    const float MIN_AMBIENT_STRENGTH = 0.25;
     ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
 
     // --- FINAL COLOR ---
@@ -492,9 +505,17 @@ void main(void)
     // Foam makes water more opaque (less reflective)
     float reflectionStrength = (1.0 - foamFactor * 0.5);
 
+    // Distance-based reflection fade to hide reflection map seams/artifacts at horizon
+    // Fade out reflections starting at 500m, completely gone by 1500m
+    const float REFL_FADE_START = 500.0; // meters
+    const float REFL_FADE_END = 1500.0;   // meters
+    float reflectionDistanceFade = 1.0 - smoothstep(REFL_FADE_START, REFL_FADE_END, distToCamera_meters);
+    reflectionStrength *= reflectionDistanceFade;
+
     // Combine: lighting + reflections (additive, not mix)
     // This gives proper water appearance: lit surface with reflections on top
-    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.3;
+    // Reduced from 0.5 to 0.35 to reduce visibility of reflection map artifacts
+    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.35;
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);
@@ -504,6 +525,10 @@ void main(void)
     //gl_FragData[0] = vec4(vec3(foam), 1.0); applyShadowDebugOverlay(); return; // Visualize foam
     //gl_FragData[0] = vec4(WATER_COLOR, 1.0); applyShadowDebugOverlay(); return; // Test water color
     //gl_FragData[0] = vec4(waterColorModulated, 1.0); applyShadowDebugOverlay(); return; // Test modulated water color
+    //gl_FragData[0] = vec4(reflection, 1.0); applyShadowDebugOverlay(); return; // Visualize raw reflection
+    //gl_FragData[0] = vec4(refrReflColor, 1.0); applyShadowDebugOverlay(); return; // Visualize combined refr/refl
+    //gl_FragData[0] = vec4(lighting, 1.0); applyShadowDebugOverlay(); return; // Visualize PBR lighting only
+    //gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); applyShadowDebugOverlay(); return; // Visualize normals (should move with water)
 
     gl_FragData[0] = vec4(finalColor, alpha);
 

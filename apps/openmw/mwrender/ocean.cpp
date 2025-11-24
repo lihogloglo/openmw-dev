@@ -1054,18 +1054,19 @@ namespace MWRender
         // Matching Godot's approach from main.tscn:
         //   Cascade 0 (88m):  displacement_scale = 1.0,  normal_scale = 1.0
         //   Cascade 1 (57m):  displacement_scale = 0.75, normal_scale = 1.0
-        //   Cascade 2 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 (normals only!)
-        //   Cascade 3 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 (duplicate for foam)
+        //   Cascade 2 (16m):  displacement_scale = 0.0,  normal_scale = 1.0 (normals only!)
+        //   Cascade 3 (16m):  displacement_scale = 0.0,  normal_scale = 1.0 (duplicate for foam)
         //
         // Key insight: Small tile cascades (16m) contribute ONLY normals/foam, not displacement
         // This creates fine surface detail without adding small bumps to geometry
+        // INCREASED from 0.25 to 1.0 for more micro-detail on water surface
         float displacementScales[NUM_CASCADES] = {
             1.0f * METERS_TO_MW_UNITS,   // Cascade 0 (88m): broad waves
             0.75f * METERS_TO_MW_UNITS,  // Cascade 1 (57m): medium waves
             0.0f,                         // Cascade 2 (16m): normals/foam only
             0.0f                          // Cascade 3 (16m): normals/foam only
         };
-        float normalScales[NUM_CASCADES] = { 1.0f, 1.0f, 0.25f, 0.25f };
+        float normalScales[NUM_CASCADES] = { 1.0f, 1.0f, 1.0f, 1.0f };
 
         for (int i = 0; i < NUM_CASCADES; ++i)
         {

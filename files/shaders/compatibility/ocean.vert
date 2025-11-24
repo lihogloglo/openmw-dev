@@ -59,16 +59,18 @@ void main(void)
         vec2 uv = worldPosXY * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
 
-        // Distance-based falloff for displacement
-        float falloff = 1.0;
-
-        // Cascade 0 (50m) fades out after 1000m (in MW units: 72530)
-        if (i == 0) falloff = clamp(1.0 - (dist - 36265.0) / 36265.0, 0.0, 1.0);
-        // Cascade 1 (100m) fades out after 3000m (in MW units: 217590)
-        else if (i == 1) falloff = clamp(1.0 - (dist - 145060.0) / 72530.0, 0.0, 1.0);
-
-        totalDisplacement += disp * mapScales[i].z * falloff;
+        totalDisplacement += disp * mapScales[i].z;
     }
+
+    // Distance-based displacement falloff (matching Godot water.gdshader line 29)
+    // Godot: float distance_factor = min(exp(-(length(VERTEX.xz - CAMERA_POSITION_WORLD.xz) - 150.0)*0.007), 1.0);
+    // Falloff starts at 300 meters (doubled from 150m) and gradually reduces displacement
+    // Halved the falloff rate (0.007 -> 0.0035) to make falloff happen 2x farther away
+    const float DISPLACEMENT_FALLOFF_START = 300.0 * 72.53; // 21,759 MW units
+    const float DISPLACEMENT_FALLOFF_RATE = 0.0035;
+    float distanceFromCamera = length(vertPos.xy); // Distance in local space
+    float displacementFalloff = min(exp(-(distanceFromCamera - DISPLACEMENT_FALLOFF_START) * DISPLACEMENT_FALLOFF_RATE), 1.0);
+    totalDisplacement *= displacementFalloff;
 
     // Apply displacement AND camera offset to local vertex position
     // We need to offset the mesh vertices to follow the camera
