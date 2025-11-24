@@ -5,7 +5,8 @@
       "Bash(nul)",
       "Bash(cmake --build:*)",
       "Bash(Select-String -Pattern \"error|warning C4\" -Context 0,2)",
-      "Bash(Select-String -Pattern \"gridSize|snapX|snapY\" -Context 2)"
+      "Bash(Select-String -Pattern \"gridSize|snapX|snapY\" -Context 2)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []

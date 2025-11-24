@@ -835,6 +835,12 @@ namespace MWRender
         const float RING_8_RADIUS = RING_7_RADIUS * 2.0f;    // 232,096 (~3.2km)
         const float RING_9_RADIUS = RING_8_RADIUS * 4.0f;    // 928,384 (~12.8km) - Horizon
 
+        // CRITICAL: Grid snap size must divide evenly into all ring vertex spacings
+        // to prevent texture swimming on outer rings when camera moves.
+        // Ring 0 vertex spacing: (2 * CASCADE_0_RADIUS) / 512 = 7.08203125 units
+        // All ring vertices MUST be positioned at multiples of this base spacing!
+        const float BASE_GRID_SPACING = (2.0f * CASCADE_0_RADIUS) / 512.0f;
+
         LODRing rings[] = {
             { 512, CASCADE_0_RADIUS, 0.0f },              // Ring 0: Ultra-fine center (Matches Cascade 0 Texture Resolution)
             // Ring 1 removed (merged into Ring 0)
@@ -869,6 +875,8 @@ namespace MWRender
                 {
                     for (int x = 0; x <= gridSize; ++x)
                     {
+                        // Vertices are automatically aligned to BASE_GRID_SPACING
+                        // because outerRadius and step are multiples of it
                         float px = -outerRadius + x * step;
                         float py = -outerRadius + y * step;
                         verts->push_back(osg::Vec3f(px, py, 0.f));
@@ -904,13 +912,19 @@ namespace MWRender
                 const float step = (2.0f * outerRadius) / gridSize;
                 const int startVertex = vertexOffset;
 
-                // Generate all grid points, we'll skip inner ones when making faces
+                // Generate all grid points, snapping to BASE_GRID_SPACING to prevent texture swimming
                 for (int y = 0; y <= gridSize; ++y)
                 {
                     for (int x = 0; x <= gridSize; ++x)
                     {
                         float px = -outerRadius + x * step;
                         float py = -outerRadius + y * step;
+
+                        // CRITICAL: Snap vertex positions to multiples of BASE_GRID_SPACING
+                        // This ensures when camera snaps, all vertices land on consistent UV coordinates
+                        px = std::round(px / BASE_GRID_SPACING) * BASE_GRID_SPACING;
+                        py = std::round(py / BASE_GRID_SPACING) * BASE_GRID_SPACING;
+
                         verts->push_back(osg::Vec3f(px, py, 0.f));
                     }
                 }

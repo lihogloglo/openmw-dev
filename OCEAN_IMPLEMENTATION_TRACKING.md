@@ -35,8 +35,23 @@
 **Files Fixed:**
 - `apps/openmw/mwrender/ocean.cpp` (lines 175-186)
 - `files/shaders/compatibility/ocean.vert` (lines 31-84)
-- `files/shaders/compatibility/ocean.frag` (lines 56-89)
+- `files/shaders/compatibility/ocean.frag` (lines 41-42, 63-71)
 **Documentation:** See `OCEAN_VIBRATION_FIX.md` for detailed analysis
+**Priority:** ~~HIGH~~ **COMPLETE**
+
+### 1.7. ✅ ~~Outer Ring Displacement Artifacts~~ **FIXED!**
+**Status:** **FIXED** - 2025-11-24
+**Symptom:** Outer clipmap rings (Ring 1+) showed displacement changes when camera moved, while Ring 0 was stable
+**Root Cause:** Outer ring vertices were NOT aligned to base grid spacing (7.082 units), causing fractional UV shifts
+**Solution:** Snap ALL ring vertices to multiples of base grid spacing during mesh generation
+**Technical Details:**
+- Ring 0 vertices were naturally aligned (spacing = 7.082 units)
+- Ring 1+ vertices were misaligned (e.g., Ring 1 vertex at -3,569.836 units ≠ multiple of 7.082)
+- When camera snapped, misaligned vertices landed on different UV coordinates
+- Fix: `std::round(vertexPos / BASE_GRID_SPACING) * BASE_GRID_SPACING`
+**Files Fixed:**
+- `apps/openmw/mwrender/ocean.cpp` (lines 838-930)
+**Documentation:** See `OCEAN_OUTER_RING_FIX.md` for mathematical analysis
 **Priority:** ~~HIGH~~ **COMPLETE**
 
 
