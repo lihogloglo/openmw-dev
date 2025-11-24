@@ -820,20 +820,37 @@ namespace MWRender
         // Ring 2 (fine):       128x128 grid, radius 3626 units  (~28.3 units/vertex) - Cascade 1 (100m)
         // Ring 3 (medium):     64x64 grid,   radius 7253 units  (~113 units/vertex)  - Cascade 2 (200m)
         // Ring 4 (coarse):     32x32 grid,   radius 14506 units (~453 units/vertex)  - Cascade 3 (400m)
+        // Ring 5 (far):        32x32 grid,   radius 29012 units (~906 units/vertex)  - Cascade 3 (repeated)
+        // Ring 6 (farther):    32x32 grid,   radius 58024 units (~1813 units/vertex) - Cascade 3 (repeated)
+        // Ring 7 (horizon):    32x32 grid,   radius 116048 units (~3626 units/vertex) - Cascade 3 (repeated)
+        // Ring 8 (distant):    32x32 grid,   radius 232096 units (~7253 units/vertex) - Cascade 3 (repeated)
+        
         const float CASCADE_0_RADIUS = 50.0f * METERS_TO_MW_UNITS / 2.0f;   // Half of cascade 0 tile = 1,813 units
         const float CASCADE_1_RADIUS = 100.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 1 tile = 3,626 units
         const float CASCADE_2_RADIUS = 200.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 2 tile = 7,253 units
         const float CASCADE_3_RADIUS = 400.0f * METERS_TO_MW_UNITS / 2.0f;  // Half of cascade 3 tile = 14,506 units
+        
+        // Extended radii for horizon coverage
+        const float RING_5_RADIUS = CASCADE_3_RADIUS * 2.0f; // 29,012
+        const float RING_6_RADIUS = RING_5_RADIUS * 2.0f;    // 58,024
+        const float RING_7_RADIUS = RING_6_RADIUS * 2.0f;    // 116,048 (~1.6km)
+        const float RING_8_RADIUS = RING_7_RADIUS * 2.0f;    // 232,096 (~3.2km)
+        const float RING_9_RADIUS = RING_8_RADIUS * 4.0f;    // 928,384 (~12.8km) - Horizon
 
         LODRing rings[] = {
-            { 512, 1000.0f,          0.0f },              // Ultra-fine center for wavelets (~2 units/vertex)
-            { 256, CASCADE_0_RADIUS, 1000.0f },           // Matches cascade 0 (50m)
-            { 128, CASCADE_1_RADIUS, CASCADE_0_RADIUS },  // Matches cascade 1 (100m)
-            { 64,  CASCADE_2_RADIUS, CASCADE_1_RADIUS },  // Matches cascade 2 (200m)
-            { 32,  CASCADE_3_RADIUS, CASCADE_2_RADIUS }   // Matches cascade 3 (400m)
+            { 512, 1000.0f,          0.0f },              // Ring 0: Ultra-fine center
+            { 256, CASCADE_0_RADIUS, 1000.0f },           // Ring 1: Cascade 0
+            { 128, CASCADE_1_RADIUS, CASCADE_0_RADIUS },  // Ring 2: Cascade 1
+            { 64,  CASCADE_2_RADIUS, CASCADE_1_RADIUS },  // Ring 3: Cascade 2
+            { 32,  CASCADE_3_RADIUS, CASCADE_1_RADIUS },  // Ring 4: Cascade 3
+            { 32,  RING_5_RADIUS,    CASCADE_3_RADIUS },  // Ring 5: Extended
+            { 32,  RING_6_RADIUS,    RING_5_RADIUS },     // Ring 6: Extended
+            { 32,  RING_7_RADIUS,    RING_6_RADIUS },     // Ring 7: Extended
+            { 32,  RING_8_RADIUS,    RING_7_RADIUS },     // Ring 8: Extended
+            { 32,  RING_9_RADIUS,    RING_8_RADIUS }      // Ring 9: Horizon
         };
 
-        const int numRings = 5;
+        const int numRings = 10;
         int vertexOffset = 0;
 
         // Generate each LOD ring
@@ -969,6 +986,11 @@ namespace MWRender
         // Debug visualization uniform (0 = off, 1 = on)
         mDebugVisualizeCascadesUniform = new osg::Uniform("debugVisualizeCascades", 0);
         stateset->addUniform(mDebugVisualizeCascadesUniform);
+
+        // Debug visualization for LOD density (0 = off, 1 = on)
+        mDebugVisualizeLODUniform = new osg::Uniform("debugVisualizeLOD", 1);
+        stateset->addUniform(mDebugVisualizeLODUniform);
+
         
         // DEBUG: Bind Spectrum for visualization
         // DEBUG: Bind Spectrum for visualization
@@ -1034,6 +1056,12 @@ namespace MWRender
     {
         if (mDebugVisualizeCascadesUniform)
             mDebugVisualizeCascadesUniform->set(enabled ? 1 : 0);
+    }
+
+    void Ocean::setDebugVisualizeLOD(bool enabled)
+    {
+        if (mDebugVisualizeLODUniform)
+            mDebugVisualizeLODUniform->set(enabled ? 1 : 0);
     }
 
 }

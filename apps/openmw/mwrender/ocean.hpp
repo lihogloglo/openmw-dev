@@ -45,6 +45,7 @@ namespace MWRender
 
         // Debug visualization
         void setDebugVisualizeCascades(bool enabled);
+        void setDebugVisualizeLOD(bool enabled);
 
     private:
         void initShaders();
@@ -63,6 +64,7 @@ namespace MWRender
         osg::ref_ptr<osg::Uniform> mNodePositionUniform;
         osg::ref_ptr<osg::Uniform> mCameraPositionUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeCascadesUniform;
+        osg::ref_ptr<osg::Uniform> mDebugVisualizeLODUniform;
 
         // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;

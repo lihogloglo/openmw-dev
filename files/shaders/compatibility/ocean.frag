@@ -35,6 +35,7 @@ uniform vec2 screenRes;
 
 // Debug visualization toggle
 uniform int debugVisualizeCascades; // 0 = off, 1 = on
+uniform int debugVisualizeLOD;      // 0 = off, 1 = on
 
 // Camera position in world space (for cascade selection)
 uniform vec3 cameraPosition;
@@ -71,8 +72,7 @@ void main(void)
     vec3 normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
 
     // Debug: Visualize cascade coverage with color coding
-    // DISABLED: Force debug mode off regardless of uniform value
-    if (false && debugVisualizeCascades == 1) {
+    if (debugVisualizeCascades == 1) {
         // Cascade colors: Red, Green, Blue, Yellow
         vec3 cascadeColors[4] = vec3[4](
             vec3(1.0, 0.0, 0.0),  // Cascade 0: Red (finest detail, 50m tiles)
@@ -111,6 +111,59 @@ void main(void)
         }
 
         gl_FragData[0] = vec4(debugColor, 0.9);
+        applyShadowDebugOverlay();
+        return;
+    }
+
+    // Debug: Visualize LOD rings with grid density
+    if (debugVisualizeLOD == 1) {
+        float dist = length(worldPos.xy - cameraPosition.xy);
+        float gridSize = 0.0;
+        vec3 ringColor = vec3(1.0);
+
+        // Match ring radii and grid sizes from ocean.cpp
+        if (dist < 1000.0) {
+            gridSize = 3.90625; // Ring 0
+            ringColor = vec3(1.0, 0.0, 0.0); // Red
+        } else if (dist < 1813.0) {
+            gridSize = 14.164; // Ring 1
+            ringColor = vec3(1.0, 0.5, 0.0); // Orange
+        } else if (dist < 3626.0) {
+            gridSize = 56.664; // Ring 2
+            ringColor = vec3(1.0, 1.0, 0.0); // Yellow
+        } else if (dist < 7253.0) {
+            gridSize = 226.656; // Ring 3
+            ringColor = vec3(0.0, 1.0, 0.0); // Green
+        } else if (dist < 14506.0) {
+            gridSize = 906.625; // Ring 4
+            ringColor = vec3(0.0, 1.0, 1.0); // Cyan
+        } else if (dist < 29012.0) {
+            gridSize = 1813.25; // Ring 5
+            ringColor = vec3(0.0, 0.0, 1.0); // Blue
+        } else if (dist < 58024.0) {
+            gridSize = 3626.5; // Ring 6
+            ringColor = vec3(0.5, 0.0, 1.0); // Purple
+        } else if (dist < 116048.0) {
+            gridSize = 7253.0; // Ring 7
+            ringColor = vec3(1.0, 0.0, 1.0); // Magenta
+        } else if (dist < 232096.0) {
+            gridSize = 14506.0; // Ring 8
+            ringColor = vec3(0.5, 0.5, 0.5); // Grey
+        } else {
+            gridSize = 58024.0; // Ring 9
+            ringColor = vec3(0.2, 0.2, 0.2); // Dark Grey
+        }
+
+        // Draw grid lines
+        vec2 gridUV = worldPos.xy / gridSize;
+        vec2 gridFrac = fract(gridUV);
+        float lineThickness = 0.02; // Adjust for visibility
+        float gridX = step(1.0 - lineThickness, gridFrac.x) + step(gridFrac.x, lineThickness);
+        float gridY = step(1.0 - lineThickness, gridFrac.y) + step(gridFrac.y, lineThickness);
+        float isGrid = max(gridX, gridY);
+
+        vec3 finalDebugColor = mix(ringColor * 0.2, vec3(1.0), isGrid); // Faint background, white grid
+        gl_FragData[0] = vec4(finalDebugColor, 1.0);
         applyShadowDebugOverlay();
         return;
     }
