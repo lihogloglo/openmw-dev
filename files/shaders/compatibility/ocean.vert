@@ -44,11 +44,12 @@ void main(void)
     const float RING_0_GRID_SIZE = 512.0;
     float gridSnapSize = (2.0 * CASCADE_0_RADIUS) / RING_0_GRID_SIZE; // ~7.082 units
 
-    // Snap camera position to grid for mesh positioning
+    // Snap camera position to grid for mesh positioning AND displacement sampling
+    // This ensures vertices land on consistent UV coordinates and prevents texture swimming
     vec2 snappedCameraPos = floor(cameraPosition.xy / gridSnapSize) * gridSnapSize;
 
     // Calculate world position for UV sampling using SNAPPED camera position
-    // This ensures vertices land on consistent UV coordinates and prevents texture swimming
+    // This ensures displacement and normals are sampled from consistent locations
     vec2 worldPosXY = vertPos.xy + snappedCameraPos;
 
     vec3 totalDisplacement = vec3(0.0);
@@ -77,8 +78,8 @@ void main(void)
     vec3 displacedLocalPos = vertPos + vec3(snappedCameraPos, 0.0) + totalDisplacement;
 
     // World position for fragment shader (used for normal sampling)
-    // This is the actual world-space position after offsetting and displacement
-    worldPos = vec3(worldPosXY, vertPos.z) + totalDisplacement + nodePosition;
+    // MUST use snappedCameraPos to match the actual vertex position
+    worldPos = vec3(vertPos.xy + snappedCameraPos, vertPos.z) + totalDisplacement + nodePosition;
 
     // Pass wave height to fragment shader for subsurface scattering
     waveHeight = totalDisplacement.y;
