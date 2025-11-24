@@ -10,11 +10,42 @@
 
 #include "lib/core/fragment.h.glsl"
 
+// Provide reflection/refraction sampling implementations for version 330
+uniform sampler2D reflectionMap;
+
+vec4 sampleReflectionMap(vec2 uv)
+{
+    return texture2D(reflectionMap, uv);
+}
+
+#if @waterRefraction
+uniform sampler2D refractionMap;
+uniform sampler2D refractionDepthMap;
+
+vec4 sampleRefractionMap(vec2 uv)
+{
+    return texture2D(refractionMap, uv);
+}
+
+float sampleRefractionDepthMap(vec2 uv)
+{
+    return texture2D(refractionDepthMap, uv).x;
+}
+#endif
+
 // Ocean water fragment shader - FFT-based water rendering
 // Based on GodotOceanWaves
 
+// Water rendering constants (matching original water shader)
 const float VISIBILITY = 2500.0;
+const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
+const float DEPTH_FADE = 0.15;
 const vec3 WATER_COLOR = vec3(0.015, 0.110, 0.455); // Deep ocean blue
+
+// Reflection/refraction distortion
+const float REFL_BUMP = 0.10;  // reflection distortion amount
+const float REFR_BUMP = 0.07;  // refraction distortion amount
+const float BUMP_SUPPRESS_DEPTH = 300.0; // suppress distortion at shores
 
 varying vec4 position;
 varying float linearDepth;
@@ -225,10 +256,15 @@ void main(void)
     // PBR LIGHTING MODEL
     // ========================================================================
 
+    // Get sun fade early (needed for water color modulation)
+    float sunFade = length(gl_LightModel.ambient.xyz);
+
     // Mix water color with foam color
+    // Water color darkens at night, foam stays bright (like original water shader)
     const vec3 FOAM_COLOR = vec3(0.95, 0.95, 0.95); // White foam
     float foamFactor = smoothstep(0.0, 1.0, foam);
-    vec3 albedo = mix(WATER_COLOR, FOAM_COLOR, foamFactor);
+    vec3 waterColorModulated = WATER_COLOR * sunFade;
+    vec3 albedo = mix(waterColorModulated, FOAM_COLOR, foamFactor);
 
     // Get view direction (camera position in view space is at origin)
     // Extract camera world position from inverse view matrix
@@ -241,9 +277,6 @@ void main(void)
 
     // Get sun color and visibility (same method as old water shader)
     vec4 sunSpec = lcalcSpecular(0);
-
-    // Sun fade based on ambient light intensity (time of day)
-    float sunFade = length(gl_LightModel.ambient.xyz);
 
     // Sun visibility factor for specular fading (like original water shader)
     const float SUN_SPEC_FADING_THRESHOLD = 0.15;
@@ -325,23 +358,71 @@ void main(void)
     // Diffuse light contribution (note: sun color will be applied in final combination)
     vec3 diffuseLight = diffuse_color * (1.0 - fresnel) * attenuation;
 
-    // --- AMBIENT ---
-    // Godot's engine combines: ALBEDO * (AMBIENT_LIGHT + DIFFUSE_LIGHT) + SPECULAR_LIGHT
-    // We need to do it manually here.
+    // ========================================================================
+    // SCREEN-SPACE REFLECTIONS & REFRACTIONS (like original water shader)
+    // ========================================================================
 
+    vec2 screenCoordsOffset = normal.xy * REFL_BUMP;
+
+#if @waterRefraction
+    // Calculate water depth for proper refraction and shore blending
+    float depthSample = linearizeDepth(sampleRefractionDepthMap(screenCoords), near, far);
+    float surfaceDepth = linearizeDepth(gl_FragCoord.z, near, far);
+    float realWaterDepth = depthSample - surfaceDepth;
+    float depthSampleDistorted = linearizeDepth(sampleRefractionDepthMap(screenCoords - screenCoordsOffset * REFR_BUMP / REFL_BUMP), near, far);
+    float waterDepthDistorted = max(depthSampleDistorted - surfaceDepth, 0.0);
+
+    // Suppress normal-based distortion at shallow water (prevents shore artifacts)
+    screenCoordsOffset *= clamp(realWaterDepth / BUMP_SUPPRESS_DEPTH, 0.0, 1.0);
+#endif
+
+    // Sample reflection with normal distortion
+    vec3 reflection = sampleReflectionMap(screenCoords + screenCoordsOffset).rgb;
+
+#if @waterRefraction
+    // Sample refraction with normal distortion (opposite direction from reflection)
+    vec3 refraction = sampleRefractionMap(screenCoords - screenCoordsOffset).rgb;
+
+    // Apply underwater fog: blend refraction with water color based on depth
+    // This makes deep water appear more blue/opaque
+    if (cameraPos.z >= 0.0) // Above water
+    {
+        float depthCorrection = sqrt(1.0 + 4.0 * DEPTH_FADE * DEPTH_FADE);
+        float factor = DEPTH_FADE * DEPTH_FADE / (-0.5 * depthCorrection + 0.5 - waterDepthDistorted / VISIBILITY) + 0.5 * depthCorrection + 0.5;
+        refraction = mix(refraction, waterColorModulated, clamp(factor, 0.0, 1.0));
+    }
+    else // Underwater - brighten refraction
+    {
+        refraction = clamp(refraction * 1.5, 0.0, 1.0);
+    }
+
+    // Blend refraction and reflection based on Fresnel
+    vec3 refrReflColor = mix(refraction, reflection, fresnel);
+#else
+    // No refraction available - blend water color with reflection
+    vec3 refrReflColor = mix(waterColorModulated, reflection, (1.0 + fresnel) * 0.5);
+#endif
+
+    // --- AMBIENT ---
     // Base ambient from OpenMW's lighting system
-    // Use sunFade to modulate ambient by time of day (dimmer at night)
     vec3 ambientLight = gl_LightModel.ambient.xyz * sunFade;
 
     // Add minimum ambient to prevent pure black at night
     const float MIN_AMBIENT_STRENGTH = 0.15;
     ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
 
-    // --- FINAL COLOR (matching Godot's combination) ---
-    // ALBEDO modulates both ambient and diffuse (they interact with surface color)
-    // SPECULAR is additive on top (it's the sun's direct reflection)
-    // Match Godot: ALBEDO * (AMBIENT + DIFFUSE_LIGHT) + SPECULAR_LIGHT
-    vec3 finalColor = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
+    // --- FINAL COLOR ---
+    // Start with reflection/refraction base, then add lighting on top
+    // This combines the "glass/mirror" quality with the PBR shading
+
+    // Lighting contribution (diffuse + specular)
+    vec3 lighting = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
+
+    // Blend reflection/refraction with lighting based on foam
+    // More foam = more opaque = less reflection visible, more lighting visible
+    // Less foam = more transparent/reflective = more reflection visible
+    float reflectionVisibility = 1.0 - foamFactor * 0.7; // Foam reduces reflection
+    vec3 finalColor = mix(lighting, refrReflColor, reflectionVisibility * 0.8) + lighting * 0.2;
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);

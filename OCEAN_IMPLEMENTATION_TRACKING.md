@@ -105,9 +105,9 @@ Added the `+ NUM_SPECTRA*map_size*map_size` offset to correctly read the transpo
 
 ---
 
-### 2. ⚠️ Missing GGX PBR Shading Model - **NEEDS TESTING**
-**Status:** **IMPLEMENTED - TESTING IN PROGRESS** - 2025-11-24
-**Current:** Full Cook-Torrance BRDF with GGX, Fresnel-Schlick, and subsurface scattering, properly integrated with OpenMW lighting
+### 2. ⚠️ PBR Shading + Reflections/Refractions - **NEEDS TESTING**
+**Status:** **FULLY IMPLEMENTED - TESTING IN PROGRESS** - 2025-11-24
+**Current:** Full Cook-Torrance BRDF with GGX, Fresnel-Schlick, subsurface scattering, screen-space reflections/refractions, and depth-based underwater fog
 **Priority:** 🔴 **HIGH** - Needs in-game verification
 **Location:** `files/shaders/compatibility/ocean.frag`
 
@@ -203,8 +203,35 @@ vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0
    - **Fixed:** MIN_AMBIENT_STRENGTH = 0.15 (more subtle)
    - **Impact:** Better contrast between day/night, more realistic darkness
 
+#### Session 3 - Reflections, Refractions & Water Color:
+7. **Missing screen-space reflections** (NEW - line 357)
+   - **Was:** No reflection sampling
+   - **Added:** `sampleReflectionMap(screenCoords + screenCoordsOffset)`
+   - **Impact:** Ocean now reflects sky and environment like real water
+
+8. **Missing screen-space refractions** (NEW - line 361)
+   - **Was:** No refraction sampling
+   - **Added:** `sampleRefractionMap(screenCoords - screenCoordsOffset)` with depth-based fog
+   - **Impact:** Can see through water with proper underwater color blending
+
+9. **Water color not responding to time of day** (line 243)
+   - **Was:** Static `WATER_COLOR` regardless of lighting
+   - **Fixed:** `waterColorModulated = WATER_COLOR * sunFade`
+   - **Impact:** Ocean darkens at night, brightens during day (like original water)
+
+10. **Depth-based underwater fog** (NEW - lines 365-369)
+    - **Added:** Exponential fog that blends refraction with water color based on depth
+    - **Formula:** Matches original water shader's `DEPTH_FADE` calculation
+    - **Impact:** Deep water appears more opaque/blue, shallow water more transparent
+
+11. **Reflection/refraction blending** (NEW - lines 377-402)
+    - **Added:** Fresnel-based mix of refraction and reflection
+    - **Added:** Foam reduces reflection visibility (foam is opaque)
+    - **Added:** Combined reflection/refraction with PBR lighting
+    - **Impact:** Proper "glass-like" water appearance with realistic lighting
+
 **Files Modified:**
-- `files/shaders/compatibility/ocean.frag` (lines 45, 240-329)
+- `files/shaders/compatibility/ocean.frag` (lines 16-25, 236-402)
 - `files/shaders/compatibility/ocean.vert` (added waveHeight varying)
 
 **Comprehensive Lighting Audit (2025-11-24 Session 2):**
@@ -236,7 +263,26 @@ vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0
 - ✅ Sun visibility fading (line 248) - **EXACT MATCH**
 - ✅ Camera position extraction - **EXACT MATCH**
 
-**Result:** ⚠️ **TESTING REQUIRED** - Comprehensive lighting audit completed, all formulas verified, needs in-game testing
+**Comparison with Original Water Shader (2025-11-24 Session 3):**
+
+After analyzing the original OpenMW water shader from base commit, implemented the following missing features:
+
+**Now Matching Original Water:**
+- ✅ Screen-space reflections with normal-based distortion
+- ✅ Screen-space refractions with depth-aware distortion
+- ✅ Water color modulation by `sunFade` (time of day)
+- ✅ Depth-based underwater fog/color blending
+- ✅ Shore artifact prevention (suppress distortion at shallow depth)
+- ✅ Fresnel-based reflection/refraction mixing
+- ✅ Underwater brightening (1.5× multiplier when camera below water)
+
+**Differences from Original Water:**
+- **Specular Model:** Using PBR (GGX) instead of Phong (atan hack) - more physically accurate
+- **Normals:** FFT-generated from wave simulation instead of static normal map
+- **Displacement:** Real 3D vertex displacement instead of parallax trick
+- **Fresnel:** Using Fresnel-Schlick (Godot) instead of Fresnel-Dielectric (OpenMW)
+
+**Result:** ⚠️ **TESTING REQUIRED** - Ocean now has complete rendering pipeline: FFT waves + PBR lighting + reflections/refractions
 
 ---
 
