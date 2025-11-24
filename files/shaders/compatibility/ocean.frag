@@ -40,7 +40,9 @@ float sampleRefractionDepthMap(vec2 uv)
 const float VISIBILITY = 2500.0;
 const float VISIBILITY_DEPTH = VISIBILITY * 1.5;
 const float DEPTH_FADE = 0.15;
-const vec3 WATER_COLOR = vec3(0.015, 0.110, 0.455); // Deep ocean blue
+// Water color matching Godot reference: Color(0.1, 0.15, 0.18) in sRGB -> linear approximation
+// Much darker and less saturated than typical "ocean blue"
+const vec3 WATER_COLOR = vec3(0.01, 0.02, 0.03);
 
 // Reflection/refraction distortion
 const float REFL_BUMP = 0.10;  // reflection distortion amount
@@ -114,6 +116,50 @@ float fresnel_schlick(float cos_theta, float roughness) {
     );
 }
 
+// ============================================================================
+// Bicubic Texture Filtering for Sharp Wave Details
+// Source: GPU Gems 2 Chapter 20 - Fast Third-Order Texture Filtering
+// Source: Godot ocean shader water.gdshader:41-84
+// ============================================================================
+
+// Filter weights for a cubic B-spline
+vec4 cubic_weights(float a) {
+    float a2 = a * a;
+    float a3 = a2 * a;
+
+    float w0 = -a3      + a2*3.0 - a*3.0 + 1.0;
+    float w1 =  a3*3.0  - a2*6.0         + 4.0;
+    float w2 = -a3*3.0  + a2*3.0 + a*3.0 + 1.0;
+    float w3 =  a3;
+    return vec4(w0, w1, w2, w3) / 6.0;
+}
+
+// Performs bicubic B-spline filtering on sampler2DArray
+vec4 texture_bicubic(sampler2DArray sampler, vec3 uvw) {
+    // Get texture dimensions
+    ivec3 dims = textureSize(sampler, 0);
+    vec2 dims_inv = 1.0 / vec2(dims.xy);
+
+    // Shift coordinates to texel centers
+    uvw.xy = uvw.xy * vec2(dims.xy) + 0.5;
+
+    vec2 fuv = fract(uvw.xy);
+    vec4 wx = cubic_weights(fuv.x);
+    vec4 wy = cubic_weights(fuv.y);
+
+    // Calculate optimized sampling positions
+    vec4 g = vec4(wx.xz + wx.yw, wy.xz + wy.yw);
+    vec4 h = (vec4(wx.yw, wy.yw) / g + vec2(-1.5, 0.5).xyxy + floor(uvw.xy).xxyy) * dims_inv.xxyy;
+    vec2 w = g.xz / (g.xz + g.yw);
+
+    // Perform 4 bilinear samples (instead of 16 point samples)
+    return mix(
+        mix(texture(sampler, vec3(h.yw, uvw.z)), texture(sampler, vec3(h.xw, uvw.z)), w.x),
+        mix(texture(sampler, vec3(h.yz, uvw.z)), texture(sampler, vec3(h.xz, uvw.z)), w.x),
+        w.y
+    );
+}
+
 void main(void)
 {
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
@@ -132,9 +178,26 @@ void main(void)
 
     float distToCamera = length(worldPosXY - cameraPosition.xy);
 
+    // Get normal map size for bicubic filtering calculation
+    int map_size = textureSize(normalMap, 0).x;
+
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPosXY * mapScales[i].x;
-        vec4 normalSample = texture(normalMap, vec3(uv, float(i)));
+        vec3 coords = vec3(uv, float(i));
+
+        // Calculate pixels-per-meter for adaptive filtering
+        // Godot line 80: float ppm = map_size * min(scales.x, scales.y);
+        // In our case, scales.x = scales.y = mapScales[i].x (UV scale)
+        float ppm = float(map_size) * mapScales[i].x;
+
+        // Mix between bicubic (high detail) and bilinear (low detail) based on pixel density
+        // This is dependent on the tile size as well as normal map resolution
+        // Godot line 83: gradient += mix(texture_bicubic(normals, coords), texture(normals, coords), min(1.0, ppm*0.1))
+        vec4 normalSample = mix(
+            texture_bicubic(normalMap, coords),
+            texture(normalMap, coords),
+            min(1.0, ppm * 0.1)
+        );
 
         // Distance-based falloff for normals
         float falloff = 1.0;
@@ -145,6 +208,8 @@ void main(void)
         else if (i == 1) falloff = clamp(1.0 - (distToCamera - 145060.0) / 72530.0, 0.0, 1.0);
 
         // Apply per-cascade normal scale to gradient
+        // Godot line 83: gradient += ... * vec3(scales.ww, 1.0);
+        // scales.w is the normal scale, which is mapScales[i].w for us
         gradient.xy += normalSample.xy * mapScales[i].w * falloff;
         foam += normalSample.w * falloff;
     }
@@ -261,7 +326,8 @@ void main(void)
 
     // Mix water color with foam color
     // Water color darkens at night, foam stays bright (like original water shader)
-    const vec3 FOAM_COLOR = vec3(0.95, 0.95, 0.95); // White foam
+    // Foam color matching Godot reference: Color(0.73, 0.67, 0.62) in sRGB -> beige/tan, not pure white
+    const vec3 FOAM_COLOR = vec3(0.73, 0.67, 0.62);
     float foamFactor = smoothstep(0.0, 1.0, foam);
     vec3 waterColorModulated = WATER_COLOR * sunFade;
     vec3 albedo = mix(waterColorModulated, FOAM_COLOR, foamFactor);
@@ -287,7 +353,8 @@ void main(void)
     vec3 sunColor = sunSpec.rgb;
 
     // Calculate roughness (foam is rougher than water)
-    const float BASE_ROUGHNESS = 0.4;
+    // Matching Godot reference: roughness = 0.65 (more diffuse, less mirror-like)
+    const float BASE_ROUGHNESS = 0.65;
     float roughness = BASE_ROUGHNESS;
 
     // Calculate Fresnel
