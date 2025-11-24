@@ -39,20 +39,48 @@
 **Documentation:** See `OCEAN_VIBRATION_FIX.md` for detailed analysis
 **Priority:** ~~HIGH~~ **COMPLETE**
 
-### 1.7. ✅ ~~Outer Ring Displacement Artifacts~~ **FIXED!**
-**Status:** **FIXED** - 2025-11-24
-**Symptom:** Outer clipmap rings (Ring 1+) showed displacement changes when camera moved, while Ring 0 was stable
-**Root Cause:** Outer ring vertices were NOT aligned to base grid spacing (7.082 units), causing fractional UV shifts
-**Solution:** Snap ALL ring vertices to multiples of base grid spacing during mesh generation
-**Technical Details:**
-- Ring 0 vertices were naturally aligned (spacing = 7.082 units)
-- Ring 1+ vertices were misaligned (e.g., Ring 1 vertex at -3,569.836 units ≠ multiple of 7.082)
-- When camera snapped, misaligned vertices landed on different UV coordinates
-- Fix: `std::round(vertexPos / BASE_GRID_SPACING) * BASE_GRID_SPACING`
-**Files Fixed:**
-- `apps/openmw/mwrender/ocean.cpp` (lines 838-930)
-**Documentation:** See `OCEAN_OUTER_RING_FIX.md` for mathematical analysis
-**Priority:** ~~HIGH~~ **COMPLETE**
+### 1.7. ❌ Outer Ring Displacement Artifacts - **STILL BROKEN**
+**Status:** **INVESTIGATING** - 2025-11-24
+**Symptom:** Outer clipmap rings (Ring 1+) show vertices jumping up/down when camera moves or rotates (1st/3rd person). Ring 0 (innermost) is stable. Animation appears tied to camera movement but only for outer LOD rings.
+
+**Previous Attempted Fixes:**
+1. ✅ **Vertex Grid Alignment** - Snapped all ring vertices to BASE_GRID_SPACING multiples in mesh generation
+   - File: `apps/openmw/mwrender/ocean.cpp` (lines 838-930)
+   - Result: Didn't solve the issue
+
+2. ❌ **Double-Offset Fix** - Removed duplicate snappedCameraPos addition in vertex shader
+   - Attempted: Line 82 `gl_Position = modelToClip(vec4(finalWorldPos, 1.0))`
+   - Result: Didn't solve the issue
+
+3. ❌ **Local vs World Coordinate Fix** - Changed to use local coordinates for modelToClip
+   - Attempted: `displacedLocalPos = vertPos + totalDisplacement`
+   - Result: Didn't solve the issue
+
+4. ❌ **Unsnapped UV Sampling** - Used unsnapped camera position for displacement sampling
+   - Current state: `vec2 worldPosXY = vertPos.xy + cameraPosition.xy` (unsnapped)
+   - Mesh positioning: `vertPos + vec3(snappedCameraPos, 0.0)` (snapped)
+   - Result: Still broken
+
+**Current Understanding:**
+- Ring 0 works correctly (vertices densely packed at 7.082 unit spacing)
+- Outer rings have much coarser spacing (Ring 1: ~56 units, Ring 2: ~226 units)
+- The displacement sampling/application logic appears fundamentally incompatible with coarse outer rings
+- Possible that the snapping approach only works for the finest LOD level
+
+**Hypothesis for Root Cause:**
+The clipmap approach with grid snapping may be fundamentally flawed for multiple LOD rings with different vertex densities. The Godot reference uses `render_mode world_vertex_coords` which we cannot replicate in OpenMW's shader system.
+
+**Files Modified During Investigation:**
+- `files/shaders/compatibility/ocean.vert` (lines 36-88) - Multiple attempted fixes
+- See `OCEAN_DOUBLE_OFFSET_FIX.md` for detailed analysis of attempts
+
+**Next Steps to Try:**
+- Investigate if mesh should actually move vs staying stationary
+- Check if the model matrix transformation is causing issues
+- Consider completely different approach: move mesh instead of offsetting in shader
+- Compare with pre-clipmap commit 051aafce46b5c063f729a0ad8fe83115a070743b
+
+**Priority:** 🔴 **CRITICAL** - Blocks usable ocean rendering
 
 
 **The Problem:**
@@ -77,71 +105,72 @@ Added the `+ NUM_SPECTRA*map_size*map_size` offset to correctly read the transpo
 
 ---
 
-### 2. ❌ Missing GGX PBR Shading Model
-**Status:** NOT IMPLEMENTED
-**Current:** Basic Lambert lighting (`baseColor * (0.3 + upFacing * 0.7)`)
-**Priority:** HIGH
+### 2. ✅ ~~Missing GGX PBR Shading Model~~ **IMPLEMENTED!**
+**Status:** ~~NOT IMPLEMENTED~~ **IMPLEMENTED** - 2025-11-24
+**Current:** Full Cook-Torrance BRDF with GGX, Fresnel-Schlick, and subsurface scattering
+**Priority:** ~~HIGH~~ COMPLETE
 **Location:** `files/shaders/compatibility/ocean.frag`
 
-**Required Components:**
+**Implemented Components:**
 
-#### A. GGX Microfacet Distribution
+#### A. GGX Microfacet Distribution ✅
 **Reference:** `godotocean/assets/shaders/spatial/water.gdshader:103-107`
 ```glsl
-float ggx_distribution(in float cos_theta, in float alpha) {
-    float a_sq = alpha*alpha;
+float ggx_distribution(float cos_theta, float alpha) {
+    float a_sq = alpha * alpha;
     float d = 1.0 + (a_sq - 1.0) * cos_theta * cos_theta;
-    return a_sq / (PI * d*d);
+    return a_sq / (PI * d * d);
 }
 ```
-- [ ] Implement ggx_distribution() function
-- [ ] Test with roughness = 0.4
+- [x] Implement ggx_distribution() function
+- [x] Test with roughness = 0.4
 
-#### B. Fresnel-Schlick Approximation
+#### B. Fresnel-Schlick Approximation ✅
 **Reference:** `godotocean/assets/shaders/spatial/water.gdshader:92`
 ```glsl
-fresnel = mix(pow(1.0 - dot(VIEW, NORMAL), 5.0*exp(-2.69*roughness)) /
-              (1.0 + 22.7*pow(roughness, 1.5)), 1.0, REFLECTANCE);
+float fresnel_schlick(float cos_theta, float roughness) {
+    return mix(
+        pow(1.0 - cos_theta, 5.0 * exp(-2.69 * roughness)) / (1.0 + 22.7 * pow(roughness, 1.5)),
+        1.0,
+        REFLECTANCE
+    );
+}
 ```
-- [ ] Implement Fresnel calculation
-- [ ] Use REFLECTANCE = 0.02 (air to water, eta=1.33)
-- [ ] Make varying to pass to light() function
+- [x] Implement Fresnel calculation
+- [x] Use REFLECTANCE = 0.02 (air to water, eta=1.33)
+- [x] Calculate in fragment shader with proper view direction
 
-#### C. Smith Masking-Shadowing Function
+#### C. Smith Masking-Shadowing Function ✅
 **Reference:** `godotocean/assets/shaders/spatial/water.gdshader:96-100`
 ```glsl
-float smith_masking_shadowing(in float cos_theta, in float alpha) {
-    float a = cos_theta / (alpha * sqrt(1.0 - cos_theta*cos_theta));
-    float a_sq = a*a;
+float smith_masking_shadowing(float cos_theta, float alpha) {
+    float a = cos_theta / (alpha * sqrt(1.0 - cos_theta * cos_theta));
+    float a_sq = a * a;
     return a < 1.6 ? (1.0 - 1.259*a + 0.396*a_sq) / (3.535*a + 2.181*a_sq) : 0.0;
 }
 ```
-- [ ] Implement smith_masking_shadowing() function
-- [ ] Apply to both light and view directions
+- [x] Implement smith_masking_shadowing() function
+- [x] Apply to both light and view directions
 
-#### D. Cook-Torrance BRDF in Lighting
-**Reference:** `godotocean/assets/shaders/spatial/water.gdshader:109-127`
+#### D. Cook-Torrance BRDF in Lighting ✅
+**Implementation:** `files/shaders/compatibility/ocean.frag:257-262`
 ```glsl
-void light() {
-    vec3 halfway = normalize(LIGHT + VIEW);
-    float dot_nl = max(dot(NORMAL, LIGHT), 2e-5);
-    float dot_nv = max(dot(NORMAL, VIEW), 2e-5);
-
-    // SPECULAR
-    float light_mask = smith_masking_shadowing(roughness, dot_nv);
-    float view_mask = smith_masking_shadowing(roughness, dot_nl);
-    float microfacet_distribution = ggx_distribution(dot(NORMAL, halfway), roughness);
-    float geometric_attenuation = 1.0 / (1.0 + light_mask + view_mask);
-    SPECULAR_LIGHT += fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * ATTENUATION;
-
-    // DIFFUSE (see subsurface scattering below)
-}
+// SPECULAR (Cook-Torrance BRDF)
+float light_mask = smith_masking_shadowing(dot_nv, roughness);
+float view_mask = smith_masking_shadowing(dot_nl, roughness);
+float microfacet_distribution = ggx_distribution(dot_nh, roughness);
+float geometric_attenuation = 1.0 / (1.0 + light_mask + view_mask);
+vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * sunColor * shadow;
 ```
-- [ ] Implement specular term with GGX
-- [ ] Integrate with OpenMW's lighting system
-- [ ] Test with sun/moon lighting
+- [x] Implement specular term with GGX
+- [x] Integrate with OpenMW's lighting system (using lcalcPosition and lcalcDiffuse)
+- [x] Test with sun direction from gl_ModelViewMatrixInverse
 
-**Expected Result:** Realistic sun highlights, proper reflections at grazing angles
+**Files Modified:**
+- `files/shaders/compatibility/ocean.frag` (lines 52-296)
+- `files/shaders/compatibility/ocean.vert` (added waveHeight varying)
+
+**Expected Result:** ✅ Realistic sun highlights, proper reflections at grazing angles
 
 ---
 
@@ -260,52 +289,75 @@ foam_factor = smoothstep(0.0, 1.0, gradient.z*0.75) * exp(-dist*0.0075);
 
 ---
 
-### 5. ❌ Subsurface Scattering
-**Status:** NOT IMPLEMENTED
-**Priority:** MEDIUM
-**Location:** `files/shaders/compatibility/ocean.frag`
+### 5. ✅ ~~Subsurface Scattering~~ **IMPLEMENTED!**
+**Status:** ~~NOT IMPLEMENTED~~ **IMPLEMENTED** - 2025-11-24
+**Priority:** ~~MEDIUM~~ COMPLETE
+**Location:** `files/shaders/compatibility/ocean.frag:264-285`
 
 **Reference:** `godotocean/assets/shaders/spatial/water.gdshader:122-126`
+**Implementation:**
 ```glsl
-const vec3 sss_modifier = vec3(0.9,1.15,0.85); // Green-shifted color
-float sss_height = 1.0*max(0.0, wave_height + 2.5) *
-                   pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) *
-                   pow(0.5 - 0.5 * dot(LIGHT, NORMAL), 3.0);
-float sss_near = 0.5*pow(dot_nv, 2.0);
-float lambertian = 0.5*dot_nl;
-DIFFUSE_LIGHT += mix((sss_height + sss_near) * sss_modifier / (1.0 + light_mask) + lambertian,
-                     foam_color.rgb, foam_factor) * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
+const vec3 SSS_MODIFIER = vec3(0.9, 1.15, 0.85); // Green-shifted color for SSS
+
+// Subsurface scattering on wave peaks when backlit
+float sss_height = 1.0 * max(0.0, waveHeight + 2.5) *
+                   pow(max(dot(sunWorldDir, viewDir), 0.0), 4.0) *
+                   pow(0.5 - 0.5 * dot(sunWorldDir, normal), 3.0);
+
+// Near-surface subsurface scattering
+float sss_near = 0.5 * pow(dot_nv, 2.0);
+
+// Standard Lambertian diffuse
+float lambertian = 0.5 * dot_nl;
+
+// Combine diffuse components and blend with foam
+vec3 diffuse_color = mix(
+    (sss_height + sss_near) * SSS_MODIFIER / (1.0 + light_mask) + lambertian,
+    FOAM_COLOR,
+    foamFactor
+);
+
+vec3 diffuse = diffuse_color * (1.0 - fresnel) * sunColor * shadow;
 ```
 
 **Components:**
-- [ ] Pass wave_height from vertex shader
-- [ ] Calculate sss_height (backlit wave crests)
-- [ ] Calculate sss_near (close-up SSS)
-- [ ] Apply green color shift (0.9, 1.15, 0.85)
-- [ ] Blend with Lambertian term
-- [ ] Modulate by (1.0 - fresnel)
+- [x] Pass wave_height from vertex shader (as `waveHeight` varying)
+- [x] Calculate sss_height (backlit wave crests)
+- [x] Calculate sss_near (close-up SSS)
+- [x] Apply green color shift (0.9, 1.15, 0.85)
+- [x] Blend with Lambertian term
+- [x] Modulate by (1.0 - fresnel)
 
-**Expected Result:** Greenish glow through thin wave peaks when backlit
+**Expected Result:** ✅ Greenish glow through thin wave peaks when backlit
 
 ---
 
-### 6. ❌ Roughness Variation Model
-**Status:** NOT IMPLEMENTED
-**Priority:** MEDIUM
-**Location:** `files/shaders/compatibility/ocean.frag`
+### 6. ✅ ~~Roughness Variation Model~~ **IMPLEMENTED!**
+**Status:** ~~NOT IMPLEMENTED~~ **IMPLEMENTED** - 2025-11-24
+**Priority:** ~~MEDIUM~~ COMPLETE
+**Location:** `files/shaders/compatibility/ocean.frag:241-250`
 
 **Reference:** `godotocean/assets/shaders/spatial/water.gdshader:93`
+**Implementation:**
 ```glsl
-ROUGHNESS = (1.0 - fresnel) * foam_factor + 0.4;
+const float BASE_ROUGHNESS = 0.4;
+float roughness = BASE_ROUGHNESS;
+
+// Calculate Fresnel
+float dot_nv = max(dot(normal, -viewDir), 2e-5);
+float fresnel = fresnel_schlick(dot_nv, roughness);
+
+// Update roughness based on foam and fresnel (foam is matte, reflections are smooth)
+roughness = (1.0 - fresnel) * foamFactor + BASE_ROUGHNESS;
 ```
 
 **Implementation:**
-- [ ] Base roughness = 0.4 (calm water)
-- [ ] Increase with foam (foam is matte/rough)
-- [ ] Decrease with Fresnel (reflections are smooth)
-- [ ] Pass to lighting system
+- [x] Base roughness = 0.4 (calm water)
+- [x] Increase with foam (foam is matte/rough)
+- [x] Decrease with Fresnel (reflections are smooth)
+- [x] Used in GGX distribution and Smith functions
 
-**Expected Result:** Foam appears matte, reflections appear glossy
+**Expected Result:** ✅ Foam appears matte, reflections appear glossy
 
 ---
 
@@ -522,11 +574,11 @@ const float SPREAD = 0.2f;
 | **Foam** | Jacobian detection | ✅ | - | Working |
 | | Accumulation/decay | ✅ | - | Working |
 | | Distance falloff | ❌ | 🟡 MEDIUM | - |
-| **Shading** | GGX microfacet | ❌ | 🔴 HIGH | Major visual impact |
-| | Fresnel-Schlick | ❌ | 🔴 HIGH | Major visual impact |
-| | Smith geometry | ❌ | 🔴 HIGH | Major visual impact |
-| | Subsurface scattering | ❌ | 🟡 MEDIUM | Nice-to-have |
-| | Roughness model | ❌ | 🟡 MEDIUM | - |
+| **Shading** | GGX microfacet | ✅ | - | Implemented! |
+| | Fresnel-Schlick | ✅ | - | Implemented! |
+| | Smith geometry | ✅ | - | Implemented! |
+| | Subsurface scattering | ✅ | - | Implemented! |
+| | Roughness model | ✅ | - | Implemented! |
 | **Filtering** | Bicubic sampling | ❌ | 🔴 HIGH | Reduces aliasing |
 | | Adaptive bilinear/bicubic | ❌ | 🔴 HIGH | With bicubic |
 | **Effects** | Sea spray particles | ❌ | 🟢 LOW | Optional |

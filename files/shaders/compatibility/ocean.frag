@@ -20,6 +20,7 @@ varying vec4 position;
 varying float linearDepth;
 varying vec3 worldPos;
 varying vec2 texCoord;
+varying float waveHeight; // Y component of displacement from vertex shader
 
 uniform sampler2DArray normalMap;
 uniform sampler2DArray spectrumMap; // DEBUG
@@ -48,6 +49,39 @@ uniform vec3 nodePosition;
 #include "fog.glsl"
 #include "lib/water/fresnel.glsl"
 #include "lib/view/depth.glsl"
+
+// ============================================================================
+// PBR Helper Functions for Ocean Shading
+// Based on Godot ocean shader and "Wakes, Explosions and Lighting" GDC talk
+// ============================================================================
+
+const float PI = 3.14159265359;
+const float REFLECTANCE = 0.02; // Air to water reflectance (eta=1.33)
+
+// GGX microfacet distribution function
+// Source: https://github.com/godotengine/godot/blob/7b56111c297f24304eb911fe75082d8cdc3d4141/drivers/gles3/shaders/scene.glsl#L995
+float ggx_distribution(float cos_theta, float alpha) {
+    float a_sq = alpha * alpha;
+    float d = 1.0 + (a_sq - 1.0) * cos_theta * cos_theta;
+    return a_sq / (PI * d * d);
+}
+
+// Smith masking-shadowing function for GGX
+float smith_masking_shadowing(float cos_theta, float alpha) {
+    // Approximate: cos_theta / (alpha * tan(acos(cos_theta)))
+    float a = cos_theta / (alpha * sqrt(1.0 - cos_theta * cos_theta));
+    float a_sq = a * a;
+    return a < 1.6 ? (1.0 - 1.259*a + 0.396*a_sq) / (3.535*a + 2.181*a_sq) : 0.0;
+}
+
+// Fresnel-Schlick approximation (modified for water)
+float fresnel_schlick(float cos_theta, float roughness) {
+    return mix(
+        pow(1.0 - cos_theta, 5.0 * exp(-2.69 * roughness)) / (1.0 + 22.7 * pow(roughness, 1.5)),
+        1.0,
+        REFLECTANCE
+    );
+}
 
 void main(void)
 {
@@ -187,23 +221,101 @@ void main(void)
     // Clamp foam to reasonable range
     foam = clamp(foam * 0.75, 0.0, 1.0); // Scale down since we accumulate from multiple cascades
 
+    // ========================================================================
+    // PBR LIGHTING MODEL
+    // ========================================================================
+
     // Mix water color with foam color
     const vec3 FOAM_COLOR = vec3(0.95, 0.95, 0.95); // White foam
-    vec3 baseColor = mix(WATER_COLOR, FOAM_COLOR, smoothstep(0.0, 1.0, foam));
+    float foamFactor = smoothstep(0.0, 1.0, foam);
+    vec3 albedo = mix(WATER_COLOR, FOAM_COLOR, foamFactor);
 
-    // Simple lighting with normal
-    float upFacing = max(0.0, normal.z);
-    vec3 finalColor = baseColor * (0.3 + upFacing * 0.7);
+    // Get view direction (camera position in view space is at origin)
+    vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    vec3 viewDir = normalize(worldPos - cameraPos);
+
+    // Get sun direction in world space
+    vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * vec4(lcalcPosition(0).xyz, 0.0)).xyz);
+    vec3 sunColor = lcalcDiffuse(0); // Sun color and intensity
+
+    // Calculate roughness (foam is rougher than water)
+    const float BASE_ROUGHNESS = 0.4;
+    float roughness = BASE_ROUGHNESS;
+
+    // Calculate Fresnel
+    float dot_nv = max(dot(normal, -viewDir), 2e-5);
+    float fresnel = fresnel_schlick(dot_nv, roughness);
+
+    // Update roughness based on foam and fresnel (foam is matte, reflections are smooth)
+    roughness = (1.0 - fresnel) * foamFactor + BASE_ROUGHNESS;
+
+    // Calculate lighting components
+    float dot_nl = max(dot(normal, sunWorldDir), 2e-5);
+    vec3 halfway = normalize(sunWorldDir - viewDir);
+    float dot_nh = max(dot(normal, halfway), 0.0);
+
+    // --- SPECULAR (Cook-Torrance BRDF) ---
+    float light_mask = smith_masking_shadowing(dot_nv, roughness);
+    float view_mask = smith_masking_shadowing(dot_nl, roughness);
+    float microfacet_distribution = ggx_distribution(dot_nh, roughness);
+    float geometric_attenuation = 1.0 / (1.0 + light_mask + view_mask);
+    vec3 specular = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * sunColor * shadow;
+
+    // --- DIFFUSE (with Subsurface Scattering) ---
+    const vec3 SSS_MODIFIER = vec3(0.9, 1.15, 0.85); // Green-shifted color for SSS
+
+    // Subsurface scattering on wave peaks when backlit
+    float sss_height = 1.0 * max(0.0, waveHeight + 2.5) *
+                       pow(max(dot(sunWorldDir, viewDir), 0.0), 4.0) *
+                       pow(0.5 - 0.5 * dot(sunWorldDir, normal), 3.0);
+
+    // Near-surface subsurface scattering
+    float sss_near = 0.5 * pow(dot_nv, 2.0);
+
+    // Standard Lambertian diffuse
+    float lambertian = 0.5 * dot_nl;
+
+    // Combine diffuse components and blend with foam
+    vec3 diffuse_color = mix(
+        (sss_height + sss_near) * SSS_MODIFIER / (1.0 + light_mask) + lambertian,
+        FOAM_COLOR,
+        foamFactor
+    );
+
+    vec3 diffuse = diffuse_color * (1.0 - fresnel) * sunColor * shadow;
+
+    // --- AMBIENT ---
+    vec3 ambient = albedo * gl_LightModel.ambient.xyz;
+
+    // --- FINAL COLOR ---
+    vec3 finalColor = ambient + diffuse + specular;
+
+    // Ensure ocean is never completely black (add minimum ambient)
+    // This helps during night/dark conditions
+    const vec3 MIN_AMBIENT = vec3(0.1) * WATER_COLOR;
+    finalColor = max(finalColor, MIN_AMBIENT);
 
     // Reduce alpha where there's foam (foam is more opaque)
-    float alpha = mix(0.85, 0.95, foam);
+    float alpha = mix(0.85, 0.95, foamFactor);
+
+    // TEMPORARY DEBUG: Uncomment to test basic rendering
+    //gl_FragData[0] = vec4(albedo, 1.0); applyShadowDebugOverlay(); return;
 
     gl_FragData[0] = vec4(finalColor, alpha);
-    
+
     // DEBUG: Uncomment one of these lines to visualize different components
     // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)
     // gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
     // gl_FragData[0] = vec4(WATER_COLOR, 1.0); // Solid water color test
+    // gl_FragData[0] = vec4(albedo, 1.0); // Albedo (water + foam mix)
+    // gl_FragData[0] = vec4(vec3(shadow), 1.0); // Shadow value
+    // gl_FragData[0] = vec4(sunColor, 1.0); // Sun color
+    // gl_FragData[0] = vec4(gl_LightModel.ambient.xyz, 1.0); // Ambient light
+    // gl_FragData[0] = vec4(ambient, 1.0); // Ambient term only
+    // gl_FragData[0] = vec4(diffuse, 1.0); // Diffuse term only
+    // gl_FragData[0] = vec4(specular, 1.0); // Specular term only
+    // gl_FragData[0] = vec4(vec3(fresnel), 1.0); // Fresnel value
+    // gl_FragData[0] = vec4(sunWorldDir * 0.5 + 0.5, 1.0); // Sun direction (RGB = XYZ)
 
     // DEBUG: Visualize distance to camera (gray gradient, darker = closer)
     // float distToCamera = length(worldPos.xy - cameraPosition.xy);

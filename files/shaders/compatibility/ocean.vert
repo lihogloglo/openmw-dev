@@ -18,6 +18,7 @@ varying vec4 position;
 varying float linearDepth;
 varying vec3 worldPos;
 varying vec2 texCoord;
+varying float waveHeight; // Y component of displacement for subsurface scattering
 
 #include "shadows_vertex.glsl"
 #include "lib/view/depth.glsl"
@@ -76,6 +77,9 @@ void main(void)
     // World position for fragment shader (used for normal sampling)
     // This is the actual world-space position after offsetting and displacement
     worldPos = vec3(worldPosXY, vertPos.z) + totalDisplacement + nodePosition;
+
+    // Pass wave height to fragment shader for subsurface scattering
+    waveHeight = totalDisplacement.y;
 
     // Transform to clip space using the offset local coordinates
     gl_Position = modelToClip(vec4(displacedLocalPos, 1.0));
