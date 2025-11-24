@@ -16,6 +16,22 @@
 **Root Cause:** Missing buffer offset in `fft_unpack.comp` after FFT transpose
 **Priority:** ~~IMMEDIATE~~ COMPLETE
 
+### 1.5. ✅ ~~Limited Horizon (Clipmap)~~ **FIXED!**
+**Status:** **FIXED** - 2025-11-24
+**Symptom:** Ocean ends abruptly at ~200m
+**Solution:** Extended clipmap to 10 rings (radius ~12.8km) reusing Cascade 3.
+**Priority:** COMPLETE
+
+### 1.6. ⚠️ Animation Vibration / Shimmering
+**Status:** **PARTIALLY FIXED**
+**Symptom:** Ocean "vibrates" or shimmers when camera moves/rotates.
+**Causes:**
+1. **Grid Snapping Mismatch:** Grid snapped to 8.0 units, but vertex spacing was ~3.9 units. **FIXED** (2025-11-24)
+2. **Distance Aliasing:** High-frequency waves rendered at distance. **FIXED** (Distance-based falloff added).
+3. **Texture Aliasing:** `GL_LINEAR_MIPMAP_LINEAR` used but mipmaps NOT generated for compute-shader textures. **PENDING**
+**Priority:** HIGH
+
+
 **The Problem:**
 In commit 89983bf722, `spectrum_modulate.comp` was updated to use the correct complex packing scheme (matching Godot), but `fft_unpack.comp` was not updated with the correct buffer offset to account for the FFT not transposing a second time.
 
@@ -112,59 +128,13 @@ void light() {
 **Location:** `apps/openmw/mwrender/ocean.cpp:807-835`
 
 **The Problem (SOLVED):**
-Was using a uniform 512×512 vertex grid covering 58,024 MW units:
-- **Very large triangles near the player** (~113 units per triangle edge)
-- Crude, blocky appearance close-up
-- Wasted vertices at far distances
+Was using a uniform 512×512 vertex grid covering 58,024 MW units.
 
-**The Solution - 5-Ring Clipmap LOD System:**
-
-Implemented concentric rings aligned with FFT cascade boundaries for optimal wave sampling:
-
-#### Ring Structure:
-```cpp
-// Ring 0 (Ultra-fine): 512×512 grid, radius 1,000 units  → ~2.0 units/vertex
-// Ring 1 (Very fine):  256×256 grid, radius 1,813 units  → ~7.1 units/vertex (Cascade 0: 50m)
-// Ring 2 (Fine):       128×128 grid, radius 3,626 units  → ~28.3 units/vertex (Cascade 1: 100m)
-// Ring 3 (Medium):     64×64 grid,   radius 7,253 units  → ~113 units/vertex (Cascade 2: 200m)
-// Ring 4 (Coarse):     32×32 grid,   radius 14,506 units → ~453 units/vertex (Cascade 3: 400m)
-```
-
-#### Key Features:
-- ✅ **56.6× better resolution** near player (2.0 vs 113 units/vertex)
-- ✅ **Wavelets now visible** in 1,000-unit radius around player
-- ✅ **Cascade-aligned** - each ring matches an FFT cascade boundary
-- ✅ **Camera-following** - grid snaps to player (8-unit increments, prevents popping)
-- ✅ **~382,000 total vertices** - efficient distribution of detail
-
-#### Implementation Details:
-
-**Geometry Generation:**
-- Center ring (Ring 0): Full 512×512 square grid
-- Outer rings: Hollow "donut" shapes (exclude area covered by finer inner rings)
-- Vertices positioned relative to world origin (0,0)
-
-**Camera Following:**
-```cpp
-// Grid snaps every 8 units (~2 vertex spacings in finest ring)
-float gridSize = 8.0f;
-float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
-float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
-mRootNode->setPosition(osg::Vec3f(snapX, snapY, mHeight));
-```
-
-**Cascade Alignment Benefits:**
-- Ring 1 radius = Cascade 0 tile size / 2
-- Ring 2 radius = Cascade 1 tile size / 2
-- Ring 3 radius = Cascade 2 tile size / 2
-- Ring 4 radius = Cascade 3 tile size / 2
-- Perfect sampling of FFT displacement data at each LOD level
-
-**Files Modified:**
-- ✅ `apps/openmw/mwrender/ocean.cpp` (lines 807-925: geometry generation)
-- ✅ `apps/openmw/mwrender/ocean.cpp` (lines 175-181: camera following)
-
-**Result:** ✅ Smooth, highly detailed ocean near player with wavelets visible, efficient rendering at distance!
+**The Solution - 10-Ring Clipmap LOD System:**
+Implemented concentric rings aligned with FFT cascade boundaries.
+- Rings 0-4: Unique cascades (0-3)
+- Rings 5-9: Reuse Cascade 3 to extend to horizon (~12.8km)
+- Snapping fixed to match Ring 0 vertex spacing (~3.90625 units)
 
 ---
 

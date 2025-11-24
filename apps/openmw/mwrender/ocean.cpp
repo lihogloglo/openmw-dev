@@ -174,9 +174,9 @@ namespace MWRender
 
         // Infinite Ocean Logic: Snap grid to camera position
         // With clipmap LOD, we snap to the finest ring's vertex spacing to prevent popping
-        // Ultra-fine ring (512×512 over 2000 units) has ~3.9 unit spacing
-        // We use a multiple of this for smooth camera following
-        float gridSize = 8.0f; // ~2 vertex spacings in the finest ring - prevents visible popping
+        // Ultra-fine ring (512x512 over 2000 units) has 2000/512 = 3.90625 unit spacing
+        // We MUST use this exact spacing for snapping to ensure vertices align perfectly
+        float gridSize = 2000.0f / 512.0f; // ~3.90625 units
         float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
         float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
 
@@ -988,7 +988,7 @@ namespace MWRender
         stateset->addUniform(mDebugVisualizeCascadesUniform);
 
         // Debug visualization for LOD density (0 = off, 1 = on)
-        mDebugVisualizeLODUniform = new osg::Uniform("debugVisualizeLOD", 1);
+        mDebugVisualizeLODUniform = new osg::Uniform("debugVisualizeLOD", 0);
         stateset->addUniform(mDebugVisualizeLODUniform);
 
         

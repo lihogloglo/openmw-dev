@@ -60,12 +60,25 @@ void main(void)
     float foam = 0.0;
 
     // Gradient sampling from cascade with per-cascade amplitude scaling
+    // Gradient sampling from cascade with per-cascade amplitude scaling
+    float distToCamera = length(worldPos.xy - cameraPosition.xy);
+
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPos.xy * mapScales[i].x;
         vec4 normalSample = texture(normalMap, vec3(uv, float(i)));
+        
+        // Distance-based falloff for normals
+        // Suppress high-frequency noise in the distance
+        float falloff = 1.0;
+        
+        // Cascade 0 (50m) fades out after 1000m
+        if (i == 0) falloff = clamp(1.0 - (distToCamera - 500.0) / 500.0, 0.0, 1.0);
+        // Cascade 1 (100m) fades out after 3000m
+        else if (i == 1) falloff = clamp(1.0 - (distToCamera - 2000.0) / 1000.0, 0.0, 1.0);
+        
         // Apply per-cascade normal scale to gradient
-        gradient.xy += normalSample.xy * mapScales[i].w;
-        foam += normalSample.w; // Accumulate foam from all cascades
+        gradient.xy += normalSample.xy * mapScales[i].w * falloff;
+        foam += normalSample.w * falloff; // Accumulate foam from all cascades
     }
 
     // Reconstruct normal from gradient (as done in Godot water shader)

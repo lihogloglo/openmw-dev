@@ -25,6 +25,7 @@ varying vec2 texCoord;
 uniform vec3 nodePosition;
 uniform sampler2DArray displacementMap;
 uniform int numCascades;
+uniform vec3 cameraPosition; // Added for distance calculation
 uniform vec4 mapScales[4]; // xy = scale for each cascade
 
 void main(void)
@@ -44,8 +45,19 @@ void main(void)
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = (vertPos.xy + nodePosition.xy) * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
+        
+        // Distance-based falloff for displacement
+        // Suppress small waves at distance to prevent aliasing/shimmering
+        float dist = length(vertPos.xy + nodePosition.xy - cameraPosition.xy);
+        float falloff = 1.0;
+        
+        // Cascade 0 (50m) fades out after 1000m
+        if (i == 0) falloff = clamp(1.0 - (dist - 500.0) / 500.0, 0.0, 1.0);
+        // Cascade 1 (100m) fades out after 3000m
+        else if (i == 1) falloff = clamp(1.0 - (dist - 2000.0) / 1000.0, 0.0, 1.0);
+        
         // Apply per-cascade displacement scale (larger cascades = bigger waves)
-        totalDisplacement += disp * mapScales[i].z;
+        totalDisplacement += disp * mapScales[i].z * falloff;
     }
 
     vertPos += totalDisplacement;
