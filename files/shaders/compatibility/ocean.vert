@@ -51,10 +51,13 @@ void main(void)
         float dist = length(vertPos.xy + nodePosition.xy - cameraPosition.xy);
         float falloff = 1.0;
         
-        // Cascade 0 (50m) fades out after 1000m
-        if (i == 0) falloff = clamp(1.0 - (dist - 500.0) / 500.0, 0.0, 1.0);
-        // Cascade 1 (100m) fades out after 3000m
-        else if (i == 1) falloff = clamp(1.0 - (dist - 2000.0) / 1000.0, 0.0, 1.0);
+        // Cascade 0 (50m) fades out after 1000m (in MW units: 72530)
+        // We use MW units for distance comparison since 'dist' is in MW units
+        // 500m = 36265 units, 1000m = 72530 units
+        if (i == 0) falloff = clamp(1.0 - (dist - 36265.0) / 36265.0, 0.0, 1.0);
+        // Cascade 1 (100m) fades out after 3000m (in MW units: 217590)
+        // 2000m = 145060 units, 1000m range = 72530 units
+        else if (i == 1) falloff = clamp(1.0 - (dist - 145060.0) / 72530.0, 0.0, 1.0);
         
         // Apply per-cascade displacement scale (larger cascades = bigger waves)
         totalDisplacement += disp * mapScales[i].z * falloff;

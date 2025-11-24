@@ -174,9 +174,10 @@ namespace MWRender
 
         // Infinite Ocean Logic: Snap grid to camera position
         // With clipmap LOD, we snap to the finest ring's vertex spacing to prevent popping
-        // Ultra-fine ring (512x512 over 2000 units) has 2000/512 = 3.90625 unit spacing
-        // We MUST use this exact spacing for snapping to ensure vertices align perfectly
-        float gridSize = 2000.0f / 512.0f; // ~3.90625 units
+        // We align the vertex spacing with the texture texel size to prevent texture aliasing/shimmering
+        // Cascade 0 Tile = 50m * 72.53 = 3626.5 units. Grid = 512. Texel = 7.083 units.
+        float tileSize0 = 50.0f * METERS_TO_MW_UNITS;
+        float gridSize = tileSize0 / 512.0f; // ~7.083 units
         float snapX = std::floor(cameraPos.x() / gridSize) * gridSize;
         float snapY = std::floor(cameraPos.y() / gridSize) * gridSize;
 
@@ -288,7 +289,7 @@ namespace MWRender
         mDisplacementMap->setInternalFormat(GL_RGBA16F);
         mDisplacementMap->setSourceFormat(GL_RGBA);
         mDisplacementMap->setSourceType(GL_HALF_FLOAT);
-        mDisplacementMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+        mDisplacementMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
         mDisplacementMap->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
         mDisplacementMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
         mDisplacementMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
@@ -308,7 +309,7 @@ namespace MWRender
         mNormalMap->setInternalFormat(GL_RGBA16F);
         mNormalMap->setSourceFormat(GL_RGBA);
         mNormalMap->setSourceType(GL_HALF_FLOAT);
-        mNormalMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+        mNormalMap->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
         mNormalMap->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
         mNormalMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
         mNormalMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
@@ -838,19 +839,19 @@ namespace MWRender
         const float RING_9_RADIUS = RING_8_RADIUS * 4.0f;    // 928,384 (~12.8km) - Horizon
 
         LODRing rings[] = {
-            { 512, 1000.0f,          0.0f },              // Ring 0: Ultra-fine center
-            { 256, CASCADE_0_RADIUS, 1000.0f },           // Ring 1: Cascade 0
-            { 128, CASCADE_1_RADIUS, CASCADE_0_RADIUS },  // Ring 2: Cascade 1
-            { 64,  CASCADE_2_RADIUS, CASCADE_1_RADIUS },  // Ring 3: Cascade 2
-            { 32,  CASCADE_3_RADIUS, CASCADE_1_RADIUS },  // Ring 4: Cascade 3
-            { 32,  RING_5_RADIUS,    CASCADE_3_RADIUS },  // Ring 5: Extended
-            { 32,  RING_6_RADIUS,    RING_5_RADIUS },     // Ring 6: Extended
-            { 32,  RING_7_RADIUS,    RING_6_RADIUS },     // Ring 7: Extended
-            { 32,  RING_8_RADIUS,    RING_7_RADIUS },     // Ring 8: Extended
-            { 32,  RING_9_RADIUS,    RING_8_RADIUS }      // Ring 9: Horizon
+            { 512, CASCADE_0_RADIUS, 0.0f },              // Ring 0: Ultra-fine center (Matches Cascade 0 Texture Resolution)
+            // Ring 1 removed (merged into Ring 0)
+            { 128, CASCADE_1_RADIUS, CASCADE_0_RADIUS },  // Ring 1: Cascade 1
+            { 64,  CASCADE_2_RADIUS, CASCADE_1_RADIUS },  // Ring 2: Cascade 2
+            { 32,  CASCADE_3_RADIUS, CASCADE_2_RADIUS },  // Ring 3: Cascade 3
+            { 32,  RING_5_RADIUS,    CASCADE_3_RADIUS },  // Ring 4: Extended
+            { 32,  RING_6_RADIUS,    RING_5_RADIUS },     // Ring 5: Extended
+            { 32,  RING_7_RADIUS,    RING_6_RADIUS },     // Ring 6: Extended
+            { 32,  RING_8_RADIUS,    RING_7_RADIUS },     // Ring 7: Extended
+            { 32,  RING_9_RADIUS,    RING_8_RADIUS }      // Ring 8: Horizon
         };
 
-        const int numRings = 10;
+        const int numRings = 9;
         int vertexOffset = 0;
 
         // Generate each LOD ring
