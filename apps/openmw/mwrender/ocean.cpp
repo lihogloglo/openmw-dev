@@ -492,22 +492,20 @@ namespace MWRender
             float alpha = 0.076f * std::pow(windSpeed*windSpeed / (fetchLength*G), 0.22f);
             float omega_p = 22.0f * std::pow(G*G / (windSpeed*fetchLength), 1.0f/3.0f);
 
-            // Cascade tile sizes in METERS, will be converted to Morrowind units
+            // Cascade tile sizes in METERS (compute shaders work in meters)
             // These define the physical wave domain size for each cascade
             // Smaller cascades = finer detail, larger cascades = broader waves
+            // IMPORTANT: These must be in METERS because compute shaders use physical wave equations
             float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
-            float tileSizes[NUM_CASCADES];
-            for (int i = 0; i < NUM_CASCADES; ++i) {
-                tileSizes[i] = tileSizesMeters[i] * METERS_TO_MW_UNITS;
-            }
 
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
                 if (pcp)
                 {
                     GLint loc;
+                    // Pass tile_length in METERS to compute shaders
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
-                    if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
+                    if (loc >= 0) ext->glUniform2f(loc, tileSizesMeters[cascade], tileSizesMeters[cascade]);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
                     if (loc >= 0) ext->glUniform1ui(loc, cascade);
@@ -569,8 +567,8 @@ namespace MWRender
             }
         }
 
-        // Wave parameters
-        float depth = 1000.0f * METERS_TO_MW_UNITS; // Deep water (1000m in MW units)
+        // Wave parameters in METERS (compute shaders use physical equations in meters)
+        float depth = 1000.0f; // Deep water (1000 meters)
 
         // Foam parameters matching Godot reference values
         // Godot: whitecap = 0.5, foam_amount = 5.0-8.0
@@ -582,12 +580,9 @@ namespace MWRender
         float foamGrowRate = 0.6f;       // Foam accumulation rate per frame
         float foamDecayRate = 0.092f;    // Foam decay rate per frame
 
-        // Cascade tile sizes in Morrowind units (must match initializeComputeShaders)
+        // Cascade tile sizes in METERS (must match initializeComputeShaders)
+        // IMPORTANT: Compute shaders work in meters, only convert to MW units in vertex shader
         float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
-        float tileSizes[NUM_CASCADES];
-        for (int i = 0; i < NUM_CASCADES; ++i) {
-            tileSizes[i] = tileSizesMeters[i] * METERS_TO_MW_UNITS;
-        }
 
         // 1. Modulate Spectrum
         if (mComputeModulate.valid())
@@ -641,9 +636,11 @@ namespace MWRender
                 if (pcp)
                 {
                     GLint loc;
+                    // Pass tile_length in METERS to compute shaders
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("tile_length"));
-                    if (loc >= 0) ext->glUniform2f(loc, tileSizes[cascade], tileSizes[cascade]);
-                    
+                    if (loc >= 0) ext->glUniform2f(loc, tileSizesMeters[cascade], tileSizesMeters[cascade]);
+
+                    // Pass depth in METERS to compute shaders
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
                     if (loc >= 0) ext->glUniform1f(loc, depth);
                     
@@ -1018,24 +1015,37 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)
-        // Scale = how to map world coordinates to UV coordinates [0,1]
-        // UV scale = 1 / tile_size (in Morrowind units)
         // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
+        // IMPORTANT: UV scale must match tile_length used in compute shaders
         osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
         float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
 
         // Displacement and normal scales for each cascade
-        // Larger cascades (bigger waves) should have proportionally larger displacement
-        // This creates the "wavelets inside small waves inside big waves" effect
-        // Physical TMA spectrum produces realistic amplitudes, but we need to scale for visibility
-        // These values account for the fact that FFT outputs are in meters and need conversion to MW units
-        // Also compensates for the difference between physical reality and visually pleasing game waves
-        float displacementScales[NUM_CASCADES] = { 5.0f, 10.0f, 15.0f, 30.0f };
+        // FFT outputs displacement in METERS (e.g., wave height of 1-3 meters for realistic ocean)
+        // We need to convert to MW UNITS (×72.53) for vertex shader
+        // Then apply artistic scaling to match Godot's visual appearance
+        //
+        // Godot displacement_scale values from main.tscn:
+        //   Cascade 0 (88m):  displacement_scale = 1.0
+        //   Cascade 1 (57m):  displacement_scale = 0.75
+        //   Cascade 2 (16m):  displacement_scale = 0.0 (normals only)
+        //
+        // Formula: displacement_scale = artistic_multiplier × METERS_TO_MW_UNITS
+        //
+        // Starting conservative (can increase if waves too small):
+        float displacementScales[NUM_CASCADES] = {
+            1.0f * METERS_TO_MW_UNITS,   // Cascade 0: realistic waves (×72.53)
+            1.0f * METERS_TO_MW_UNITS,   // Cascade 1: realistic waves (×72.53)
+            0.75f * METERS_TO_MW_UNITS,  // Cascade 2: slightly reduced (×54.4)
+            0.5f * METERS_TO_MW_UNITS    // Cascade 3: larger wavelengths, reduce amplitude (×36.27)
+        };
         float normalScales[NUM_CASCADES] = { 2.0f, 1.5f, 1.0f, 0.5f };
 
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
-            // Convert tile size from meters to Morrowind units, then compute UV scale
+            // UV scale in world space (Morrowind units)
+            // World coordinates are in MW units, tile_length in compute shaders is in meters
+            // So we need: uvScale = 1 / (tileSizeMeters * METERS_TO_MW_UNITS)
             float tileSizeMW = tileSizesMeters[i] * METERS_TO_MW_UNITS;
             float uvScale = 1.0f / tileSizeMW;
             mapScales->setElement(i, osg::Vec4f(uvScale, uvScale, displacementScales[i], normalScales[i]));

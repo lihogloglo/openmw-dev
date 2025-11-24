@@ -353,8 +353,8 @@ void main(void)
     vec3 sunColor = sunSpec.rgb;
 
     // Calculate roughness (foam is rougher than water)
-    // Matching Godot reference: roughness = 0.65 (more diffuse, less mirror-like)
-    const float BASE_ROUGHNESS = 0.65;
+    // Matching Godot reference: roughness = 0.4 (smooth water, mirror-like reflections)
+    const float BASE_ROUGHNESS = 0.4;
     float roughness = BASE_ROUGHNESS;
 
     // Calculate Fresnel
@@ -479,17 +479,22 @@ void main(void)
     ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
 
     // --- FINAL COLOR ---
-    // Simplified approach: Start with reflection/refraction, then add PBR lighting contributions
+    // Match Godot's rendering approach:
+    // - Water surface = albedo × (ambient + diffuse × LIGHT_COLOR) + specular × LIGHT_COLOR + reflections
+    // - Foam is more opaque, reduces reflection contribution
 
-    // Base color from reflections/refractions (this provides the "water" look)
-    vec3 baseColor = refrReflColor;
-
-    // PBR lighting contributions (diffuse + specular)
+    // Base lighting from PBR (ambient + diffuse + specular)
+    // This is the "opaque surface" component
     vec3 lighting = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
 
-    // Blend: mostly use reflections for water appearance, add lighting for foam and surface detail
-    // Foam is opaque (uses lighting), water is reflective (uses reflections)
-    vec3 finalColor = mix(baseColor, lighting, foamFactor * 0.6);
+    // Reflections/refractions provide the "transparent water" look
+    // Reduce reflection intensity to avoid 100% mirror effect
+    // Foam makes water more opaque (less reflective)
+    float reflectionStrength = (1.0 - foamFactor * 0.5);
+
+    // Combine: lighting + reflections (additive, not mix)
+    // This gives proper water appearance: lit surface with reflections on top
+    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.3;
 
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);
