@@ -476,30 +476,44 @@ namespace MWRender
                 ext->glBindImageTexture(0, spectrumID, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
             }
 
-            // Uniforms (physical parameters in meters)
-            // Based on Godot ocean reference implementation
-            float windSpeed = 20.0f; // m/s (strong breeze ~45 mph - creates more visible waves)
-            float fetchLength = 550000.0f; // meters (550 km - allows waves to fully develop)
-            float windDir = 0.0f; // radians
-            float depth = 20.0f; // meters (shallow water enhances wave steepness, matching Godot)
-            float swell = 0.8f;
-            float spread = 0.2f;
-            float detail = 1.0f;
-
-            // Calculate JONSWAP parameters (same as Godot)
-            // Source: https://wikiwaves.org/Ocean-Wave_Spectra#JONSWAP_Spectrum
-            const float G = 9.81f;
-            float alpha = 0.076f * std::pow(windSpeed*windSpeed / (fetchLength*G), 0.22f);
-            float omega_p = 22.0f * std::pow(G*G / (windSpeed*fetchLength), 1.0f/3.0f);
+            // Per-cascade parameters matching Godot's diversity
+            // Godot uses varied wind speeds and fetch lengths to create complex, sharp-crested waves
+            // Godot cascades: 0=88m/10m/s/150km, 1=57m/5m/s/150km, 2=16m/20m/s/550km
 
             // Cascade tile sizes in METERS (compute shaders work in meters)
-            // These define the physical wave domain size for each cascade
-            // Smaller cascades = finer detail, larger cascades = broader waves
-            // IMPORTANT: These must be in METERS because compute shaders use physical wave equations
-            float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+            // Matching Godot's pattern: large->medium->small for varied wave scales
+            float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
+
+            // Wind speeds per cascade (m/s) - varied for realistic wave complexity
+            float windSpeeds[NUM_CASCADES] = { 10.0f, 5.0f, 20.0f, 20.0f };
+
+            // Fetch lengths per cascade (meters) - how far wind has blown over water
+            float fetchLengths[NUM_CASCADES] = { 150000.0f, 150000.0f, 550000.0f, 550000.0f };
+
+            // Wind directions per cascade (radians) - slight variations for realism
+            float windDirections[NUM_CASCADES] = {
+                0.349f,  // 20 degrees
+                0.262f,  // 15 degrees
+                0.349f,  // 20 degrees
+                0.349f   // 20 degrees
+            };
+
+            // Spread parameter per cascade - controls directional spreading
+            float spreads[NUM_CASCADES] = { 0.2f, 0.4f, 0.4f, 0.4f };
+
+            // Common parameters
+            float depth = 20.0f; // meters (shallow water enhances wave steepness)
+            float swell = 0.8f;
+            float detail = 1.0f;
+
+            const float G = 9.81f;
 
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
+                // Calculate JONSWAP parameters per cascade (wind/fetch specific)
+                float alpha = 0.076f * std::pow(windSpeeds[cascade]*windSpeeds[cascade] / (fetchLengths[cascade]*G), 0.22f);
+                float omega_p = 22.0f * std::pow(G*G / (windSpeeds[cascade]*fetchLengths[cascade]), 1.0f/3.0f);
+
                 if (pcp)
                 {
                     GLint loc;
@@ -517,10 +531,10 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, omega_p);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
-                    if (loc >= 0) ext->glUniform1f(loc, windSpeed);
+                    if (loc >= 0) ext->glUniform1f(loc, windSpeeds[cascade]);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
-                    if (loc >= 0) ext->glUniform1f(loc, windDir);
+                    if (loc >= 0) ext->glUniform1f(loc, windDirections[cascade]);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
                     if (loc >= 0) ext->glUniform1f(loc, depth);
@@ -532,7 +546,7 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, detail);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
-                    if (loc >= 0) ext->glUniform1f(loc, spread);
+                    if (loc >= 0) ext->glUniform1f(loc, spreads[cascade]);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("seed"));
                     if (loc >= 0) ext->glUniform2i(loc, cascade * 13 + 42, cascade * 17 + 99); // Different seed per cascade
@@ -570,19 +584,30 @@ namespace MWRender
         // Wave parameters in METERS (compute shaders use physical equations in meters)
         float depth = 1000.0f; // Deep water (1000 meters)
 
-        // Foam parameters matching Godot reference values
-        // Godot: whitecap = 0.5, foam_amount = 5.0-8.0
-        // These rates should be scaled by delta time (~0.016s per frame at 60fps)
-        // Godot formula: foam_grow_rate = delta * foam_amount * 7.5
-        //                foam_decay_rate = delta * max(0.5, 10.0 - foam_amount) * 1.15
-        // For foam_amount=5.0: grow = 0.016*5*7.5 = 0.6, decay = 0.016*5*1.15 = 0.092
-        float whitecap = 0.5f;           // Threshold for foam detection (Jacobian < whitecap)
-        float foamGrowRate = 0.6f;       // Foam accumulation rate per frame
-        float foamDecayRate = 0.092f;    // Foam decay rate per frame
-
         // Cascade tile sizes in METERS (must match initializeComputeShaders)
         // IMPORTANT: Compute shaders work in meters, only convert to MW units in vertex shader
-        float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+        float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
+
+        // Per-cascade foam parameters matching Godot's main.tscn:
+        // Cascade 0: whitecap=0.5, foam_amount=8.0
+        // Cascade 1: whitecap=0.5, foam_amount=0.0 (no foam)
+        // Cascade 2: whitecap=0.25, foam_amount=3.0
+        // Cascade 3: whitecap=0.25, foam_amount=3.0 (duplicate)
+        //
+        // Godot formula: foam_grow_rate = delta * foam_amount * 7.5
+        //                foam_decay_rate = delta * max(0.5, 10.0 - foam_amount) * 1.15
+        // Assuming delta = 0.016s (60fps):
+        float foamAmounts[NUM_CASCADES] = { 8.0f, 0.0f, 3.0f, 3.0f };
+        float whitecaps[NUM_CASCADES] = { 0.5f, 0.5f, 0.25f, 0.25f };
+
+        // Calculate foam rates per cascade (at 60fps)
+        const float DELTA_TIME = 0.016f;
+        float foamGrowRates[NUM_CASCADES];
+        float foamDecayRates[NUM_CASCADES];
+        for (int i = 0; i < NUM_CASCADES; ++i) {
+            foamGrowRates[i] = DELTA_TIME * foamAmounts[i] * 7.5f;
+            foamDecayRates[i] = DELTA_TIME * std::max(0.5f, 10.0f - foamAmounts[i]) * 1.15f;
+        }
 
         // 1. Modulate Spectrum
         if (mComputeModulate.valid())
@@ -775,17 +800,18 @@ namespace MWRender
                     GLint loc;
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("cascade_index"));
                     if (loc >= 0) ext->glUniform1ui(loc, cascade);
-                    
+
+                    // Use per-cascade foam parameters
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("whitecap"));
-                    if (loc >= 0) ext->glUniform1f(loc, whitecap);
-                    
+                    if (loc >= 0) ext->glUniform1f(loc, whitecaps[cascade]);
+
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_grow_rate"));
-                    if (loc >= 0) ext->glUniform1f(loc, foamGrowRate);
-                    
+                    if (loc >= 0) ext->glUniform1f(loc, foamGrowRates[cascade]);
+
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("foam_decay_rate"));
-                    if (loc >= 0) ext->glUniform1f(loc, foamDecayRate);
+                    if (loc >= 0) ext->glUniform1f(loc, foamDecayRates[cascade]);
                 }
-                
+
                 ext->glDispatchCompute(L_SIZE / 16, L_SIZE / 16, 1);
             }
             ext->glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT);
@@ -1018,28 +1044,28 @@ namespace MWRender
         // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
         // IMPORTANT: UV scale must match tile_length used in compute shaders
         osg::ref_ptr<osg::Uniform> mapScales = new osg::Uniform(osg::Uniform::FLOAT_VEC4, "mapScales", NUM_CASCADES);
-        float tileSizesMeters[NUM_CASCADES] = { 50.0f, 100.0f, 200.0f, 400.0f };
+        // Match the tile sizes from spectrum generation
+        float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
 
         // Displacement and normal scales for each cascade
         // FFT outputs displacement in METERS (e.g., wave height of 1-3 meters for realistic ocean)
         // We need to convert to MW UNITS (×72.53) for vertex shader
-        // Then apply artistic scaling to match Godot's visual appearance
         //
-        // Godot displacement_scale values from main.tscn:
-        //   Cascade 0 (88m):  displacement_scale = 1.0
-        //   Cascade 1 (57m):  displacement_scale = 0.75
-        //   Cascade 2 (16m):  displacement_scale = 0.0 (normals only)
+        // Matching Godot's approach from main.tscn:
+        //   Cascade 0 (88m):  displacement_scale = 1.0,  normal_scale = 1.0
+        //   Cascade 1 (57m):  displacement_scale = 0.75, normal_scale = 1.0
+        //   Cascade 2 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 (normals only!)
+        //   Cascade 3 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 (duplicate for foam)
         //
-        // Formula: displacement_scale = artistic_multiplier × METERS_TO_MW_UNITS
-        //
-        // Starting conservative (can increase if waves too small):
+        // Key insight: Small tile cascades (16m) contribute ONLY normals/foam, not displacement
+        // This creates fine surface detail without adding small bumps to geometry
         float displacementScales[NUM_CASCADES] = {
-            1.0f * METERS_TO_MW_UNITS,   // Cascade 0: realistic waves (×72.53)
-            1.0f * METERS_TO_MW_UNITS,   // Cascade 1: realistic waves (×72.53)
-            0.75f * METERS_TO_MW_UNITS,  // Cascade 2: slightly reduced (×54.4)
-            0.5f * METERS_TO_MW_UNITS    // Cascade 3: larger wavelengths, reduce amplitude (×36.27)
+            1.0f * METERS_TO_MW_UNITS,   // Cascade 0 (88m): broad waves
+            0.75f * METERS_TO_MW_UNITS,  // Cascade 1 (57m): medium waves
+            0.0f,                         // Cascade 2 (16m): normals/foam only
+            0.0f                          // Cascade 3 (16m): normals/foam only
         };
-        float normalScales[NUM_CASCADES] = { 2.0f, 1.5f, 1.0f, 0.5f };
+        float normalScales[NUM_CASCADES] = { 1.0f, 1.0f, 0.25f, 0.25f };
 
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
