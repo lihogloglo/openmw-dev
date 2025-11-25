@@ -13,6 +13,9 @@
 
 #include "ocean.hpp"
 #include "lake.hpp"
+#include "waterheightfield.hpp"
+#include "ssrmanager.hpp"
+#include "cubemapreflection.hpp"
 
 namespace osg
 {
@@ -84,6 +87,16 @@ namespace MWRender
         std::unique_ptr<Lake> mLake;
         bool mUseOcean;
 
+        std::unique_ptr<WaterHeightField> mWaterHeightField;
+        std::vector<const MWWorld::CellStore*> mLoadedCells;
+
+        // SSR + Cubemap reflection system for lakes/rivers
+        std::unique_ptr<SSRManager> mSSRManager;
+        std::unique_ptr<CubemapReflectionManager> mCubemapManager;
+        bool mUseSSRReflections;
+
+        void updateWaterHeightField();
+
         osg::Vec3f getSceneNodeCoordinates(int gridX, int gridY);
         void updateVisible();
 
@@ -114,6 +127,7 @@ namespace MWRender
         void updateEmitterPtr(const MWWorld::Ptr& old, const MWWorld::Ptr& ptr);
         void emitRipple(const osg::Vec3f& pos);
 
+        void addCell(const MWWorld::CellStore* store);    ///< add cell to water tracking
         void removeCell(const MWWorld::CellStore* store); ///< remove all emitters in this cell
 
         void clearRipples();
@@ -149,8 +163,17 @@ namespace MWRender
         float getOceanFetchLength() const;
         float getOceanSwell() const;
         float getOceanDetail() const;
+
+        // Water height field accessor (for PhysicsSystem)
+        const WaterHeightField* getWaterHeightField() const { return mWaterHeightField.get(); }
         float getOceanSpread() const;
         float getOceanFoamAmount() const;
+
+        // SSR + Cubemap accessors
+        SSRManager* getSSRManager() { return mSSRManager.get(); }
+        CubemapReflectionManager* getCubemapManager() { return mCubemapManager.get(); }
+        bool useSSRReflections() const { return mUseSSRReflections; }
+        osg::TextureCubeMap* getCubemapForPosition(const osg::Vec3f& pos);
     };
 
 }

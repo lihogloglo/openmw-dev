@@ -104,21 +104,26 @@ void Lake::initGeometry()
 void Lake::initShaders()
 {
     osg::StateSet* stateset = mRootNode->getOrCreateStateSet();
-    
+
+    // TEMPORARY: Use simple shader instead of complex water shader
+    // The water shader requires too many dependencies (Ripples, etc.)
+    // TODO: Either use dedicated lake shader or properly share water shader with all deps
+
     // Enable blending
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
-    
-    // Use ShaderManager to get our lake shaders
+
+    // Use ShaderManager to get simple lake shaders
     Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
-    
+
     osg::ref_ptr<osg::Program> program = new osg::Program;
-    
+
+    // Use simple lake shaders (no SSR, just solid color)
     auto vert = shaderManager.getShader("lake.vert", {}, osg::Shader::VERTEX);
     auto frag = shaderManager.getShader("lake.frag", {}, osg::Shader::FRAGMENT);
-    
+
     if (vert) program->addShader(vert);
     if (frag) program->addShader(frag);
-    
+
     stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
 }
 

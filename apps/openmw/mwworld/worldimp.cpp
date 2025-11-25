@@ -81,6 +81,7 @@
 #include "../mwrender/postprocessor.hpp"
 #include "../mwrender/renderingmanager.hpp"
 #include "../mwrender/vismask.hpp"
+#include "../mwrender/water.hpp"
 
 #include "../mwscript/globalscripts.hpp"
 
@@ -2233,6 +2234,19 @@ namespace MWWorld
         {
             return false;
         }
+
+        // Use height field for multi-altitude water support
+        const auto* heightField = mRendering->getWater()->getWaterHeightField();
+        if (heightField)
+        {
+            float waterHeight = heightField->sampleHeight(pos);
+            if (waterHeight > -999.0f)  // Has water at this position
+            {
+                return pos.z() < waterHeight;
+            }
+        }
+
+        // Fallback to cell water level
         return pos.z() < cell->getWaterLevel();
     }
 

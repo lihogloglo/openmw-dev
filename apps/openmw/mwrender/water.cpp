@@ -452,10 +452,24 @@ namespace MWRender
         , mCullCallback(nullptr)
         , mShaderWaterStateSetUpdater(nullptr)
         , mUseOcean(false)
+        , mUseSSRReflections(true)
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
-        mUseOcean = true; // Uncomment to enable ocean by default when ready
+        // TEMPORARY: Ocean disabled for testing lake SSR system
+        // TODO: Implement smart ocean masking using WaterHeightField
+        mUseOcean = false;
+
+        // Initialize water height field for multi-altitude water support
+        mWaterHeightField = std::make_unique<WaterHeightField>(2048, 0.1f);
+
+        // Initialize SSR + Cubemap reflection system for lakes/rivers
+        mSSRManager = std::make_unique<SSRManager>(mParent, mResourceSystem);
+        mCubemapManager = std::make_unique<CubemapReflectionManager>(mParent, mSceneRoot, mResourceSystem);
+
+        // Initialize SSR with default 1080p resolution (will be resized based on actual window size)
+        mSSRManager->initialize(1920, 1080);
+        mCubemapManager->initialize();
 
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
 
@@ -664,6 +678,14 @@ namespace MWRender
             {
                 stateset->addUniform(new osg::Uniform("rippleMap", 4));
             }
+
+            // SSR + Cubemap texture units (5 and 6)
+            if (mWater->useSSRReflections())
+            {
+                stateset->addUniform(new osg::Uniform("ssrTexture", 5));
+                stateset->addUniform(new osg::Uniform("environmentMap", 6));
+            }
+
             stateset->addUniform(new osg::Uniform("nodePosition", osg::Vec3f(mWater->getPosition())));
         }
 
@@ -681,6 +703,25 @@ namespace MWRender
             {
                 stateset->setTextureAttributeAndModes(4, mRipples->getColorTexture(), osg::StateAttribute::ON);
             }
+
+            // Bind SSR and Cubemap textures
+            if (mWater->useSSRReflections())
+            {
+                SSRManager* ssrMgr = mWater->getSSRManager();
+                if (ssrMgr && ssrMgr->getResultTexture())
+                {
+                    stateset->setTextureAttributeAndModes(5, ssrMgr->getResultTexture(), osg::StateAttribute::ON);
+                }
+
+                // Get cubemap for current water position
+                osg::Vec3f waterPos = osg::Vec3f(mWater->getPosition());
+                osg::TextureCubeMap* cubemap = mWater->getCubemapForPosition(waterPos);
+                if (cubemap)
+                {
+                    stateset->setTextureAttributeAndModes(6, cubemap, osg::StateAttribute::ON);
+                }
+            }
+
             stateset->getUniform("nodePosition")->set(osg::Vec3f(mWater->getPosition()));
         }
 
@@ -704,6 +745,7 @@ namespace MWRender
         defineMap["rippleMapSize"] = std::to_string(RipplesSurface::sRTTSize) + ".0";
         defineMap["sunlightScattering"] = Settings::water().mSunlightScattering ? "1" : "0";
         defineMap["wobblyShores"] = Settings::water().mWobblyShores ? "1" : "0";
+        defineMap["useSSRCubemap"] = mUseSSRReflections ? "1" : "0";
 
         Stereo::shaderStereoDefines(defineMap);
 
@@ -790,26 +832,53 @@ namespace MWRender
             mWaterNode->setPosition(
                 getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
-            
-            // Ocean if water level is near sea level (±10 units)
-            bool isOcean = (std::abs(mTop) <= 10.0f);
-            
+
+            // TESTING: Disable Ocean and Lake, use old water with SSR
             if (mUseOcean && mOcean)
-                mOcean->setEnabled(mEnabled && isOcean);
-                
+                mOcean->setEnabled(false);
+
             if (mLake)
-                mLake->setEnabled(mEnabled && !isOcean);
+                mLake->setEnabled(false); // Disabled for testing old water + SSR
+
+            // Create cubemap region for all water (testing mode)
+            if (mCubemapManager && mUseSSRReflections)
+            {
+                // Use cell center as cubemap position
+                osg::Vec3f cubemapCenter = getSceneNodeCoordinates(
+                    store->getCell()->getGridX(),
+                    store->getCell()->getGridY()
+                );
+
+                // Check if we need to add a region (limit to 8 max)
+                if (mCubemapManager->getRegionCount() < 8)
+                {
+                    // Add cubemap with 1000 unit radius
+                    mCubemapManager->addRegion(cubemapCenter, 1000.0f);
+                }
+            }
         }
         else
         {
             mWaterNode->setPosition(osg::Vec3f(0, 0, mTop));
             mInterior = true;
-            
-            // Interior: Use Lake
+
+            // Interior: Also disable Lake, use old water
             if (mLake)
+                mLake->setEnabled(false);
+            if (mUseOcean && mOcean)
+                mOcean->setEnabled(false);
+
+            // Create cubemap region for interior water
+            if (mCubemapManager && mUseSSRReflections)
             {
-                mLake->setEnabled(mEnabled);
-                if (mUseOcean && mOcean) mOcean->setEnabled(false);
+                osg::Vec3f cubemapCenter(0, 0, mTop);
+
+                // Check if we need to add a region (limit to 8 max)
+                if (mCubemapManager->getRegionCount() < 8)
+                {
+                    // Add cubemap with 500 unit radius for interiors (smaller spaces)
+                    mCubemapManager->addRegion(cubemapCenter, 500.0f);
+                }
             }
         }
         if (mInterior != wasInterior && mReflection)
@@ -862,7 +931,7 @@ namespace MWRender
     void WaterManager::update(float dt, bool paused, const osg::Vec3f& cameraPos)
     {
         bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
-        
+
         // Debug logging for WaterManager update
         static float timer = 0.0f;
         timer += dt;
@@ -873,9 +942,17 @@ namespace MWRender
 
         if (mUseOcean && mOcean && mEnabled && isOcean)
             mOcean->update(dt, paused, cameraPos);
-            
+
         if (mLake && mEnabled && !isOcean)
             mLake->update(dt, paused, cameraPos);
+
+        // Update SSR + Cubemap for lakes/rivers (not ocean)
+        if (mUseSSRReflections && !isOcean && mEnabled)
+        {
+            // Update cubemap reflections
+            if (mCubemapManager)
+                mCubemapManager->update(dt, cameraPos);
+        }
 
         if (!paused)
         {
@@ -892,9 +969,9 @@ namespace MWRender
     {
         bool visible = mEnabled && mToggled;
 
-        // Hide old water geometry when using Ocean (exterior sea level) or Lake (interior or high altitude)
-        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
-        bool useNewWater = (mUseOcean && isOcean) || (mLake && !isOcean);
+        // TESTING: Use old water plane with SSR enabled
+        // Lake/Ocean disabled, old water shows everywhere with SSR reflections
+        bool useNewWater = false; // Don't use Ocean/Lake, use old water
         mWaterNode->setNodeMask((visible && !useNewWater) ? ~0u : 0u);
 
         if (mRefraction)
@@ -943,9 +1020,36 @@ namespace MWRender
         mSimulation->emitRipple(pos);
     }
 
+    void WaterManager::addCell(const MWWorld::CellStore* store)
+    {
+        // Track loaded cells for height field updates
+        auto it = std::find(mLoadedCells.begin(), mLoadedCells.end(), store);
+        if (it == mLoadedCells.end())
+        {
+            mLoadedCells.push_back(store);
+            updateWaterHeightField();
+        }
+    }
+
     void WaterManager::removeCell(const MWWorld::CellStore* store)
     {
         mSimulation->removeCell(store);
+
+        // Remove from loaded cells tracking
+        auto it = std::find(mLoadedCells.begin(), mLoadedCells.end(), store);
+        if (it != mLoadedCells.end())
+        {
+            mLoadedCells.erase(it);
+            updateWaterHeightField();
+        }
+    }
+
+    void WaterManager::updateWaterHeightField()
+    {
+        if (mWaterHeightField)
+        {
+            mWaterHeightField->updateFromLoadedCells(mLoadedCells);
+        }
     }
 
     void WaterManager::clearRipples()
@@ -1060,6 +1164,13 @@ namespace MWRender
     float WaterManager::getOceanFoamAmount() const
     {
         return mOcean ? mOcean->getFoamAmount() : 5.0f;
+    }
+
+    osg::TextureCubeMap* WaterManager::getCubemapForPosition(const osg::Vec3f& pos)
+    {
+        if (mCubemapManager)
+            return mCubemapManager->getCubemapForPosition(pos);
+        return nullptr;
     }
 
 }

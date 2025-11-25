@@ -775,6 +775,7 @@ namespace MWRender
     {
         mPathgrid->addCell(store);
 
+        mWater->addCell(store);
         mWater->changeCell(store);
 
         if (store->getCell()->isExterior())
@@ -900,6 +901,30 @@ namespace MWRender
         float rainIntensity = mSky->getPrecipitationAlpha();
         mWater->setRainIntensity(rainIntensity);
         mWater->setRainRipplesEnabled(mSky->getRainRipplesEnabled());
+
+        // Update SSR with scene buffers if available
+        if (mWater && mWater->getSSRManager() && mPostProcessor)
+        {
+            auto* ssrMgr = mWater->getSSRManager();
+
+            // Get scene textures from post-processor (frame 0 for current frame)
+            osg::Texture2D* depthTex = dynamic_cast<osg::Texture2D*>(
+                mPostProcessor->getTexture(PostProcessor::Tex_Depth, 0).get());
+            osg::Texture2D* normalTex = dynamic_cast<osg::Texture2D*>(
+                mPostProcessor->getTexture(PostProcessor::Tex_Normal, 0).get());
+            osg::Texture2D* sceneTex = dynamic_cast<osg::Texture2D*>(
+                mPostProcessor->getTexture(PostProcessor::Tex_Scene, 0).get());
+
+            if (depthTex && sceneTex)
+            {
+                ssrMgr->setInputTextures(sceneTex, depthTex, normalTex);
+
+                // Update SSR with current camera matrices
+                osg::Matrix viewMatrix = mViewer->getCamera()->getViewMatrix();
+                osg::Matrix projMatrix = mViewer->getCamera()->getProjectionMatrix();
+                ssrMgr->update(viewMatrix, projMatrix);
+            }
+        }
 
         mWater->update(dt, paused, mCamera->getPosition());
         if (!paused)
