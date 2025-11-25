@@ -62,7 +62,7 @@ namespace MWRender
     {
         mSSRCamera = new osg::Camera;
         mSSRCamera->setName("SSR Camera");
-        mSSRCamera->setRenderOrder(osg::Camera::PRE_RENDER);
+        mSSRCamera->setRenderOrder(osg::Camera::PRE_RENDER, -50); // Before water, after scene
         mSSRCamera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
         mSSRCamera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
         mSSRCamera->setClearMask(GL_COLOR_BUFFER_BIT);
@@ -109,32 +109,149 @@ namespace MWRender
     {
         osg::StateSet* stateset = mFullscreenQuad->getOrCreateStateSet();
 
-        // Create shader program
+        // Try to use ShaderManager to load the SSR shader
         Shader::ShaderManager& shaderMgr = mResourceSystem->getSceneManager()->getShaderManager();
 
-        // For now, use a simple passthrough - actual SSR shader will be added later
         osg::ref_ptr<osg::Program> program = new osg::Program;
+        program->setName("SSR");
 
-        osg::ref_ptr<osg::Shader> vertShader = new osg::Shader(osg::Shader::VERTEX);
-        vertShader->setShaderSource(R"(
-            #version 120
-            void main() {
-                gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-                gl_TexCoord[0] = gl_MultiTexCoord0;
-            }
-        )");
+        // Try to load from shader files
+        std::map<std::string, std::string> defineMap;
 
-        // Simple placeholder fragment shader - will be replaced with actual SSR implementation
-        osg::ref_ptr<osg::Shader> fragShader = new osg::Shader(osg::Shader::FRAGMENT);
-        fragShader->setShaderSource(R"(
-            #version 120
-            uniform sampler2D colorBuffer;
-            void main() {
-                vec2 uv = gl_TexCoord[0].xy;
-                vec3 color = texture2D(colorBuffer, uv).rgb;
-                gl_FragColor = vec4(color, 1.0); // Full confidence for now
-            }
-        )");
+        osg::ref_ptr<osg::Shader> vertShader = shaderMgr.getShader("ssr_fullscreen.vert", defineMap, osg::Shader::VERTEX);
+        osg::ref_ptr<osg::Shader> fragShader = shaderMgr.getShader("ssr_raymarch.frag", defineMap, osg::Shader::FRAGMENT);
+
+        // If shader files not found, use inline fallback with actual SSR implementation
+        if (!vertShader)
+        {
+            vertShader = new osg::Shader(osg::Shader::VERTEX);
+            vertShader->setShaderSource(R"(
+                #version 120
+                varying vec2 vTexCoord;
+                void main() {
+                    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+                    vTexCoord = gl_MultiTexCoord0.xy;
+                }
+            )");
+        }
+
+        if (!fragShader)
+        {
+            // Use the actual SSR raymarch implementation inline
+            fragShader = new osg::Shader(osg::Shader::FRAGMENT);
+            fragShader->setShaderSource(R"(
+                #version 120
+
+                uniform sampler2D colorBuffer;
+                uniform sampler2D depthBuffer;
+
+                uniform mat4 viewMatrix;
+                uniform mat4 projectionMatrix;
+                uniform mat4 invViewProjection;
+
+                uniform float maxDistance;
+                uniform int maxSteps;
+                uniform float stepSize;
+                uniform float thickness;
+                uniform vec2 fadeParams;
+
+                varying vec2 vTexCoord;
+
+                const float NEAR_PLANE = 1.0;
+                const float FAR_PLANE = 7168.0;
+
+                float linearizeDepth(float depth)
+                {
+                    float z = depth * 2.0 - 1.0;
+                    return (2.0 * NEAR_PLANE * FAR_PLANE) / (FAR_PLANE + NEAR_PLANE - z * (FAR_PLANE - NEAR_PLANE));
+                }
+
+                vec3 getWorldPosition(vec2 uv, float depth)
+                {
+                    vec4 clipPos = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+                    vec4 worldPos = invViewProjection * clipPos;
+                    return worldPos.xyz / worldPos.w;
+                }
+
+                vec3 projectToScreen(vec3 worldPos)
+                {
+                    vec4 clipPos = projectionMatrix * (viewMatrix * vec4(worldPos, 1.0));
+                    vec3 ndcPos = clipPos.xyz / clipPos.w;
+                    return vec3(ndcPos.xy * 0.5 + 0.5, ndcPos.z * 0.5 + 0.5);
+                }
+
+                float screenEdgeFade(vec2 uv)
+                {
+                    vec2 distToEdge = min(uv, 1.0 - uv);
+                    float minDist = min(distToEdge.x, distToEdge.y);
+                    return smoothstep(0.0, 0.1, minDist);
+                }
+
+                void main()
+                {
+                    vec2 uv = vTexCoord;
+                    float depth = texture2D(depthBuffer, uv).r;
+
+                    if (depth >= 0.9999)
+                    {
+                        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                        return;
+                    }
+
+                    vec3 worldPos = getWorldPosition(uv, depth);
+
+                    // Assume water normal points up (0, 0, 1)
+                    vec3 normal = vec3(0.0, 0.0, 1.0);
+
+                    // Get camera position from view matrix (translation is negated in column 3)
+                    // For view matrix, camera position is -transpose(rotation) * translation
+                    vec3 cameraPos = -vec3(
+                        dot(viewMatrix[0].xyz, viewMatrix[3].xyz),
+                        dot(viewMatrix[1].xyz, viewMatrix[3].xyz),
+                        dot(viewMatrix[2].xyz, viewMatrix[3].xyz)
+                    );
+
+                    vec3 viewDir = normalize(worldPos - cameraPos);
+                    vec3 reflectDir = reflect(viewDir, normal);
+
+                    // Raymarch
+                    float stepLen = maxDistance / float(maxSteps);
+                    vec3 currentPos = worldPos;
+
+                    for (int i = 0; i < 64; ++i)
+                    {
+                        currentPos += reflectDir * stepLen;
+
+                        vec3 screenPos = projectToScreen(currentPos);
+
+                        if (screenPos.x < 0.0 || screenPos.x > 1.0 ||
+                            screenPos.y < 0.0 || screenPos.y > 1.0 ||
+                            screenPos.z < 0.0 || screenPos.z > 1.0)
+                        {
+                            break;
+                        }
+
+                        float sampledDepth = texture2D(depthBuffer, screenPos.xy).r;
+                        float sampledLinear = linearizeDepth(sampledDepth);
+                        float rayLinear = linearizeDepth(screenPos.z);
+
+                        float depthDiff = rayLinear - sampledLinear;
+                        if (depthDiff > 0.0 && depthDiff < thickness * 10.0)
+                        {
+                            vec3 color = texture2D(colorBuffer, screenPos.xy).rgb;
+                            float edgeFade = screenEdgeFade(screenPos.xy);
+                            float distFade = 1.0 - float(i) / 64.0;
+                            float confidence = edgeFade * distFade * 0.8;
+
+                            gl_FragColor = vec4(color, confidence);
+                            return;
+                        }
+                    }
+
+                    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
+                }
+            )");
+        }
 
         program->addShader(vertShader);
         program->addShader(fragShader);

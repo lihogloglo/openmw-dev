@@ -1,0 +1,74 @@
+{
+  "version": "1.0",
+  "description": "Multi-level water bodies for OpenMW - Using World Coordinates",
+  "coordinateSystem": "Morrowind world coordinates (X, Y in game units)",
+  "lakes": [
+    {
+      "name": "Pelagiad Lake",
+      "worldX": 1427014270.836914,
+      "worldY": -68960.742188,
+      "waterHeight": 541.250427,
+      "location": "Pelagiad",
+      "comment": "Sea level lake near Pelagiad (southern Vvardenfell)"
+    },
+    {
+      "name": "gne",
+      "worldX": 1427014270.836914,
+      "worldY": -68960.742188,
+      "waterHeight": 1000,
+      "location": "Balmora",
+      "comment": "Odai River near Balmora, slightly elevated"
+    },
+    {
+      "name": "Caldera Mountain Lake",
+      "worldX": -11264.0,
+      "worldY": 34816.0,
+      "waterHeight": 800.0,
+      "location": "Caldera",
+      "comment": "High altitude lake near Caldera mining town"
+    },
+    {
+      "name": "Vivec Canals",
+      "worldX": 19072.0,
+      "worldY": -71680.0,
+      "waterHeight": 0.0,
+      "location": "Vivec",
+      "comment": "Vivec canton waterways at sea level"
+    },
+    {
+      "name": "Red Mountain Crater Lake",
+      "worldX": 40960.0,
+      "worldY": 81920.0,
+      "waterHeight": 1500.0,
+      "location": "Red Mountain",
+      "comment": "Very high altitude volcanic crater lake"
+    },
+    {
+      "name": "Seyda Neen Harbor",
+      "worldX": -10240.0,
+      "worldY": -79872.0,
+      "waterHeight": 0.0,
+      "location": "Seyda Neen",
+      "comment": "Starting area harbor water"
+    }
+  ],
+  "rivers": [
+    {
+      "name": "Odai River Flow",
+      "worldX": -22528.0,
+      "worldY": -15360.0,
+      "waterHeight": 50.0,
+      "flowDirection": [1.0, 0.5],
+      "flowSpeed": 0.3,
+      "location": "Balmora to Bitter Coast",
+      "comment": "River flowing west from Balmora - flow system not implemented yet"
+    }
+  ],
+  "notes": [
+    "World coordinates are Morrowind game units",
+    "One cell = 8192 units square",
+    "Water height is Z coordinate in game units",
+    "Sea level = 0.0",
+    "Flow system for rivers not yet implemented"
+  ]
+}

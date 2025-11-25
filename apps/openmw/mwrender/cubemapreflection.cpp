@@ -84,7 +84,7 @@ namespace MWRender
         {
             osg::Camera* camera = new osg::Camera;
             camera->setName("Cubemap Face " + std::to_string(face));
-            camera->setRenderOrder(osg::Camera::PRE_RENDER, -100); // Render before main scene
+            camera->setRenderOrder(osg::Camera::PRE_RENDER, -200); // Render before main scene and SSR
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
             camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
             camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -104,17 +104,18 @@ namespace MWRender
             osg::Vec3f up = FACE_UPS[face];
             camera->setViewMatrixAsLookAt(eye, center, up);
 
-            // Add scene as child
-            camera->addChild(mSceneRoot);
+            // Use cull callback instead of addChild to avoid circular reference
+            camera->setCullCallback(new CubemapCullCallback(mSceneRoot));
 
-            // Set cull mask (exclude water, UI, etc.)
+            // Set cull mask (exclude water, UI, etc. to avoid recursion)
             camera->setCullMask(
                 Mask_Scene | Mask_Object | Mask_Static | Mask_Terrain | Mask_Actor | Mask_Sky | Mask_Lighting);
 
-            camera->setNodeMask(0); // Start disabled, enable when updating
+            camera->setNodeMask(Mask_RenderToTexture); // Always enabled for RTT
 
             region.renderCameras[face] = camera;
 
+            // Add camera to parent (not scene root, avoiding circular reference)
             if (mParent)
                 mParent->addChild(camera);
         }

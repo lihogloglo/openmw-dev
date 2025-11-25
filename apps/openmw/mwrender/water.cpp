@@ -456,9 +456,8 @@ namespace MWRender
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
-        // TEMPORARY: Ocean disabled for testing lake SSR system
-        // TODO: Implement smart ocean masking using WaterHeightField
-        mUseOcean = false;
+        // Ocean enabled with smart masking using WaterHeightField
+        mUseOcean = true;
 
         // Initialize water height field for multi-altitude water support
         mWaterHeightField = std::make_unique<WaterHeightField>(2048, 0.1f);
@@ -496,6 +495,9 @@ namespace MWRender
         setHeight(mTop);
 
         updateWaterMaterial();
+
+        // Load test lakes for multi-altitude water
+        loadLakesFromJSON("");
 
         if (ico)
             ico->add(mWaterNode);
@@ -809,16 +811,16 @@ namespace MWRender
     void WaterManager::setEnabled(bool enabled)
     {
         mEnabled = enabled;
-        
-        // Ocean if exterior and water level is near sea level (±10 units)
-        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
-        
+
+        // Simple fallback classification (will be overridden by update() using WaterHeightField)
+        // For now, just disable both to avoid the blue square
+        // The update() function will enable the correct one based on camera position
         if (mUseOcean && mOcean)
-            mOcean->setEnabled(enabled && isOcean);
-            
+            mOcean->setEnabled(false);
+
         if (mLake)
-            mLake->setEnabled(enabled && !isOcean);
-            
+            mLake->setEnabled(false);
+
         updateVisible();
     }
 
@@ -833,12 +835,8 @@ namespace MWRender
                 getSceneNodeCoordinates(store->getCell()->getGridX(), store->getCell()->getGridY()));
             mInterior = false;
 
-            // TESTING: Disable Ocean and Lake, use old water with SSR
-            if (mUseOcean && mOcean)
-                mOcean->setEnabled(false);
-
-            if (mLake)
-                mLake->setEnabled(false); // Disabled for testing old water + SSR
+            // Ocean and Lake will be enabled/disabled based on water type in update()
+            // No longer force-disabled for testing
 
             // Create cubemap region for all water (testing mode)
             if (mCubemapManager && mUseSSRReflections)
@@ -888,19 +886,14 @@ namespace MWRender
     void WaterManager::setHeight(const float height)
     {
         mTop = height;
-        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
 
+        // Just set heights, don't enable/disable here
+        // The update() function will enable the correct water type based on camera position
         if (mUseOcean && mOcean)
-        {
             mOcean->setHeight(height);
-            mOcean->setEnabled(mEnabled && isOcean);
-        }
-            
+
         if (mLake)
-        {
             mLake->setHeight(height);
-            mLake->setEnabled(mEnabled && !isOcean);
-        }
 
         mSimulation->setWaterHeight(height);
 
@@ -912,7 +905,7 @@ namespace MWRender
             mReflection->setWaterLevel(mTop);
         if (mRefraction)
             mRefraction->setWaterLevel(mTop);
-            
+
         updateVisible();
     }
 
@@ -930,24 +923,52 @@ namespace MWRender
 
     void WaterManager::update(float dt, bool paused, const osg::Vec3f& cameraPos)
     {
-        bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
+        // Determine water type at camera position using WaterHeightField
+        WaterType currentWaterType = WaterType::None;
+        float waterHeight = mTop;
+
+        if (mWaterHeightField)
+        {
+            currentWaterType = mWaterHeightField->sampleType(cameraPos);
+            float sampledHeight = mWaterHeightField->sampleHeight(cameraPos);
+            if (sampledHeight > -999.0f)  // Valid height
+                waterHeight = sampledHeight;
+        }
+
+        // Fallback to simple check if height field unavailable
+        if (currentWaterType == WaterType::None && !mInterior)
+        {
+            currentWaterType = (std::abs(mTop) <= 10.0f) ? WaterType::Ocean : WaterType::Lake;
+        }
+
+        bool useOcean = (currentWaterType == WaterType::Ocean);
+        bool useLake = (currentWaterType == WaterType::Lake || currentWaterType == WaterType::River);
 
         // Debug logging for WaterManager update
         static float timer = 0.0f;
         timer += dt;
         if (timer > 2.0f) {
-            std::cout << "WaterManager::update: Enabled=" << mEnabled << " Interior=" << mInterior << " Top=" << mTop << " UseOcean=" << mUseOcean << " IsOcean=" << isOcean << std::endl;
+            std::cout << "WaterManager::update: Enabled=" << mEnabled << " Interior=" << mInterior
+                      << " WaterType=" << static_cast<int>(currentWaterType)
+                      << " UseOcean=" << useOcean << " UseLake=" << useLake << std::endl;
             timer = 0.0f;
         }
 
-        if (mUseOcean && mOcean && mEnabled && isOcean)
+        // Enable/disable water bodies based on type
+        if (mOcean)
+            mOcean->setEnabled(mEnabled && mUseOcean && useOcean);
+        if (mLake)
+            mLake->setEnabled(mEnabled && useLake);
+
+        // Update the active water body
+        if (mUseOcean && mOcean && mEnabled && useOcean)
             mOcean->update(dt, paused, cameraPos);
 
-        if (mLake && mEnabled && !isOcean)
+        if (mLake && mEnabled && useLake)
             mLake->update(dt, paused, cameraPos);
 
         // Update SSR + Cubemap for lakes/rivers (not ocean)
-        if (mUseSSRReflections && !isOcean && mEnabled)
+        if (mUseSSRReflections && useLake && mEnabled)
         {
             // Update cubemap reflections
             if (mCubemapManager)
@@ -969,9 +990,8 @@ namespace MWRender
     {
         bool visible = mEnabled && mToggled;
 
-        // TESTING: Use old water plane with SSR enabled
-        // Lake/Ocean disabled, old water shows everywhere with SSR reflections
-        bool useNewWater = false; // Don't use Ocean/Lake, use old water
+        // Use new water system (Ocean/Lake with SSR)
+        bool useNewWater = true; // Use Ocean/Lake based on water type
         mWaterNode->setNodeMask((visible && !useNewWater) ? ~0u : 0u);
 
         if (mRefraction)
@@ -1049,6 +1069,14 @@ namespace MWRender
         if (mWaterHeightField)
         {
             mWaterHeightField->updateFromLoadedCells(mLoadedCells);
+
+            // Generate and update ocean mask to prevent ocean rendering in inland areas
+            if (mOcean && mUseOcean)
+            {
+                osg::Image* oceanMask = mWaterHeightField->generateOceanMask();
+                mOcean->setOceanMask(oceanMask, mWaterHeightField->getOrigin(),
+                    mWaterHeightField->getTexelsPerUnit());
+            }
         }
     }
 
@@ -1171,6 +1199,67 @@ namespace MWRender
         if (mCubemapManager)
             return mCubemapManager->getCubemapForPosition(pos);
         return nullptr;
+    }
+
+    void WaterManager::addLakeCell(int gridX, int gridY, float height)
+    {
+        if (mLake)
+            mLake->addWaterCell(gridX, gridY, height);
+    }
+
+    void WaterManager::addLakeAtWorldPos(float worldX, float worldY, float height)
+    {
+        // Convert world coordinates to grid cell
+        const float cellSize = Constants::CellSizeInUnits;  // 8192 MW units
+        int gridX = static_cast<int>(std::floor(worldX / cellSize));
+        int gridY = static_cast<int>(std::floor(worldY / cellSize));
+
+        std::cout << "Adding lake at world pos (" << worldX << ", " << worldY << ") -> grid cell ("
+                  << gridX << ", " << gridY << ") at height " << height << std::endl;
+
+        addLakeCell(gridX, gridY, height);
+    }
+
+    void WaterManager::removeLakeCell(int gridX, int gridY)
+    {
+        if (mLake)
+            mLake->removeWaterCell(gridX, gridY);
+    }
+
+    void WaterManager::removeLakeAtWorldPos(float worldX, float worldY)
+    {
+        // Convert world coordinates to grid cell
+        const float cellSize = Constants::CellSizeInUnits;  // 8192 MW units
+        int gridX = static_cast<int>(std::floor(worldX / cellSize));
+        int gridY = static_cast<int>(std::floor(worldY / cellSize));
+
+        removeLakeCell(gridX, gridY);
+    }
+
+    void WaterManager::loadLakesFromJSON(const std::string& filepath)
+    {
+        // For now, just add test lakes manually using real Morrowind world coordinates
+        // TODO: Implement JSON parsing when needed
+
+        std::cout << "=== Loading test lakes at real Morrowind locations ===" << std::endl;
+
+        // Test lakes at different altitudes using actual world coordinates
+        // Pelagiad area (southern Vvardenfell, near starting area)
+        addLakeAtWorldPos(2380.0f, -56032.0f, 0.0f);    // Sea level lake near Pelagiad
+
+        // Balmora area (western Vvardenfell)
+        addLakeAtWorldPos(-22528.0f, -15360.0f, 50.0f);  // Odai River near Balmora (slightly elevated)
+
+        // Caldera area (north-central, elevated region)
+        addLakeAtWorldPos(-11264.0f, 34816.0f, 800.0f);  // High altitude lake near Caldera
+
+        // Vivec area (southern coast)
+        addLakeAtWorldPos(19072.0f, -71680.0f, 0.0f);   // Vivec canals at sea level
+
+        // Red Mountain region (high altitude test)
+        addLakeAtWorldPos(40960.0f, 81920.0f, 1500.0f); // Very high altitude mountain lake
+
+        std::cout << "=== Test lakes loaded ===" << std::endl;
     }
 
 }

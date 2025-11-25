@@ -11,9 +11,10 @@
 
 namespace MWRender
 {
-    // Known lakes at sea level that should not trigger ocean rendering
+    // Explicit lake overrides - inland water bodies that should NEVER show ocean
+    // This catches special cases that grid-based detection might miss
     static const std::set<std::string> KNOWN_LAKE_CELLS = {
-        // Vivec cantons (all at sea level but should be lakes)
+        // Vivec canals - These are canals between cantons, not open ocean
         "Vivec, Arena",
         "Vivec, Temple",
         "Vivec, Foreign Quarter",
@@ -23,13 +24,22 @@ namespace MWRender
         "Vivec, St. Delyn",
         "Vivec, St. Olms",
 
-        // Other coastal cities with water
+        // Balmora - Odai River runs through the city
         "Balmora",
+
+        // Other settlements with rivers/lakes
         "Ebonheart",
         "Ebonheart, Imperial Chapels",
         "Sadrith Mora",
         "Tel Branora",
         "Wolverine Hall",
+
+        // Caldera - Crater lake
+        "Caldera",
+
+        // Seyda Neen - Has both ocean AND inland water, but default to lake
+        // to prevent ocean from appearing in the river
+        "Seyda Neen",
     };
 
     WaterHeightField::WaterHeightField(int resolution, float texelsPerMWUnit)
@@ -131,6 +141,30 @@ namespace MWRender
         return static_cast<WaterType>(data[y * mSize + x]);
     }
 
+    osg::Image* WaterHeightField::generateOceanMask()
+    {
+        // Create mask texture if it doesn't exist
+        if (!mOceanMask)
+        {
+            mOceanMask = new osg::Image;
+            mOceanMask->allocateImage(mSize, mSize, 1, GL_RED, GL_UNSIGNED_BYTE);
+        }
+
+        // Generate mask from water type texture
+        // 255 (1.0) = Ocean, 0 (0.0) = Lake/River/None
+        const uint8_t* typeData = reinterpret_cast<const uint8_t*>(mWaterType->data());
+        uint8_t* maskData = reinterpret_cast<uint8_t*>(mOceanMask->data());
+
+        for (int i = 0; i < mSize * mSize; ++i)
+        {
+            WaterType type = static_cast<WaterType>(typeData[i]);
+            maskData[i] = (type == WaterType::Ocean) ? 255 : 0;
+        }
+
+        mOceanMask->dirty();
+        return mOceanMask.get();
+    }
+
     osg::Vec2f WaterHeightField::worldToUV(const osg::Vec2f& worldPos) const
     {
         // Convert world position to grid coordinates
@@ -214,24 +248,60 @@ namespace MWRender
 
         float waterHeight = cell->getCell()->getWaterHeight();
 
-        // Too high or too low = definitely lake
-        const float SEA_LEVEL_TOLERANCE = 15.0f;
-        if (std::abs(waterHeight) > SEA_LEVEL_TOLERANCE)
+        // High altitude water = definitely lake (mountains, etc.)
+        if (waterHeight > 50.0f || waterHeight < -50.0f)
             return WaterType::Lake;
 
-        // Check manual override list
+        // Get cell grid coordinates for geographical classification
+        int gridX = cell->getCell()->getGridX();
+        int gridY = cell->getCell()->getGridY();
+
+        // Check manual override list first (Vivec, Balmora, etc.)
         if (isKnownLake(cell))
             return WaterType::Lake;
 
-        // Check if at world perimeter (ocean boundary)
-        if (isPerimeterCell(cell))
+        // Grid-based ocean detection for Vvardenfell
+        // Based on actual Morrowind coastline geography
+
+        // Far west ocean (beyond West Gash)
+        if (gridX < -22)
             return WaterType::Ocean;
 
-        // TODO: Implement connectivity check (BFS to perimeter)
-        // For now, default to ocean if at sea level
-        // This may cause false positives for isolated sea-level ponds
+        // Far east ocean (beyond Molag Amur)
+        if (gridX > 27)
+            return WaterType::Ocean;
 
-        return WaterType::Ocean;
+        // Far north ocean (Sheogorad region)
+        if (gridY > 27)
+            return WaterType::Ocean;
+
+        // Far south ocean (beyond Molag Mar)
+        if (gridY < -28)
+            return WaterType::Ocean;
+
+        // Azura's Coast - East coast region
+        // Roughly from Tel Fyr to Sadrith Mora area
+        if (gridX > 16 && gridY > -12 && gridY < 18)
+            return WaterType::Ocean;
+
+        // West Gash coastal region
+        // Western coast from Gnaar Mok to Ald Velothi
+        if (gridX < -12 && gridY > -18 && gridY < 12)
+            return WaterType::Ocean;
+
+        // Bitter Coast - Southwest region
+        // South of Balmora, west of Vivec
+        if (gridY < -12 && gridX < -4 && gridX > -20)
+            return WaterType::Ocean;
+
+        // South coast near Vivec/Suran
+        // Careful to exclude Vivec canals (handled by known lakes list)
+        if (gridY < -16 && gridX > -4 && gridX < 12)
+            return WaterType::Ocean;
+
+        // Everything else inland = Lake
+        // This includes: Vivec canals, Balmora river, interior lakes, ponds
+        return WaterType::Lake;
     }
 
     bool WaterHeightField::isPerimeterCell(const MWWorld::CellStore* cell) const

@@ -4,7 +4,9 @@
 #include "waterbody.hpp"
 
 #include <osg/Vec3f>
+#include <osg/Vec2i>
 #include <osg/ref_ptr>
+#include <osg/Texture2D>
 #include <osg/Texture2DArray>
 #include <osg/Program>
 #include <osg/Uniform>
@@ -68,6 +70,9 @@ namespace MWRender
         float getSpread() const { return mSpread; }
         float getFoamAmount() const { return mFoamAmount; }
 
+        // Ocean masking (to prevent ocean rendering in inland areas)
+        void setOceanMask(osg::Image* maskImage, const osg::Vec2i& origin, float texelsPerUnit);
+
     private:
         void initShaders();
         void initTextures();
@@ -93,6 +98,11 @@ namespace MWRender
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;
         osg::ref_ptr<osg::Texture2DArray> mDisplacementMap;
         osg::ref_ptr<osg::Texture2DArray> mNormalMap;
+
+        // Ocean mask texture
+        osg::ref_ptr<osg::Texture2D> mOceanMaskTexture;
+        osg::ref_ptr<osg::Uniform> mOceanMaskOriginUniform;
+        osg::ref_ptr<osg::Uniform> mOceanMaskScaleUniform;
 
         // FFT Buffers (SSBOs)
         osg::ref_ptr<osg::BufferObject> mButterflyBuffer;

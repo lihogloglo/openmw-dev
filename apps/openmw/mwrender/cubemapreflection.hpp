@@ -3,9 +3,12 @@
 
 #include <osg/Camera>
 #include <osg/Group>
+#include <osg/NodeCallback>
 #include <osg/TextureCubeMap>
 #include <osg/Vec3f>
 #include <osg/ref_ptr>
+
+#include <osgUtil/CullVisitor>
 
 #include <vector>
 
@@ -16,6 +19,35 @@ namespace Resource
 
 namespace MWRender
 {
+    /**
+     * @brief Cull callback to traverse scene without circular reference
+     *
+     * This callback allows the cubemap camera to render the scene without
+     * adding the scene as a child node, avoiding circular scene graph references.
+     */
+    class CubemapCullCallback : public osg::NodeCallback
+    {
+    public:
+        CubemapCullCallback(osg::Group* sceneRoot)
+            : mSceneRoot(sceneRoot)
+        {
+        }
+
+        virtual void operator()(osg::Node* node, osg::NodeVisitor* nv) override
+        {
+            osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
+            if (cv && mSceneRoot.valid())
+            {
+                // Traverse scene without adding as child - breaks circular reference
+                mSceneRoot->accept(*cv);
+            }
+            traverse(node, nv);
+        }
+
+    private:
+        osg::observer_ptr<osg::Group> mSceneRoot;
+    };
+
     /**
      * @brief Manages environment cubemaps for water reflections
      *

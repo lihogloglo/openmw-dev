@@ -172,6 +172,13 @@ namespace MWRender
         // SSR + Cubemap accessors
         SSRManager* getSSRManager() { return mSSRManager.get(); }
         CubemapReflectionManager* getCubemapManager() { return mCubemapManager.get(); }
+
+        // Lake management
+        void addLakeCell(int gridX, int gridY, float height);  // Grid-based (internal use)
+        void addLakeAtWorldPos(float worldX, float worldY, float height);  // World coordinate-based (preferred)
+        void removeLakeCell(int gridX, int gridY);
+        void removeLakeAtWorldPos(float worldX, float worldY);
+        void loadLakesFromJSON(const std::string& filepath);
         bool useSSRReflections() const { return mUseSSRReflections; }
         osg::TextureCubeMap* getCubemapForPosition(const osg::Vec3f& pos);
     };

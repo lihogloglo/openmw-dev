@@ -68,6 +68,11 @@ uniform float near;
 uniform float far;
 uniform vec2 screenRes;
 
+// Ocean shore masking
+uniform sampler2D oceanMaskTexture;
+uniform vec2 oceanMaskOrigin;
+uniform float oceanMaskScale;
+
 // Debug visualization toggle
 uniform int debugVisualizeCascades; // 0 = off, 1 = on
 uniform int debugVisualizeLOD;      // 0 = off, 1 = on
@@ -524,6 +529,13 @@ void main(void)
     // Reduce alpha where there's foam (foam is more opaque)
     float alpha = mix(0.85, 0.95, foamFactor);
 
+    // Apply ocean shore masking to fade out ocean in inland areas
+    vec2 maskUV = (worldPos.xy - oceanMaskOrigin) * oceanMaskScale;
+    float oceanMask = texture2D(oceanMaskTexture, maskUV).r;
+
+    // Fade ocean alpha based on mask (1.0 = full ocean, 0.0 = no ocean)
+    alpha *= oceanMask;
+
     // TEMPORARY DEBUG: Uncomment to test basic rendering
     //gl_FragData[0] = vec4(albedo, 1.0); applyShadowDebugOverlay(); return;
     //gl_FragData[0] = vec4(vec3(foam), 1.0); applyShadowDebugOverlay(); return; // Visualize foam
@@ -533,6 +545,7 @@ void main(void)
     //gl_FragData[0] = vec4(refrReflColor, 1.0); applyShadowDebugOverlay(); return; // Visualize combined refr/refl
     //gl_FragData[0] = vec4(lighting, 1.0); applyShadowDebugOverlay(); return; // Visualize PBR lighting only
     //gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); applyShadowDebugOverlay(); return; // Visualize normals (should move with water)
+    //gl_FragData[0] = vec4(vec3(oceanMask), 1.0); applyShadowDebugOverlay(); return; // DEBUG: Visualize ocean mask
 
     gl_FragData[0] = vec4(finalColor, alpha);
 

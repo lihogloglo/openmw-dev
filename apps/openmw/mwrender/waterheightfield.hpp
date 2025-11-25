@@ -82,6 +82,15 @@ namespace MWRender
         const osg::Image* getTypeTexture() const { return mWaterType.get(); }
 
         /**
+         * @brief Generate ocean mask texture from water type data
+         * @return R8 texture where 1.0 = Ocean, 0.0 = Lake/River/None
+         *
+         * This mask is used to fade out ocean rendering in inland areas
+         * and prevent the FFT ocean from appearing in lakes/rivers.
+         */
+        osg::Image* generateOceanMask();
+
+        /**
          * @brief Get texture origin in world grid coordinates
          */
         osg::Vec2i getOrigin() const { return mOrigin; }
@@ -99,6 +108,7 @@ namespace MWRender
     private:
         osg::ref_ptr<osg::Image> mHeightField;  ///< R16F: Water height
         osg::ref_ptr<osg::Image> mWaterType;    ///< R8UI: Water type enum
+        osg::ref_ptr<osg::Image> mOceanMask;    ///< R8: Ocean mask (1.0=ocean, 0.0=lake/river)
 
         osg::Vec2i mOrigin;       ///< World grid coordinates of texture (0,0)
         int mSize;                ///< Texture dimensions (square)

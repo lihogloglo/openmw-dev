@@ -1170,4 +1170,53 @@ namespace MWRender
         mNeedsSpectrumRegeneration = true;
     }
 
+    void Ocean::setOceanMask(osg::Image* maskImage, const osg::Vec2i& origin, float texelsPerUnit)
+    {
+        if (!maskImage)
+            return;
+
+        // Create or update ocean mask texture
+        if (!mOceanMaskTexture)
+        {
+            mOceanMaskTexture = new osg::Texture2D;
+            mOceanMaskTexture->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR);
+            mOceanMaskTexture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+            mOceanMaskTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+            mOceanMaskTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+        }
+
+        mOceanMaskTexture->setImage(maskImage);
+
+        // Update uniforms for shader sampling
+        if (mWaterGeom)
+        {
+            osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+
+            // Bind ocean mask texture to unit 10 (after normal/displacement maps)
+            stateset->setTextureAttributeAndModes(10, mOceanMaskTexture, osg::StateAttribute::ON);
+
+            // Create uniforms if they don't exist
+            if (!mOceanMaskOriginUniform)
+            {
+                mOceanMaskOriginUniform = new osg::Uniform("oceanMaskOrigin", osg::Vec2f(0.0f, 0.0f));
+                stateset->addUniform(mOceanMaskOriginUniform);
+            }
+
+            if (!mOceanMaskScaleUniform)
+            {
+                mOceanMaskScaleUniform = new osg::Uniform("oceanMaskScale", 1.0f);
+                stateset->addUniform(mOceanMaskScaleUniform);
+            }
+
+            // Update uniform values
+            // Convert origin from grid coordinates to world units
+            const float cellSize = 8192.0f; // MW cell size
+            osg::Vec2f originWorld(origin.x() * cellSize, origin.y() * cellSize);
+            mOceanMaskOriginUniform->set(originWorld);
+
+            // Scale for UV calculation: texels per MW unit
+            mOceanMaskScaleUniform->set(texelsPerUnit);
+        }
+    }
+
 }
