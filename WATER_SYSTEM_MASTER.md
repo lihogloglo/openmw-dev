@@ -1,72 +1,91 @@
 # OpenMW Multi-Level Water System: Master Document
 
-**Last Updated:** 2025-11-25
+**Last Updated:** 2025-11-26
 **Project Goal:** Transform single-plane water into ocean/lakes/rivers at multiple altitudes with modern rendering
 
 ---
 
 ## QUICK STATUS
 
-### Current State: PER-CELL LAKE VISIBILITY SYSTEM COMPLETE ✅
+### Current State: LAKES IMPLEMENTED, RENDERING ISSUES IDENTIFIED ⚠️
 
-**Last Update:** 2025-11-26
+**Last Update:** 2025-11-26 (System Audit Completed)
 
-### Recent Implementation: Per-Cell Lake Visibility Culling
-**What Changed:**
-- ✅ **Implemented per-cell visibility system** - Lakes now only show in loaded cells
-- ✅ **Integrated with cell loading** - Lakes appear/disappear as player moves
-- ✅ **Fixed "god mode" issue** - No longer shows all lakes everywhere
-- ✅ **Cell-aware rendering** - Only lakes in active grid around player are visible
-
-**Implementation Details:**
-Added new methods to Lake class:
-- `showWaterCell(gridX, gridY)` - Makes a lake cell visible if it exists
-- `hideWaterCell(gridX, gridY)` - Hides a lake cell
-- Modified `setEnabled()` to only manage root node, not individual cells
-
-Integrated with WaterManager:
-- `addCell()` now calls `mLake->showWaterCell()` for exterior cells
-- `removeCell()` now calls `mLake->hideWaterCell()` for exterior cells
-- Automatic visibility management as player moves through world
+### System Architecture: COMPLETE ✅
+**What's Working:**
+- ✅ **Per-cell lake geometry** - Individual water planes per cell at custom altitudes
+- ✅ **Per-cell lake visibility** - Lakes only visible in loaded cells (showWaterCell/hideWaterCell)
+- ✅ **Cell loading integration** - Automatic show/hide as cells load/unload
+- ✅ **World coordinate API** - `addLakeAtWorldPos(worldX, worldY, height)` working
+- ✅ **Grid cell conversion** - World pos → grid cells working correctly
+- ✅ **Hardcoded test lakes** - 6 test lakes loaded at different altitudes
+- ✅ **Ocean FFT system** - Complete wave simulation with PBR shading
+- ✅ **Ocean shore masking** - Grid-based geographic classification (zero overhead)
+- ✅ **Cubemap crash fix** - Circular reference resolved using cull callback pattern
+- ✅ **SSR infrastructure** - SSRManager exists with inline shader implementation
+- ✅ **Cubemap infrastructure** - CubemapReflectionManager exists and initialized
+- ✅ **WaterHeightField** - Tracks water altitude/type per cell
 
 **Test Lakes (using real world coordinates):**
+- Player Position Test (20803.70, -61583.41) → cell (2, -8): height 498.96
 - Pelagiad (2380, -56032) → cell (0, -7): height 0.0
 - Balmora/Odai River (-22528, -15360) → cell (-3, -2): height 50.0
 - Caldera (-11264, 34816) → cell (-2, 4): height 800.0
 - Vivec (19072, -71680) → cell (2, -9): height 0.0
 - Red Mountain (40960, 81920) → cell (5, 10): height 1500.0
 
-### What Works
-✅ **Per-Cell Lake Geometry** - Individual water planes per cell at custom altitudes
-✅ **Per-Cell Lake Visibility** - Lakes only visible in loaded cells
-✅ **Cell Loading Integration** - Automatic show/hide as cells load/unload
-✅ **World Coordinate API** - `addLakeAtWorldPos(worldX, worldY, height)` works correctly
-✅ **Grid Cell Conversion** - World pos → grid cells works (e.g. (2380, -56032) → (0, -7))
-✅ **Lake Creation** - Geometry and transforms created correctly
-✅ **Cubemap System** - Circular reference resolved using cull callback pattern
-✅ **Ocean Shore Masking** - Grid-based geographic classification (zero overhead)
-✅ **Ocean Mask Pipeline** - Automatic mask generation and shader integration
-✅ **WaterHeightField** - Tracks water altitude/type per cell with grid-based ocean detection
-✅ **Ocean FFT** - Complete wave simulation system
-✅ **Water Classification** - update() properly enables ocean/lake based on camera position
+### Critical Issues Identified ❌
 
-### What Needs Testing/Improvement
-⏸️ **Runtime testing** - Test in-game to verify visibility works correctly
-⏸️ **Ocean masking** - Verify ocean stops at shores (Vivec canals, Balmora river)
-⏸️ **Lake shader** - Current solid blue placeholder needs proper water shader (SSR+cubemap)
-⏸️ **JSON parsing** - Implement proper lakes.json loading (currently hardcoded test lakes)
-⏸️ **SSR+Cubemaps** - Verify reflections work for inland water
+**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)**
+- **Problem:** Lakes appear to render on top of all terrain and objects
+- **Root Cause:** Lakes use `AutoDepth` with `setWriteMask(false)` ([lake.cpp:246-247](apps/openmw/mwrender/lake.cpp#L246))
+  - This disables depth writing, causing lakes to be transparent to depth buffer
+  - Result: Lakes don't properly occlude or be occluded by terrain/objects
+- **Comparison:** Ocean uses standard `osg::Depth` with `setWriteMask(true)` ([ocean.cpp:1083](apps/openmw/mwrender/ocean.cpp#L1083))
+- **Solution Needed:** Either:
+  1. Change lakes to use standard depth writes like ocean, OR
+  2. Adjust depth function to properly handle transparency with occlusion
+- **Location:** [lake.cpp:244-248](apps/openmw/mwrender/lake.cpp#L244)
 
-### Next Steps
-1. **Test in-game** - Load a save and travel around to verify:
-   - Only see lakes in nearby cells
-   - Lakes appear when you approach their cell
-   - Lakes disappear when you leave their cell area
-   - Vivec canal lake appears when in Vivec (cell 2, -9)
-2. **Verify ocean masking** - Ocean should stop at shores
-3. **Improve lake shader** - Add SSR+cubemap reflections to lake.frag
-4. **JSON parsing** - Load lake definitions from lakes.json file
-5. **Test SSR+Cubemaps** - Verify hybrid reflection system works
+**ISSUE #2: Lakes Have No SSR/Cubemap Reflections**
+- **Problem:** Lake shader is placeholder blue color with simple wave animation
+- **Root Cause:**
+  - Lake shader ([lake.frag](files/shaders/compatibility/lake.frag)) only outputs solid blue color
+  - No texture bindings for SSR or cubemap in lake state set
+  - SSR/cubemap textures only bound to old water system via ShaderWaterStateSetUpdater ([water.cpp:687-688](apps/openmw/mwrender/water.cpp#L687))
+  - Lakes use separate shader path, not integrated with SSR/cubemap pipeline
+- **What's Missing:**
+  - SSR texture binding (texture unit 5)
+  - Cubemap texture binding (texture unit 6)
+  - Proper reflection sampling in lake.frag shader
+  - Uniforms for view/projection matrices
+- **Solution Needed:**
+  1. Add SSR/cubemap texture binding to Lake::createWaterStateSet()
+  2. Rewrite lake.frag to sample SSR and cubemap like the old water shader
+  3. Add StateSetUpdater to lake geometry to update per-frame uniforms
+- **Location:** [lake.cpp:230-265](apps/openmw/mwrender/lake.cpp#L230), [lake.frag:1-14](files/shaders/compatibility/lake.frag)
+
+**ISSUE #3: JSON Lake Loading Not Implemented**
+- **Problem:** Lake data exists in [lakes.json](MultiLevelWater/lakes.json) but is never parsed
+- **Current State:** Lakes are hardcoded in WaterManager::loadLakesFromJSON() ([water.cpp:1257-1286](apps/openmw/mwrender/water.cpp#L1257))
+- **What's Needed:** Actual JSON parsing to read lakes.json file
+- **Location:** [water.cpp:1257-1286](apps/openmw/mwrender/water.cpp#L1257)
+
+### What Works Correctly ✅
+- ✅ **Per-cell lake geometry** - Individual water planes per cell at custom altitudes
+- ✅ **Per-cell visibility** - showWaterCell/hideWaterCell integrated with cell loading
+- ✅ **World coordinate conversion** - addLakeAtWorldPos() correctly converts to grid cells
+- ✅ **Ocean FFT** - Complete wave simulation with PBR shading
+- ✅ **Ocean shore masking** - Grid-based classification, automatic mask generation
+- ✅ **Cubemap system** - Crash fixed with cull callback pattern
+- ✅ **SSR infrastructure** - Manager exists, initialized, connected to scene buffers
+- ✅ **Water type classification** - WaterHeightField tracks ocean/lake/river per cell
+
+### Immediate Action Items
+1. **Fix lake depth rendering** - Change lake.cpp to use proper depth writes
+2. **Implement lake SSR/cubemap** - Add texture bindings and rewrite lake.frag shader
+3. **Test in-game** - Verify lakes render correctly without z-fighting
+4. **Optional:** Implement JSON parsing to replace hardcoded lakes
 
 ---
 
@@ -170,82 +189,60 @@ Also updated `removeRegion()` to remove cameras from `mParent` instead of `mScen
 
 ---
 
-### Phase 2: Enable & Test SSR ⏸️ NEXT
+### Phase 2: Enable & Test SSR ⚠️ INFRASTRUCTURE COMPLETE, NOT INTEGRATED WITH LAKES
 
 **Goal:** Water shows screen-space reflections
-**Time:** 2 hours
 **Priority:** High - most visible improvement
 
-#### Current State
+#### Current State (2025-11-26 Audit)
 
-SSR infrastructure exists with inline shader implementation:
-- ✅ SSRManager class exists
-- ✅ Inline SSR raymarch shader (complete)
-- ✅ Fullscreen quad RTT setup
-- ✅ Connected to PostProcessor buffers
-- ⚠️ **NOT TESTED** - may have near/far plane issues
+SSR infrastructure is **COMPLETE** but **NOT CONNECTED TO LAKES**:
+- ✅ SSRManager class exists and initialized ([water.cpp:466-470](apps/openmw/mwrender/water.cpp#L466))
+- ✅ Inline SSR raymarch shader complete ([ssrmanager.cpp:138-253](apps/openmw/mwrender/ssrmanager.cpp#L138))
+- ✅ Fullscreen quad RTT setup working
+- ✅ Connected to PostProcessor scene buffers ([renderingmanager.cpp:920](apps/openmw/mwrender/renderingmanager.cpp#L920))
+- ✅ SSR texture available via `getResultTexture()`
+- ❌ **NOT BOUND TO LAKES** - Only bound to old water system via ShaderWaterStateSetUpdater
+- ⚠️ **NOT TESTED** - Runtime testing needed
 
-#### What Needs Testing
+#### What's Working
+- ✅ SSRManager initialized in WaterManager constructor
+- ✅ Input textures set from RenderingManager ([renderingmanager.cpp:920](apps/openmw/mwrender/renderingmanager.cpp#L920))
+- ✅ SSR texture generated every frame
+- ✅ Texture bound to old water system at unit 5 ([water.cpp:715](apps/openmw/mwrender/water.cpp#L715))
 
-**File:** [ssrmanager.cpp:138-253](apps/openmw/mwrender/ssrmanager.cpp#L138)
+#### What's Missing for Lakes
+1. **Lake StateSet needs SSR/Cubemap texture bindings** ([lake.cpp:230-265](apps/openmw/mwrender/lake.cpp#L230))
+   - Add SSR texture at unit 5
+   - Add cubemap texture at unit 6
+   - Add SSR/cubemap uniforms
 
-The inline shader has hardcoded near/far planes:
+2. **Lake shader needs reflection sampling** ([lake.frag:1-14](files/shaders/compatibility/lake.frag))
+   - Currently just outputs solid blue color
+   - Need to sample SSR texture
+   - Need to sample cubemap as fallback
+   - Need to blend SSR + cubemap based on confidence
+
+3. **Lake needs StateSetUpdater** (similar to ShaderWaterStateSetUpdater)
+   - Update SSR/cubemap textures per-frame
+   - Update view/projection uniforms
+   - Get nearest cubemap for lake position
+
+#### Solution Path
 ```cpp
-const float NEAR_PLANE = 1.0;
-const float FAR_PLANE = 7168.0;
-```
+// 1. In Lake::createWaterStateSet() - Add texture uniforms
+stateset->addUniform(new osg::Uniform("ssrTexture", 5));
+stateset->addUniform(new osg::Uniform("environmentMap", 6));
 
-These may not match actual camera settings → incorrect depth linearization.
+// 2. Create LakeStateSetUpdater class (similar to ShaderWaterStateSetUpdater)
+// - Bind SSR texture from mSSRManager->getResultTexture()
+// - Bind cubemap from mCubemapManager->getNearestCubemap(lakePos)
+// - Update per-frame uniforms
 
-#### Tasks
-
-1. **Test current SSR implementation**
-   - Build and run
-   - Check if reflections appear
-   - Look for depth artifacts
-
-2. **Fix near/far if needed**
-   ```cpp
-   // Add uniforms instead of constants
-   uniform float nearPlane;
-   uniform float farPlane;
-
-   // Extract from projection matrix in update()
-   void SSRManager::update(const osg::Matrixf& viewMatrix,
-                           const osg::Matrixf& projMatrix)
-   {
-       double left, right, bottom, top, zNear, zFar;
-       projMatrix.getFrustum(left, right, bottom, top, zNear, zFar);
-       mNearPlaneUniform->set(static_cast<float>(zNear));
-       mFarPlaneUniform->set(static_cast<float>(zFar));
-       // ... rest of update
-   }
-   ```
-
-3. **Verify texture binding**
-   ```cpp
-   // In water.cpp or ShaderWaterStateSetUpdater
-   if (mSSRManager && mSSRManager->getSSRTexture())
-   {
-       waterState->setTextureAttributeAndModes(5,
-           mSSRManager->getSSRTexture(), osg::StateAttribute::ON);
-   }
-   ```
-
-#### Files to Modify
-- `apps/openmw/mwrender/ssrmanager.cpp` - Add near/far uniforms
-- `apps/openmw/mwrender/ssrmanager.hpp` - Add uniform members
-- `apps/openmw/mwrender/water.cpp` - Verify SSR texture binding
-
-#### Testing
-```bash
-1. Load exterior with water
-2. Look at water near terrain/rocks
-Expected: Reflections of nearby geometry
-3. Look at water edge-on
-Expected: Reflections fade at screen edges
-4. Disable SSR in settings
-Expected: Falls back to planar reflection or cubemap
+// 3. Rewrite lake.frag to sample reflections
+vec4 ssrColor = texture2D(ssrTexture, screenUV);
+vec3 cubemapColor = textureCube(environmentMap, reflectDir);
+vec3 reflection = mix(cubemapColor, ssrColor.rgb, ssrColor.a); // Blend by confidence
 ```
 
 ---
@@ -395,202 +392,76 @@ Expected: Lake shader, not ocean
 
 ---
 
-### Phase 4: Per-Cell Lake Geometry ⏸️ PENDING
+### Phase 4: Per-Cell Lake Geometry ✅ COMPLETE
 
 **Goal:** Lakes at different altitudes with proper spatial bounds
-**Time:** 8 hours
-**Priority:** Medium - enables multi-altitude water
+**Status:** COMPLETE (2025-11-26)
 
-#### Current State
+#### Implementation Summary
 
-**File:** [lake.cpp:79-101](apps/openmw/mwrender/lake.cpp#L79)
+Per-cell lake system **FULLY IMPLEMENTED** since commit c0d911019a (2025-11-25):
 
-Lake creates single 200,000-unit plane:
+**What Was Done:**
+- ✅ Refactored Lake class to use per-cell water planes ([lake.cpp](apps/openmw/mwrender/lake.cpp))
+- ✅ Each lake cell is 8192×8192 units (one Morrowind cell)
+- ✅ Lakes positioned at custom altitudes per cell
+- ✅ World coordinate API: `addLakeAtWorldPos(worldX, worldY, height)`
+- ✅ Grid coordinate API: `addWaterCell(gridX, gridY, height)`
+- ✅ Per-cell visibility control: `showWaterCell()` / `hideWaterCell()`
+- ✅ Integrated with cell loading system
+- ✅ 6 test lakes loaded at different altitudes (0 to 1500 units)
+
+#### Current Implementation
+
+**Lake Class Structure** ([lake.hpp:24-70](apps/openmw/mwrender/lake.hpp#L24)):
 ```cpp
-const float size = 100000.f;
-verts->push_back(osg::Vec3f(-size, -size, 0.f));
-verts->push_back(osg::Vec3f( size, -size, 0.f));
-verts->push_back(osg::Vec3f( size,  size, 0.f));
-verts->push_back(osg::Vec3f(-size,  size, 0.f));
-```
-
-This covers the entire world at a fixed height. No per-cell or multi-altitude support.
-
-#### New Design
-
-**Refactor Lake to create per-cell water planes:**
-
-```cpp
-// File: apps/openmw/mwrender/lake.hpp
-
-class Lake : public WaterBody
+struct CellWater
 {
-public:
-    Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
-    ~Lake() override;
-
-    void setEnabled(bool enabled) override;
-    void update(float dt, bool paused, const osg::Vec3f& cameraPos) override;
-    void setHeight(float height) override;  // Default height only
-    bool isUnderwater(const osg::Vec3f& pos) const override;
-
-    void addToScene(osg::Group* parent) override;
-    void removeFromScene(osg::Group* parent) override;
-
-    // Per-cell water management
-    void addWaterCell(int gridX, int gridY, float height);
-    void removeWaterCell(int gridX, int gridY);
-    void clearAllCells();
-
-    float getWaterHeightAt(const osg::Vec3f& pos) const;
-
-private:
-    struct CellWater
-    {
-        int gridX, gridY;
-        float height;
-        osg::ref_ptr<osg::PositionAttitudeTransform> transform;
-        osg::ref_ptr<osg::Geometry> geometry;
-    };
-
-    void createCellGeometry(CellWater& cell);
-    void applyCellStateSet(osg::Geometry* geom);
-
-    osg::ref_ptr<osg::Group> mRootNode;
-    Resource::ResourceSystem* mResourceSystem;
-
-    std::map<std::pair<int,int>, CellWater> mCellWaters;
-    float mDefaultHeight;
-    bool mEnabled;
-
-    osg::ref_ptr<osg::StateSet> mWaterStateSet;
+    int gridX, gridY;
+    float height;
+    osg::ref_ptr<osg::PositionAttitudeTransform> transform;
+    osg::ref_ptr<osg::Geometry> geometry;
 };
+
+std::map<std::pair<int, int>, CellWater> mCellWaters;  // Per-cell lake storage
 ```
 
-#### Implementation
+**Key Methods** ([lake.cpp](apps/openmw/mwrender/lake.cpp)):
+- `addWaterCell(gridX, gridY, height)` - Creates 8192×8192 water plane at cell position
+- `removeWaterCell(gridX, gridY)` - Removes lake from cell
+- `showWaterCell(gridX, gridY)` - Makes lake visible (called by cell loading)
+- `hideWaterCell(gridX, gridY)` - Hides lake (called by cell unloading)
+- `getWaterHeightAt(pos)` - Returns water height at world position
 
+**Cell Loading Integration** ([water.cpp:1047-1074](apps/openmw/mwrender/water.cpp#L1047)):
 ```cpp
-// File: apps/openmw/mwrender/lake.cpp
-
-void Lake::addWaterCell(int gridX, int gridY, float height)
-{
-    auto key = std::make_pair(gridX, gridY);
-
-    if (mCellWaters.count(key))
-        removeWaterCell(gridX, gridY);
-
-    CellWater cell;
-    cell.gridX = gridX;
-    cell.gridY = gridY;
-    cell.height = height;
-
-    createCellGeometry(cell);
-
-    mCellWaters[key] = cell;
-
-    if (mEnabled && mRootNode)
-        mRootNode->addChild(cell.transform);
-}
-
-void Lake::createCellGeometry(CellWater& cell)
-{
-    const float cellSize = 8192.0f;  // MW cell size
-    const float cellCenterX = cell.gridX * cellSize + cellSize * 0.5f;
-    const float cellCenterY = cell.gridY * cellSize + cellSize * 0.5f;
-    const float halfSize = cellSize * 0.5f;
-
-    // Transform at cell center, water height
-    cell.transform = new osg::PositionAttitudeTransform;
-    cell.transform->setPosition(osg::Vec3f(cellCenterX, cellCenterY, cell.height));
-
-    // Geometry (local coords, centered at origin)
-    cell.geometry = new osg::Geometry;
-
-    osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array(4);
-    (*verts)[0] = osg::Vec3f(-halfSize, -halfSize, 0.f);
-    (*verts)[1] = osg::Vec3f( halfSize, -halfSize, 0.f);
-    (*verts)[2] = osg::Vec3f( halfSize,  halfSize, 0.f);
-    (*verts)[3] = osg::Vec3f(-halfSize,  halfSize, 0.f);
-    cell.geometry->setVertexArray(verts);
-
-    osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array(4);
-    (*texcoords)[0] = osg::Vec2f(0.f, 0.f);
-    (*texcoords)[1] = osg::Vec2f(1.f, 0.f);
-    (*texcoords)[2] = osg::Vec2f(1.f, 1.f);
-    (*texcoords)[3] = osg::Vec2f(0.f, 1.f);
-    cell.geometry->setTexCoordArray(0, texcoords);
-
-    osg::ref_ptr<osg::Vec3Array> normals = new osg::Vec3Array(1);
-    (*normals)[0] = osg::Vec3f(0.f, 0.f, 1.f);
-    cell.geometry->setNormalArray(normals, osg::Array::BIND_OVERALL);
-
-    cell.geometry->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
-
-    applyCellStateSet(cell.geometry);
-
-    osg::ref_ptr<osg::Geode> geode = new osg::Geode;
-    geode->addDrawable(cell.geometry);
-    cell.transform->addChild(geode);
-}
-```
-
-#### Integration
-
-```cpp
-// File: apps/openmw/mwrender/water.cpp
-
 void WaterManager::addCell(const MWWorld::CellStore* store)
 {
-    mLoadedCells.push_back(store);
-    updateWaterHeightField();
+    // ... update height field ...
 
-    // Add per-cell water to Lake
-    if (mLake && store)
-    {
-        WaterType type = mWaterHeightField->classifyWaterType(store);
-        if (type == WaterType::Lake || type == WaterType::River)
-        {
-            int gridX = store->getCell()->getGridX();
-            int gridY = store->getCell()->getGridY();
-            float height = store->getWaterLevel();
-
-            mLake->addWaterCell(gridX, gridY, height);
-        }
-    }
+    // Show lake cell if it exists
+    if (mLake && !store->getCell()->isInterior())
+        mLake->showWaterCell(gridX, gridY);
 }
 
 void WaterManager::removeCell(const MWWorld::CellStore* store)
 {
-    auto it = std::find(mLoadedCells.begin(), mLoadedCells.end(), store);
-    if (it != mLoadedCells.end())
-        mLoadedCells.erase(it);
-
-    updateWaterHeightField();
-
-    if (mLake && store && !store->getCell()->isInterior())
-    {
-        int gridX = store->getCell()->getGridX();
-        int gridY = store->getCell()->getGridY();
-        mLake->removeWaterCell(gridX, gridY);
-    }
+    // Hide lake cell
+    if (mLake && !store->getCell()->isInterior())
+        mLake->hideWaterCell(gridX, gridY);
 }
 ```
 
-#### Files to Modify
-- `apps/openmw/mwrender/lake.hpp` - New per-cell API
-- `apps/openmw/mwrender/lake.cpp` - Complete rewrite
-- `apps/openmw/mwrender/water.cpp` - Hook addCell/removeCell
+**Lake Loading** ([water.cpp:1257-1286](apps/openmw/mwrender/water.cpp#L1257)):
+- Currently hardcoded test lakes
+- Uses `addLakeAtWorldPos(worldX, worldY, height)` to create lakes
+- Converts world coords to grid cells automatically
 
-#### Testing
-```bash
-1. Load save near sea level
-2. Walk to higher-altitude lake
-Expected: Water at different heights visible
-3. Swimming detection test
-Expected: Can swim in each water body independently
-4. Underwater fog test
-Expected: Underwater effects at correct heights
-```
+#### Files Modified
+- ✅ [lake.hpp](apps/openmw/mwrender/lake.hpp) - Per-cell API
+- ✅ [lake.cpp](apps/openmw/mwrender/lake.cpp) - Complete per-cell implementation
+- ✅ [water.cpp](apps/openmw/mwrender/water.cpp) - Cell loading integration
+- ✅ [water.hpp](apps/openmw/mwrender/water.hpp) - Added addLakeAtWorldPos() API
 
 ---
 
@@ -1001,41 +872,300 @@ if (mCubemapManager && waterType == WaterType::Lake)
 
 ---
 
-## SUMMARY OF COMPLETED WORK (2025-11-25)
+## SUMMARY OF COMPLETED WORK
 
-### Phase 1: Cubemap Crash Fix ✅
+### Major Systems Completed (Since commit d1b6fb0dec) ✅
+
+**Phase 1: Cubemap Crash Fix** (2025-11-25, commit 68e49f870c)
 - **Problem:** Circular scene graph reference caused stack overflow on game load
 - **Solution:** Implemented proper OSG cull callback pattern to traverse scene without circular reference
-- **Files:** cubemapreflection.hpp, cubemapreflection.cpp
-- **Result:** Code compiles, cubemap system ready for testing
+- **Files:** [cubemapreflection.hpp](apps/openmw/mwrender/cubemapreflection.hpp), [cubemapreflection.cpp](apps/openmw/mwrender/cubemapreflection.cpp)
+- **Result:** ✅ Code compiles, cubemap system operational
 
-### Phase 5: Ocean Shore Masking ✅
+**Phase 4: Per-Cell Lake Geometry** (2025-11-25, commit c0d911019a)
+- **Problem:** Needed lakes at multiple altitudes with proper cell-based loading
+- **Solution:** Complete refactor of Lake class to per-cell water planes
+- **Implementation:**
+  - Each lake cell is 8192×8192 units (one MW cell)
+  - Lakes at custom altitudes (0 to 1500+ units tested)
+  - Integration with cell loading system (showWaterCell/hideWaterCell)
+  - World coordinate API for easy lake placement
+- **Files:** [lake.hpp](apps/openmw/mwrender/lake.hpp), [lake.cpp](apps/openmw/mwrender/lake.cpp), [water.cpp](apps/openmw/mwrender/water.cpp)
+- **Result:** ✅ Multi-altitude water system working, 6 test lakes loaded
+
+**Phase 5: Ocean Shore Masking** (2025-11-25, commit c0d911019a)
 - **Problem:** Ocean FFT rendered everywhere, including inland lakes and rivers
 - **Solution:** Grid-based geographic classification with zero runtime overhead
-- **Key Insight:** Use cell grid coordinates to define ocean regions explicitly
-- **Components:**
-  - Grid-based classification in WaterHeightField (simple integer comparisons)
-  - Generates 2048×2048 R8 ocean mask from classification (1.0=ocean, 0.0=lake/river)
-  - Ocean class binds mask texture and uniforms for shader sampling
-  - Ocean fragment shader samples mask and fades alpha in non-ocean areas
-  - WaterManager automatically updates mask when cells load/unload
-- **Files:** waterheightfield.cpp (classification logic), ocean.hpp/cpp, ocean.frag, water.cpp
-- **Result:** Zero-overhead classification, mask generation only on cell load, geographically accurate
+- **Implementation:**
+  - Grid-based ocean/lake classification in WaterHeightField
+  - 2048×2048 R8 ocean mask generation (1.0=ocean, 0.0=lake/river)
+  - Ocean shader samples mask and fades alpha in non-ocean areas
+  - Automatic mask updates on cell load/unload
+- **Files:** [waterheightfield.cpp](apps/openmw/mwrender/waterheightfield.cpp), [ocean.cpp](apps/openmw/mwrender/ocean.cpp), [ocean.frag](files/shaders/compatibility/ocean.frag)
+- **Result:** ✅ Ocean masked to coastal regions, zero overhead
 
-### What This Enables
-✅ **Game should now load** without cubemap-related crashes
-✅ **Ocean stops at shores** and fades out in Vivec canals, Balmora rivers, etc.
-✅ **Inland water visible** through the lake system with SSR+cubemap reflections
-✅ **Dynamic updates** as player moves through the world
+**SSR + Cubemap Infrastructure** (2025-11-25, commit 68e49f870c)
+- **Status:** Infrastructure complete, NOT yet integrated with lakes
+- **What's Done:**
+  - SSRManager class with inline raymarch shader
+  - CubemapReflectionManager with up to 8 regions
+  - Input textures connected from RenderingManager
+  - SSR/cubemap bound to old water system
+- **What's Missing:** Lake shader integration (see Critical Issues above)
+- **Files:** [ssrmanager.cpp](apps/openmw/mwrender/ssrmanager.cpp), [cubemapreflection.cpp](apps/openmw/mwrender/cubemapreflection.cpp)
 
-### Next Steps
-1. **Runtime Testing** - Launch game and verify both fixes work in practice
-2. **SSR Testing** - Verify screen-space reflections work for inland water
-3. **Cubemap Regions** - Add cubemap generation for inland water bodies
-4. **Per-Cell Lakes** - Implement Phase 4 for true multi-altitude water (future)
+### Current Status Summary
+
+**What's Working:**
+- ✅ Ocean FFT with PBR shading and shore masking
+- ✅ Per-cell lakes at multiple altitudes
+- ✅ Cell-based lake visibility (only show in loaded cells)
+- ✅ SSR/cubemap infrastructure exists and initialized
+- ✅ WaterHeightField tracks water type per cell
+
+**Critical Issues Preventing Full Functionality:**
+- ❌ Lake depth rendering broken (renders over everything)
+- ❌ Lake shader is placeholder (no SSR/cubemap reflections)
+- ❌ JSON lake loading not implemented
+
+### Immediate Next Steps
+1. **Fix lake depth rendering** - Switch from AutoDepth with writeMask=false to proper depth writes
+2. **Implement lake reflections** - Add SSR/cubemap texture bindings and rewrite lake.frag
+3. **Test in-game** - Verify lakes render correctly with proper depth and reflections
+4. **Optional:** Implement JSON parsing for lakes.json
 
 ---
 
-**Project Status:** Phase 1 & 5 Complete - Ready for Runtime Testing 🚀
-**Last Updated:** 2025-11-25
-**Next Action:** Fix build configuration issues and test in-game
+**Project Status:** Core Systems Complete, Rendering Issues Identified ⚠️
+**Last Updated:** 2025-11-26 (System Audit)
+**Next Action:** Fix lake rendering issues (depth + reflections)
+
+---
+
+## TECHNICAL ANALYSIS: LAKE RENDERING ISSUES
+
+### Issue #1: Depth Rendering Analysis
+
+**Current Configuration** ([lake.cpp:244-248](apps/openmw/mwrender/lake.cpp#L244)):
+```cpp
+osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
+depth->setWriteMask(false);  // ← PROBLEM: Disables depth writing
+stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+```
+
+**Why This Causes "Render Over Everything":**
+1. Lake fragments write color but NOT depth
+2. Depth buffer unchanged after lake rendering
+3. Objects behind lakes fail depth test against terrain (not lake depth)
+4. Result: Lakes appear to float above terrain, objects render incorrectly
+
+**Ocean Configuration for Comparison** ([ocean.cpp:1082-1084](apps/openmw/mwrender/ocean.cpp#L1082)):
+```cpp
+osg::ref_ptr<osg::Depth> depth = new osg::Depth;
+depth->setWriteMask(true);   // ← CORRECT: Enables depth writing
+depth->setFunction(osg::Depth::GEQUAL); // Reverse-Z depth
+```
+
+**Solution Options:**
+
+**Option A: Match Ocean (Recommended)**
+```cpp
+// In Lake::createWaterStateSet()
+osg::ref_ptr<osg::Depth> depth = new osg::Depth;
+depth->setWriteMask(true);
+depth->setFunction(osg::Depth::GEQUAL); // Match reversed depth buffer
+stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+```
+
+**Option B: Use AutoDepth Correctly**
+```cpp
+// AutoDepth handles reversed depth automatically
+osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
+    osg::Depth::LEQUAL,  // Function (will be reversed if needed)
+    0.0, 1.0,            // Near/far
+    true                 // ← MUST BE TRUE for depth writes
+);
+stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+```
+
+**Why Old Water Used writeMask=false:**
+- Old water used full RTT reflection/refraction
+- Needed to render behind all objects for proper underwater effects
+- Different rendering architecture than lakes
+
+**Trade-offs:**
+- ✅ **With depth writes:** Proper occlusion, no z-fighting
+- ❌ **With depth writes:** May affect underwater rendering (needs testing)
+
+---
+
+### Issue #2: SSR/Cubemap Integration Analysis
+
+**Current Lake Shader** ([lake.frag:1-14](files/shaders/compatibility/lake.frag)):
+```glsl
+varying vec2 vTexCoord;
+uniform float osg_SimulationTime;
+
+void main()
+{
+    float wave = sin(vTexCoord.x * 20.0 + osg_SimulationTime) * 0.5 + 0.5;
+    vec3 waterColor = vec3(0.1, 0.3, 0.5) + vec3(0.05) * wave;
+    gl_FragColor = vec4(waterColor, 0.7);  // ← Just blue color!
+}
+```
+
+**What's Missing:**
+1. No SSR texture sampling
+2. No cubemap texture sampling
+3. No view/projection matrices for reflection calculation
+4. No normal calculation for reflection direction
+5. No Fresnel calculation for blend
+
+**Old Water Shader Reference** ([water.frag](files/shaders/compatibility/water.frag)):
+- Samples SSR at texture unit 5
+- Samples cubemap at texture unit 6
+- Blends based on SSR confidence (alpha channel)
+- Has Fresnel, normal mapping, etc.
+
+**Implementation Plan:**
+
+**Step 1: Add Texture Bindings** ([lake.cpp:230-265](apps/openmw/mwrender/lake.cpp#L230))
+```cpp
+osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
+{
+    // ... existing code ...
+
+    // Add SSR/cubemap texture unit bindings
+    stateset->addUniform(new osg::Uniform("ssrTexture", 5));
+    stateset->addUniform(new osg::Uniform("environmentMap", 6));
+
+    // Add required uniforms for reflection calculation
+    stateset->addUniform(new osg::Uniform("projectionMatrix", osg::Matrixf()));
+    stateset->addUniform(new osg::Uniform("viewMatrix", osg::Matrixf()));
+
+    return stateset;
+}
+```
+
+**Step 2: Create StateSetUpdater**
+```cpp
+// New class in lake.cpp (similar to ShaderWaterStateSetUpdater)
+class LakeStateSetUpdater : public SceneUtil::StateSetUpdater
+{
+public:
+    LakeStateSetUpdater(WaterManager* waterMgr)
+        : mWaterMgr(waterMgr) {}
+
+    void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
+    {
+        // Get SSR texture
+        if (mWaterMgr->getSSRManager())
+        {
+            osg::Texture2D* ssrTex = mWaterMgr->getSSRManager()->getResultTexture();
+            stateset->setTextureAttributeAndModes(5, ssrTex, osg::StateAttribute::ON);
+        }
+
+        // Get nearest cubemap
+        if (mWaterMgr->getCubemapManager())
+        {
+            osg::Vec3f lakePos = /* get from geometry */;
+            osg::TextureCubeMap* cubemap = mWaterMgr->getCubemapManager()->getNearestCubemap(lakePos);
+            stateset->setTextureAttributeAndModes(6, cubemap, osg::StateAttribute::ON);
+        }
+
+        // Update view/projection matrices
+        osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+        stateset->getUniform("viewMatrix")->set(cv->getCurrentCamera()->getViewMatrix());
+        stateset->getUniform("projectionMatrix")->set(cv->getCurrentCamera()->getProjectionMatrix());
+    }
+
+private:
+    WaterManager* mWaterMgr;
+};
+```
+
+**Step 3: Rewrite Lake Fragment Shader**
+```glsl
+// lake.frag - Hybrid SSR + Cubemap reflections
+#version 120
+
+varying vec2 vTexCoord;
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+
+uniform sampler2D ssrTexture;
+uniform samplerCube environmentMap;
+uniform mat4 viewMatrix;
+uniform mat4 projectionMatrix;
+uniform float osg_SimulationTime;
+
+void main()
+{
+    // Calculate water normal (simplified for now)
+    vec3 waterNormal = vec3(0.0, 0.0, 1.0);
+
+    // Calculate reflection direction
+    vec3 reflectDir = reflect(vViewDir, waterNormal);
+
+    // Screen-space UV for SSR sampling
+    vec4 clipPos = projectionMatrix * viewMatrix * vec4(vWorldPos, 1.0);
+    vec2 screenUV = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+
+    // Sample SSR (RGB = color, A = confidence)
+    vec4 ssrColor = texture2D(ssrTexture, screenUV);
+
+    // Sample cubemap
+    vec3 cubemapColor = textureCube(environmentMap, reflectDir).rgb;
+
+    // Blend SSR and cubemap based on confidence
+    // High confidence (1.0) = use SSR, low confidence (0.0) = use cubemap
+    vec3 reflection = mix(cubemapColor, ssrColor.rgb, ssrColor.a);
+
+    // Simple water color with reflection
+    vec3 waterColor = vec3(0.1, 0.3, 0.5);
+    vec3 finalColor = mix(waterColor, reflection, 0.7); // 70% reflection
+
+    gl_FragColor = vec4(finalColor, 0.8);
+}
+```
+
+**Step 4: Update Vertex Shader**
+```glsl
+// lake.vert - Pass required data to fragment shader
+#version 120
+
+varying vec2 vTexCoord;
+varying vec3 vWorldPos;
+varying vec3 vViewDir;
+
+uniform mat4 viewMatrix;
+
+void main()
+{
+    vTexCoord = gl_MultiTexCoord0.xy;
+
+    // Transform vertex to world space
+    vec4 worldPos = gl_ModelViewMatrix * gl_Vertex;
+    vWorldPos = worldPos.xyz;
+
+    // Calculate view direction in world space
+    vec3 camPos = inverse(viewMatrix)[3].xyz;
+    vViewDir = normalize(vWorldPos - camPos);
+
+    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
+}
+```
+
+**Files to Modify:**
+1. [lake.cpp:244-248](apps/openmw/mwrender/lake.cpp#L244) - Fix depth writes
+2. [lake.cpp:230-265](apps/openmw/mwrender/lake.cpp#L230) - Add SSR/cubemap bindings and updater
+3. [lake.frag](files/shaders/compatibility/lake.frag) - Rewrite with SSR/cubemap sampling
+4. [lake.vert](files/shaders/compatibility/lake.vert) - Add varyings for world pos and view dir
+
+**Testing Checklist:**
+- [ ] Lakes render at correct depth (no z-fighting)
+- [ ] Lakes show reflections of nearby terrain/objects (SSR)
+- [ ] Lakes show sky reflections when SSR misses (cubemap)
+- [ ] Reflections update as camera moves
+- [ ] No performance regression
+- [ ] Underwater effects still work correctly
