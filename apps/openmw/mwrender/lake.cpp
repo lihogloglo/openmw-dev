@@ -534,19 +534,15 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
 
     // Manual depth configuration
-    // CRITICAL: Log confirms "Using reverse-z depth buffer".
-    // In Reversed-Z: Near=1.0, Far=0.0.
-    // We want to pass if Z_frag >= Z_buf (closer or equal).
-    // LEQUAL (<=) would mean "pass if farther", which explains invisibility (fails against cleared 0.0 buffer).
-    osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-    depth->setWriteMask(true);
-    depth->setFunction(osg::Depth::GEQUAL); 
+    // CRITICAL FIX: Use AutoDepth for correct Reverse-Z handling and disable write mask for transparency
+    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
+    depth->setWriteMask(false);
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
     logLake("===== LAKE DEPTH CONFIGURATION (FIXED) =====");
     logLake("Depth test: ENABLED");
-    logLake("Depth function: GEQUAL (Reversed-Z Correct)");
-    logLake("Depth write mask: TRUE");
+    logLake("Depth function: AutoDepth (LEQUAL default, handles Reverse-Z)");
+    logLake("Depth write mask: FALSE (Transparent)");
     logLake("Render bin: RenderBin_Water (9)");
     logLake("==========================================");
 
