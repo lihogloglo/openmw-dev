@@ -520,31 +520,25 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     // ============================================================
     // DEPTH RENDERING FIX: Match ocean.cpp configuration
     // ============================================================
-    // Lakes need to:
-    // 1. Render AFTER opaque geometry (use RenderBin_Water = 9)
-    // 2. Read depth buffer to be occluded by terrain/objects
-    // 3. Write depth for proper sorting with other transparent objects
-    // 4. Use GEQUAL for reversed-Z buffer (standard in OpenMW)
-    //
-    // CRITICAL FIX: Ocean uses manual osg::Depth with GEQUAL + writeMask=true
-    // This is the correct configuration for reversed-Z depth buffer.
-    // ============================================================
 
     // Enable depth testing - critical for proper occlusion
     stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
 
-    // Manual depth configuration
-    // CRITICAL FIX: Use AutoDepth for correct Reverse-Z handling and disable write mask for transparency
-    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
+    osg::ref_ptr<osg::Depth> depth = new osg::Depth;
     depth->setWriteMask(false);
-    stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+    
+    if (SceneUtil::AutoDepth::isReversed())
+    {
+        depth->setFunction(osg::Depth::GEQUAL);
+        depth->setRange(1.0, 0.0);
+    }
+    else
+    {
+        depth->setFunction(osg::Depth::LEQUAL);
+        depth->setRange(0.0, 1.0);
+    }
 
-    logLake("===== LAKE DEPTH CONFIGURATION (FIXED) =====");
-    logLake("Depth test: ENABLED");
-    logLake("Depth function: AutoDepth (LEQUAL default, handles Reverse-Z)");
-    logLake("Depth write mask: FALSE (Transparent)");
-    logLake("Render bin: RenderBin_Water (9)");
-    logLake("==========================================");
+    stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
     // Enable blending for transparency
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
