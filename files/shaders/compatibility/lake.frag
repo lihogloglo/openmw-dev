@@ -89,6 +89,18 @@ void main()
         return;
     }
 
+    // Mode 9: EMERGENCY FALLBACK - Simple water without reflections
+    // Use this to test if the issue is depth-related or reflection-related
+    if (debugMode == 9)
+    {
+        // Simple water color based on view angle (basic Fresnel approximation)
+        vec3 viewDir = normalize(vWorldPos - cameraPos);
+        float viewAngle = abs(dot(viewDir, vec3(0.0, 0.0, 1.0)));
+        vec3 waterColor = mix(vec3(0.02, 0.1, 0.15), vec3(0.05, 0.2, 0.3), viewAngle);
+        gl_FragColor = vec4(waterColor, 0.75);
+        return;
+    }
+
     // Mode 2: World position visualization
     if (debugMode == 2)
     {

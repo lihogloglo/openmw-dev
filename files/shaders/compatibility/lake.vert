@@ -23,26 +23,25 @@ void main()
 {
     vTexCoord = gl_MultiTexCoord0.xy;
 
-    // Get world position from model matrix
-    // gl_ModelViewMatrix = viewMatrix * modelMatrix
-    // We need to extract the model matrix part
-    // Since lake cells are positioned via PositionAttitudeTransform, gl_Vertex is in local space
-    // and gl_ModelViewMatrix transforms to view space
+    // CRITICAL FIX: Use OSG's built-in vertex transformation to get stable world position
+    // OSG provides gl_Vertex in local/model space, and gl_ModelViewMatrix transforms it
     //
-    // To get world position: we use the fact that our lake geometry is simple:
-    // The PositionAttitudeTransform positions the lake at (cellCenterX, cellCenterY, height)
-    // and the geometry vertices are in local space around origin
+    // The lake geometry is positioned by PositionAttitudeTransform which sets the model matrix
+    // to place the water plane at (cellCenterX, cellCenterY, height).
     //
-    // We can compute world position by: worldPos = invViewMatrix * viewPos
+    // Step 1: Transform vertex to view space
     vec4 viewPos4 = gl_ModelViewMatrix * gl_Vertex;
     vViewPos = viewPos4.xyz;
 
-    // Transform view position back to world space for stable reflections
-    // This is the key fix for reflection jumping!
-    vec4 worldPos4 = invViewMatrix * viewPos4;
-    vWorldPos = worldPos4.xyz;
+    // Step 2: Transform view space back to world space using inverse view matrix
+    // CRITICAL FIX: Create a separate vec4 for world space transformation
+    // DO NOT modify viewPos4.w as it's needed for correct clip space transformation!
+    vec4 viewPosForWorldTransform = vec4(viewPos4.xyz, 1.0);
+    vec4 worldPos4 = invViewMatrix * viewPosForWorldTransform;
+    vWorldPos = worldPos4.xyz / worldPos4.w;  // Perspective divide for safety
 
-    // Clip space position for standard rendering
+    // Step 3: Standard clip space transformation for rendering
+    // Use the ORIGINAL viewPos4 with correct w component
     gl_Position = gl_ProjectionMatrix * viewPos4;
 
     // Store screen position for SSR texture sampling

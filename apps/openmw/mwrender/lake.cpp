@@ -92,7 +92,11 @@ public:
     void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
     {
         if (!mWaterManager)
+        {
+            if (sLakeFrameCounter == 0)
+                logLake("WARNING: LakeStateSetUpdater has no WaterManager!");
             return;
+        }
 
         osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
         if (!cv)
@@ -132,10 +136,30 @@ public:
         // Get SSR texture
         SSRManager* ssrMgr = mWaterManager->getSSRManager();
         bool hasSSR = false;
-        if (ssrMgr && ssrMgr->getResultTexture())
+        if (ssrMgr)
         {
-            stateset->setTextureAttributeAndModes(0, ssrMgr->getResultTexture(), osg::StateAttribute::ON);
-            hasSSR = true;
+            osg::Texture2D* ssrTex = ssrMgr->getResultTexture();
+            if (ssrTex)
+            {
+                stateset->setTextureAttributeAndModes(0, ssrTex, osg::StateAttribute::ON);
+                hasSSR = true;
+
+                if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
+                {
+                    // Log SSR texture info on first few frames
+                    logLake("SSR texture bound: size=" + std::to_string(ssrTex->getTextureWidth())
+                        + "x" + std::to_string(ssrTex->getTextureHeight())
+                        + ", format=" + std::to_string(ssrTex->getInternalFormat()));
+                }
+            }
+            else if (shouldLog)
+            {
+                logLakeVerbose("WARNING: SSRManager exists but getResultTexture() returned null");
+            }
+        }
+        else if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
+        {
+            logLake("WARNING: No SSRManager available for lake reflections");
         }
 
         // Get cubemap for approximate water position (use camera position as approximation)
@@ -149,7 +173,23 @@ public:
             {
                 stateset->setTextureAttributeAndModes(1, cubemap, osg::StateAttribute::ON);
                 hasCubemap = true;
+
+                if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
+                {
+                    // Log cubemap info on first few frames
+                    logLake("Cubemap bound: size=" + std::to_string(cubemap->getTextureWidth())
+                        + "x" + std::to_string(cubemap->getTextureHeight()));
+                }
             }
+            else if (shouldLog)
+            {
+                logLakeVerbose("WARNING: CubemapManager exists but getCubemapForPosition() returned null at pos ("
+                    + std::to_string(camPos.x()) + ", " + std::to_string(camPos.y()) + ", " + std::to_string(camPos.z()) + ")");
+            }
+        }
+        else if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
+        {
+            logLake("WARNING: No CubemapReflectionManager available for lake reflections");
         }
 
         // Update screen resolution from viewport
@@ -161,6 +201,11 @@ public:
                 osg::Uniform* screenResUniform = stateset->getUniform("screenRes");
                 if (screenResUniform)
                     screenResUniform->set(osg::Vec2f(vp->width(), vp->height()));
+
+                if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
+                {
+                    logLake("Viewport: " + std::to_string((int)vp->width()) + "x" + std::to_string((int)vp->height()));
+                }
             }
         }
 
@@ -171,9 +216,10 @@ public:
 
         if (shouldLog)
         {
-            logLakeVerbose("State update - SSR: " + std::string(hasSSR ? "yes" : "no")
-                + ", Cubemap: " + std::string(hasCubemap ? "yes" : "no")
-                + ", DebugMode: " + std::to_string(mDebugMode));
+            logLakeVerbose("State update - SSR: " + std::string(hasSSR ? "YES" : "NO")
+                + ", Cubemap: " + std::string(hasCubemap ? "YES" : "NO")
+                + ", DebugMode: " + std::to_string(mDebugMode)
+                + ", Reversed-Z: " + std::string(SceneUtil::AutoDepth::isReversed() ? "YES" : "NO"));
         }
     }
 
@@ -371,6 +417,11 @@ void Lake::createCellGeometry(CellWater& cell)
     const float cellCenterY = cell.gridY * cellSize + cellSize * 0.5f;
     const float halfSize = cellSize * 0.5f;
 
+    logLake("Creating geometry for cell (" + std::to_string(cell.gridX) + ", " + std::to_string(cell.gridY) + "):");
+    logLake("  Cell size: " + std::to_string(cellSize) + " units");
+    logLake("  World position: (" + std::to_string(cellCenterX) + ", " + std::to_string(cellCenterY) + ", " + std::to_string(cell.height) + ")");
+    logLake("  Quad extends: " + std::to_string(halfSize) + " units in each direction");
+
     // Transform at cell center, water height
     cell.transform = new osg::PositionAttitudeTransform;
     cell.transform->setPosition(osg::Vec3f(cellCenterX, cellCenterY, cell.height));
@@ -431,17 +482,27 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     // Explicitly enable depth testing - this is critical!
     stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
 
+    // HYPOTHESIS: The depth issue might be that writeMask=true is causing problems
+    // Let's try reverting to writeMask=false first, and add detailed logging
+    //
     // AutoDepth handles reversed-Z automatically:
     // - LEQUAL becomes GEQUAL when reversed-Z is active
     // - This ensures lake fragments are rejected when behind terrain
     osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
         osg::Depth::LEQUAL,  // Will be GEQUAL with reversed-Z
         0.0, 1.0,            // Depth range
-        false                // Don't write depth - transparent surface
+        false                // REVERT: Back to false for testing
     );
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
-    logLake("Depth state: test=ON, function=LEQUAL/GEQUAL(rev), writeMask=false");
+    logLake("===== LAKE DEPTH CONFIGURATION =====");
+    logLake("Depth test: ENABLED");
+    logLake("Depth function: LEQUAL (will become GEQUAL if reversed-Z active)");
+    logLake("Depth write mask: FALSE (REVERTED FOR TESTING)");
+    logLake("Reversed-Z active: " + std::string(SceneUtil::AutoDepth::isReversed() ? "YES" : "NO"));
+    logLake("Render bin: RenderBin_Water (9)");
+    logLake("Depth range: 0.0 to 1.0");
+    logLake("===================================");
 
     // Enable blending for transparency
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);

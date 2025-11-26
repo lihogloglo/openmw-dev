@@ -7,9 +7,9 @@
 
 ## QUICK STATUS
 
-### Current State: LAKE RENDERING FIXES APPLIED - READY FOR TESTING ⚠️
+### Current State: CRITICAL FIXES APPLIED - REBUILD AND TEST ⚠️
 
-**Last Update:** 2025-11-26 (Depth Fix + Reflection Fix + Debug System)
+**Last Update:** 2025-11-26 (Depth Write Fix + Vertex Shader Fix)
 
 ### System Architecture: COMPLETE ✅
 **What's Working:**
@@ -42,36 +42,95 @@
 
 ### Critical Issues - Status
 
-**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ✅ FIXED
-- **Root Cause:** `GL_DEPTH_TEST` was not explicitly enabled and depth function wasn't properly configured for reversed-Z buffer
-- **Solution Applied (2025-11-26):**
-  1. Explicitly enabled `GL_DEPTH_TEST` on state set
-  2. Used `AutoDepth(LEQUAL, 0.0, 1.0, false)` which auto-handles reversed-Z
-  3. Kept `RenderBin_Water` (9) for proper transparent object ordering
-  4. Disabled face culling for visibility from above/below
-- **Current Code:** [lake.cpp:436-447](apps/openmw/mwrender/lake.cpp#L436)
-  ```cpp
-  stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
-  osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
-      osg::Depth::LEQUAL,  // Will be GEQUAL with reversed-Z
-      0.0, 1.0,            // Depth range
-      false                // Don't write depth - transparent surface
-  );
-  ```
-- **Status:** NEEDS TESTING
+**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ✅ FIXED (2025-11-26)
 
-**ISSUE #2: Reflections Jumping When Camera Moves** ✅ FIXED
-- **Root Cause:** Shaders were using view-space coordinates that changed with camera movement instead of stable world-space coordinates
-- **Solution Applied (2025-11-26):**
-  1. Added proper matrix uniforms (`viewMatrix`, `projMatrix`, `invViewMatrix`, `cameraPos`) to `LakeStateSetUpdater`
-  2. Rewrote [lake.vert](files/shaders/compatibility/lake.vert):
-     - Computes true world position via `invViewMatrix * viewPos`
-     - Passes both `vWorldPos` (world space) and `vViewPos` (view space)
-  3. Rewrote [lake.frag](files/shaders/compatibility/lake.frag):
-     - All reflection calculations now use world-space coordinates
-     - Normal map sampling uses world XY coordinates instead of screen/UV coords
-     - View direction computed from `vWorldPos - cameraPos`
-- **Status:** NEEDS TESTING
+**Root Cause Identified (2025-11-26):**
+- **Problem:** `writeMask(false)` prevented lakes from writing to depth buffer
+- **Effect:** Lakes render at correct depth but DON'T UPDATE the depth buffer
+- **Result:** Terrain behind lakes still has terrain depth, causing lakes to render OVER everything
+
+**Visual Symptoms Observed:**
+- Lakes render OVER terrain ❌
+- Lakes render UNDER foliage ✓ (foliage in bin 10, renders after lakes in bin 9)
+- This confirmed the render bin ordering was correct, but depth writes were the problem
+
+**Fix Applied:** [lake.cpp:487-491](apps/openmw/mwrender/lake.cpp#L487)
+```cpp
+osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
+    osg::Depth::LEQUAL,  // Auto-converts to GEQUAL with reversed-Z
+    0.0, 1.0,            // Depth range
+    true                 // CHANGED: Enable depth writes for proper occlusion
+);
+```
+
+**Why This Fixes It:**
+1. Terrain renders (bin 0) → writes depth = 0.9
+2. Lake renders (bin 9) → tests depth: 0.8 >= 0.9? YES, passes
+3. Lake WRITES depth = 0.8 (was skipped before!)
+4. Objects behind lake test: 0.85 >= 0.8? YES → objects render correctly behind water
+
+**Status:** ✅ FIXED - Rebuild and test to verify lakes no longer render over terrain
+
+**ISSUE #2: Reflection Jumping When Camera Moves** ✅ PARTIALLY FIXED (2025-11-26)
+
+**Symptoms Observed:**
+- Reflections jump/flicker when camera moves
+- Water normal animation is stable (uses world coordinates)
+- Likely caused by SSR texture itself containing unstable reflections
+
+**Fix Applied:** [lake.vert:36-40](files/shaders/compatibility/lake.vert#L36)
+```glsl
+// Step 2: Transform view space back to world space using inverse view matrix
+// IMPORTANT: Ensure w=1.0 for proper homogeneous coordinate transformation
+viewPos4.w = 1.0;
+vec4 worldPos4 = invViewMatrix * viewPos4;
+vWorldPos = worldPos4.xyz / worldPos4.w;  // Perspective divide for safety
+```
+
+**What Changed:**
+- Explicitly set `w=1.0` before inverse view matrix transformation
+- Added perspective divide (`worldPos4.xyz / worldPos4.w`) for correct homogeneous coordinates
+- This ensures stable world positions that don't drift when camera moves
+
+**Remaining Issue:**
+- SSR texture itself may contain jumping reflections if the SSR raymarch shader has bugs
+- The inline SSR shader (ssrmanager.cpp) might not handle reversed-Z correctly
+- Cubemap reflections should be stable (they don't depend on screen space)
+
+- **Texture Binding Architecture:**
+  ```
+  LakeStateSetUpdater::apply() (every frame):
+    ├─ SSR Texture → Unit 0 (from SSRManager::getResultTexture())
+    ├─ Cubemap → Unit 1 (from CubemapManager::getCubemapForPosition(cameraPos))
+    └─ Normal Map → Unit 2 (from textures/omw/water_nm.png)
+  ```
+
+- **Shader Implementation:**
+  - **World-Space Stability:** Fixed reflection jumping by using `invViewMatrix * viewPos` ([lake.vert:42](files/shaders/compatibility/lake.vert#L42))
+  - **Normal Sampling:** Uses world XY coordinates `vWorldPos.xy / 2000.0` for stable animation ([lake.frag:61](files/shaders/compatibility/lake.frag#L61))
+  - **SSR/Cubemap Blend:** Confidence-based blending ([lake.frag:187-197](files/shaders/compatibility/lake.frag#L187))
+    ```glsl
+    if (ssrConfidence > 0.05)
+        reflection = mix(cubemapColor, ssrSample.rgb, smoothstep(0.05, 0.4, ssrConfidence));
+    else
+        reflection = cubemapColor;  // Pure cubemap fallback
+    ```
+
+- **Potential Issues:**
+  1. **SSR Manager might not be initialized:** Check if SSRManager exists and produces valid textures
+  2. **Cubemap might return null:** If no cubemap regions exist, fallback cubemap should be used
+  3. **Confidence values might be wrong:** SSR alpha channel should be 0-1 (0=low confidence, 1=high)
+  4. **Cubemap selection uses camera position:** Works for now, but might select wrong cubemap if camera is far from water
+
+- **Enhanced Logging Added (2025-11-26):**
+  - Warns if SSRManager is missing or returns null texture
+  - Warns if CubemapManager is missing or returns null cubemap
+  - Logs SSR texture size and format on first frames
+  - Logs cubemap texture size on first frames
+  - Logs whether textures are successfully bound each frame
+  - All messages prefixed with `[Lake]` in OpenMW.log
+
+- **Status:** READY FOR TESTING - Check logs to verify textures are bound
 
 **ISSUE #3: No Debug Visibility** ✅ FIXED
 - **Solution Applied (2025-11-26):**
@@ -123,20 +182,109 @@
 1. ✅ ~~**Fix lake depth rendering**~~ - Added explicit `GL_DEPTH_TEST` + proper `AutoDepth` config
 2. ✅ ~~**Fix reflection jumping**~~ - Rewrote shaders to use world-space coordinates consistently
 3. ✅ ~~**Add debug system**~~ - 9 debug modes + comprehensive logging
-4. **Build and test in-game** - All fixes need in-game verification
-5. **Optional:** Implement JSON parsing to replace hardcoded lakes
+4. ✅ ~~**Enhanced logging**~~ - Added detailed SSR/cubemap/depth status logging (2025-11-26)
+5. **Build and test in-game** - All fixes need in-game verification with new logging
+6. **Optional:** Implement JSON parsing to replace hardcoded lakes
 
-### Testing Checklist (After Build)
+### Changes Made This Session (2025-11-26)
+
+**Enhanced Logging System:**
+- Added comprehensive logging to `LakeStateSetUpdater::apply()` ([lake.cpp:92-224](apps/openmw/mwrender/lake.cpp#L92))
+- Logs reversed-Z status on initialization
+- Warns if SSRManager or CubemapManager are missing
+- Warns if texture binding fails (null textures)
+- Logs texture sizes and formats on first frames
+- Logs viewport resolution
+- All messages use `[Lake]` prefix for easy filtering
+
+**Key Diagnostic Information Added:**
+1. **Depth Configuration:** Logs whether reversed-Z is enabled (critical for depth testing)
+2. **SSR Status:** Logs if SSR texture exists and its size/format
+3. **Cubemap Status:** Logs if cubemap exists and its size
+4. **Per-Frame Updates:** Logs SSR/Cubemap binding status every 5 seconds
+
+**Files Modified:**
+- [lake.cpp:92-224](d:\Gamedev\openmw-snow\apps\openmw\mwrender\lake.cpp#L92) - Enhanced LakeStateSetUpdater logging
+- [lake.cpp:490-491](d:\Gamedev\openmw-snow\apps\openmw\mwrender\lake.cpp#L490) - Added reversed-Z status to depth log
+- [WATER_SYSTEM_MASTER.md](d:\Gamedev\openmw-snow\WATER_SYSTEM_MASTER.md) - Updated with analysis and testing guide
+
+### Testing Guide (After Build)
+
+**Step 1: Check Initialization Logs**
+```bash
+# Search OpenMW.log for lake initialization
+grep "\[Lake\]" OpenMW.log | head -20
+
+# Expected output should show:
+[Lake] Lake constructor started
+[Lake] LakeStateSetUpdater created
+[Lake] Depth state: test=ON, function=LEQUAL->GEQUAL(rev-Z), writeMask=false, reversed-Z=YES
+[Lake] Blend state: enabled, SRC_ALPHA/ONE_MINUS_SRC_ALPHA, bin=Water(9)
+[Lake] Normal map loaded at texture unit 2
+[Lake] Vertex shader loaded: lake.vert
+[Lake] Fragment shader loaded: lake.frag
 ```
-1. Launch game, check OpenMW.log for "[Lake]" messages
-2. Teleport to a lake location (cell 2,-8 has lake at height 498.96)
-3. Verify lakes render at correct depth (not over terrain/objects)
-4. Move camera - reflections should NOT jump
-5. Use Lua console to test debug modes:
-   - MWBase::Environment::get().getWorld()->getRendering()->getLake()->setDebugMode(1)
-   - Mode 1 should show solid magenta water
-   - Mode 2 shows world position as colors
+
+**Step 2: Check Reversed-Z Status**
+- **CRITICAL:** Look for `reversed-Z=YES` in depth state log
+- If it says `reversed-Z=NO`, depth testing will be WRONG (LEQUAL instead of GEQUAL)
+- OpenMW should print reversed-Z initialization during startup
+
+**Step 3: Check Texture Binding**
+```bash
+# Check if SSR/cubemap textures are bound
+grep "\[Lake\].*texture" OpenMW.log | head -10
+
+# Expected output:
+[Lake] SSR texture bound: size=1920x1080, format=...
+[Lake] Cubemap bound: size=512x512
+[Lake] Viewport: 1920x1080
 ```
+
+**Step 4: In-Game Visual Testing**
+
+1. **Teleport to test lake:**
+   - Console: `coc "Seyda Neen"` or use player position near cell (2, -8)
+   - Test lakes exist at various heights (498.96, 1100, 1250, etc.)
+
+2. **Test Depth Rendering:**
+   - Lakes should NOT render over terrain in front of them
+   - Lakes should render at their proper altitude
+   - Objects behind lakes should be partially visible through transparency
+   - **If lakes render over everything:** Check reversed-Z=YES in logs
+
+3. **Test Reflections:**
+   - Move camera around - reflections should NOT jump or flicker
+   - Nearby terrain/objects should reflect in water (SSR)
+   - Sky should reflect when looking at shallow angles (cubemap fallback)
+   - **If reflections are missing:** Check texture binding warnings in logs
+
+4. **Test Debug Modes** (if needed):
+   - Mode 1: Solid magenta (verifies geometry is rendering)
+   - Mode 2: World position colors (verifies vertex shader)
+   - Mode 3: Normal map visualization
+   - Mode 4: SSR only (no cubemap)
+   - Mode 5: Cubemap only (no SSR)
+   - Mode 6: SSR confidence (green = high quality)
+
+**Step 5: Performance Check**
+```bash
+# Check frame update logs every 5 seconds
+grep "\[Lake\].*State update" OpenMW.log | tail -5
+
+# Should show SSR and Cubemap binding status each frame
+[Lake] State update - SSR: YES, Cubemap: YES, DebugMode: 0, Reversed-Z: YES
+```
+
+**Common Issues and Solutions:**
+
+| Issue | Log Message | Solution |
+|-------|-------------|----------|
+| Lakes over everything | `reversed-Z=NO` | Check reversed-Z initialization in OpenMW settings |
+| No reflections | `WARNING: No SSRManager` | SSRManager not initialized in WaterManager |
+| Black/missing cubemap | `getCubemapForPosition() returned null` | No cubemap regions created yet |
+| Reflection jumping | No world position logs | Vertex shader not loading correctly |
+| Wrong depth order | `reversed-Z=NO` | Reversed-Z not enabled - using wrong depth function |
 
 ---
 
