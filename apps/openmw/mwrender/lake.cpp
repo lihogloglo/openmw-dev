@@ -328,13 +328,15 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     blendFunc->setFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     stateset->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
-    // Render lakes with opaque geometry (bin 0) for proper depth testing
-    // Using Water bin (9) with blending causes depth issues
-    stateset->setRenderBinDetails(MWRender::RenderBin_Default, "RenderBin");
+    // Render lakes AFTER opaque geometry (bin 9) for proper blending
+    // Blended transparent objects must render after all opaque objects
+    stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
 
-    // Depth settings for water rendering
-    // Use proper depth writes so lakes integrate correctly with scene depth buffer
-    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(osg::Depth::LEQUAL, 0.0, 1.0, true);
+    // Depth settings for blended water rendering:
+    // - Read depth (LEQUAL) to properly occlude behind terrain
+    // - Do NOT write depth (false) because blended objects are semi-transparent
+    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
+    depth->setWriteMask(false);
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
     // Load water normal map texture
