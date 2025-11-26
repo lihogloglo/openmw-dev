@@ -41,6 +41,10 @@ namespace MWRender
         void clearAllCells();
         float getWaterHeightAt(const osg::Vec3f& pos) const;
 
+        // Per-cell visibility control (for integration with cell loading)
+        void showWaterCell(int gridX, int gridY);
+        void hideWaterCell(int gridX, int gridY);
+
     private:
         struct CellWater
         {

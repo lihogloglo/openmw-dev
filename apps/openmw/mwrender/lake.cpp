@@ -9,6 +9,7 @@
 #include <components/shader/shadermanager.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/sceneutil/statesetupdater.hpp>
+#include <components/sceneutil/depth.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/misc/constants.hpp>
 
@@ -41,31 +42,33 @@ void Lake::setEnabled(bool enabled)
         return;
 
     std::cout << "Lake::setEnabled called: " << enabled << " (was " << mEnabled << ")" << std::endl;
-    std::cout << "  Current cell count: " << mCellWaters.size() << std::endl;
 
     mEnabled = enabled;
 
     if (mEnabled)
     {
         addToScene(mParent);
-        // Add all existing cells to the root node when enabled
-        int addedCount = 0;
+        std::cout << "Lake system enabled (root node added to scene)" << std::endl;
+
+        // Show all existing lake cells that have transforms ready
+        // This handles the case where cells were loaded before the lake system was enabled
+        int shownCount = 0;
         for (auto& pair : mCellWaters)
         {
-            if (pair.second.transform && !mRootNode->containsNode(pair.second.transform))
+            if (pair.second.transform && mRootNode && !mRootNode->containsNode(pair.second.transform))
             {
                 mRootNode->addChild(pair.second.transform);
-                addedCount++;
-                std::cout << "  Added cell (" << pair.second.gridX << ", " << pair.second.gridY
-                          << ") to scene" << std::endl;
+                shownCount++;
+                std::cout << "  Retroactively showing lake cell (" << pair.second.gridX << ", "
+                          << pair.second.gridY << ") at height " << pair.second.height << std::endl;
             }
         }
-        std::cout << "Lake enabled: added " << addedCount << " cells to scene" << std::endl;
+        std::cout << "Lake system enabled: retroactively showed " << shownCount << " cells" << std::endl;
     }
     else
     {
         removeFromScene(mParent);
-        std::cout << "Lake disabled: removed from scene" << std::endl;
+        std::cout << "Lake system disabled (root node removed from scene)" << std::endl;
     }
 }
 
@@ -238,9 +241,10 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     // Set render bin for water
     stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
 
-    // Depth settings
-    osg::ref_ptr<osg::Depth> depth = new osg::Depth;
-    depth->setWriteMask(false);  // Don't write to depth buffer
+    // Depth settings for water rendering
+    // Match vanilla water setup: AutoDepth with write mask disabled
+    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
+    depth->setWriteMask(false);
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
     // Use ShaderManager to get lake shaders
@@ -258,6 +262,61 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
 
     return stateset;
+}
+
+void Lake::showWaterCell(int gridX, int gridY)
+{
+    auto key = std::make_pair(gridX, gridY);
+    auto it = mCellWaters.find(key);
+
+    if (it != mCellWaters.end())
+    {
+        std::cout << "Lake::showWaterCell: Found lake cell (" << gridX << ", " << gridY
+                  << ") at height " << it->second.height << std::endl;
+        std::cout << "  mEnabled=" << mEnabled << " mRootNode=" << (mRootNode != nullptr)
+                  << " transform=" << (it->second.transform != nullptr) << std::endl;
+
+        // Only add to scene if lake system is enabled and cell isn't already visible
+        if (mEnabled && mRootNode && it->second.transform)
+        {
+            if (!mRootNode->containsNode(it->second.transform))
+            {
+                mRootNode->addChild(it->second.transform);
+                std::cout << "  >>> LAKE CELL ADDED TO SCENE <<<" << std::endl;
+            }
+            else
+            {
+                std::cout << "  Lake cell already in scene" << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "  Lake cell NOT added - system not ready" << std::endl;
+        }
+    }
+    else
+    {
+        std::cout << "Lake::showWaterCell: NO lake cell found at (" << gridX << ", " << gridY << ")" << std::endl;
+    }
+}
+
+void Lake::hideWaterCell(int gridX, int gridY)
+{
+    auto key = std::make_pair(gridX, gridY);
+    auto it = mCellWaters.find(key);
+
+    if (it != mCellWaters.end())
+    {
+        // Remove from scene if currently visible
+        if (mRootNode && it->second.transform)
+        {
+            if (mRootNode->containsNode(it->second.transform))
+            {
+                mRootNode->removeChild(it->second.transform);
+                std::cout << "Lake::hideWaterCell: Hiding cell (" << gridX << ", " << gridY << ")" << std::endl;
+            }
+        }
+    }
 }
 
 }

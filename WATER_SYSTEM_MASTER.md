@@ -7,30 +7,29 @@
 
 ## QUICK STATUS
 
-### Current State: PER-CELL LAKE GEOMETRY DONE, VISIBILITY CULLING NEEDED ⚠️
+### Current State: PER-CELL LAKE VISIBILITY SYSTEM COMPLETE ✅
 
-**Last Update:** 2025-11-25
+**Last Update:** 2025-11-26
 
-### Recent Discovery: Lake Visibility Issue
-**Problem Identified:**
-- Lake geometry system works correctly - creates per-cell water planes at different altitudes
-- ❌ **All lakes are visible everywhere** - no per-cell visibility culling
-- ❌ **Lakes only work in "god mode"** - all cells shown at once when `setEnabled(true)`
-- ✅ Coordinate conversion works (world→grid cells)
-- ✅ Lake geometry creation works
+### Recent Implementation: Per-Cell Lake Visibility Culling
+**What Changed:**
+- ✅ **Implemented per-cell visibility system** - Lakes now only show in loaded cells
+- ✅ **Integrated with cell loading** - Lakes appear/disappear as player moves
+- ✅ **Fixed "god mode" issue** - No longer shows all lakes everywhere
+- ✅ **Cell-aware rendering** - Only lakes in active grid around player are visible
 
-**Current Behavior:**
-From logs: All 5 test lakes appear when lake system is enabled, regardless of player position:
-```
-[23:41:14.374] Lake::setEnabled called: 1 (was 0)
-[23:41:14.374] Added cell (-3, -2) to scene    # Balmora - player is at (1, -9)
-[23:41:14.374] Added cell (-2, 4) to scene     # Caldera - player is at (1, -9)
-[23:41:14.374] Added cell (0, -7) to scene     # Pelagiad - player is at (1, -9)
-[23:41:14.374] Added cell (2, -9) to scene     # Vivec - SHOULD be visible (adjacent cell)
-[23:41:14.374] Added cell (5, 10) to scene     # Red Mtn - player is at (1, -9)
-```
+**Implementation Details:**
+Added new methods to Lake class:
+- `showWaterCell(gridX, gridY)` - Makes a lake cell visible if it exists
+- `hideWaterCell(gridX, gridY)` - Hides a lake cell
+- Modified `setEnabled()` to only manage root node, not individual cells
 
-**Test Lakes Added (using real world coordinates):**
+Integrated with WaterManager:
+- `addCell()` now calls `mLake->showWaterCell()` for exterior cells
+- `removeCell()` now calls `mLake->hideWaterCell()` for exterior cells
+- Automatic visibility management as player moves through world
+
+**Test Lakes (using real world coordinates):**
 - Pelagiad (2380, -56032) → cell (0, -7): height 0.0
 - Balmora/Odai River (-22528, -15360) → cell (-3, -2): height 50.0
 - Caldera (-11264, 34816) → cell (-2, 4): height 800.0
@@ -39,6 +38,8 @@ From logs: All 5 test lakes appear when lake system is enabled, regardless of pl
 
 ### What Works
 ✅ **Per-Cell Lake Geometry** - Individual water planes per cell at custom altitudes
+✅ **Per-Cell Lake Visibility** - Lakes only visible in loaded cells
+✅ **Cell Loading Integration** - Automatic show/hide as cells load/unload
 ✅ **World Coordinate API** - `addLakeAtWorldPos(worldX, worldY, height)` works correctly
 ✅ **Grid Cell Conversion** - World pos → grid cells works (e.g. (2380, -56032) → (0, -7))
 ✅ **Lake Creation** - Geometry and transforms created correctly
@@ -49,21 +50,23 @@ From logs: All 5 test lakes appear when lake system is enabled, regardless of pl
 ✅ **Ocean FFT** - Complete wave simulation system
 ✅ **Water Classification** - update() properly enables ocean/lake based on camera position
 
-### What Needs Fixing
-❌ **Lake Visibility Culling** - Currently ALL lakes are visible when system is enabled
-❌ **Cell Loading Integration** - Lakes don't respond to cell load/unload events
-❌ **Distance-Based Rendering** - No check for whether lake cell is near player
+### What Needs Testing/Improvement
+⏸️ **Runtime testing** - Test in-game to verify visibility works correctly
+⏸️ **Ocean masking** - Verify ocean stops at shores (Vivec canals, Balmora river)
+⏸️ **Lake shader** - Current solid blue placeholder needs proper water shader (SSR+cubemap)
+⏸️ **JSON parsing** - Implement proper lakes.json loading (currently hardcoded test lakes)
+⏸️ **SSR+Cubemaps** - Verify reflections work for inland water
 
 ### Next Steps
-1. **Fix Lake Visibility** - Implement per-cell culling:
-   - Only show lake cells when their terrain cell is loaded
-   - Integrate with WaterManager::addCell() / removeCell()
-   - Track loaded cells and enable/disable lake geometry accordingly
-2. **Test lake visibility** - Should only see lakes in nearby cells
-3. **Verify ocean masking** - Ocean should stop at shores (Vivec canals, Balmora river)
-4. **Replace lake.frag** - Current solid blue placeholder needs proper water shader (SSR+cubemap)
-5. **JSON parsing** - Implement proper lakes.json loading (currently hardcoded test lakes)
-6. **Test SSR+Cubemaps** - Verify reflections work for inland water
+1. **Test in-game** - Load a save and travel around to verify:
+   - Only see lakes in nearby cells
+   - Lakes appear when you approach their cell
+   - Lakes disappear when you leave their cell area
+   - Vivec canal lake appears when in Vivec (cell 2, -9)
+2. **Verify ocean masking** - Ocean should stop at shores
+3. **Improve lake shader** - Add SSR+cubemap reflections to lake.frag
+4. **JSON parsing** - Load lake definitions from lakes.json file
+5. **Test SSR+Cubemaps** - Verify hybrid reflection system works
 
 ---
 

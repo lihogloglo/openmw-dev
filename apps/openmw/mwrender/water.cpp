@@ -1048,12 +1048,30 @@ namespace MWRender
         {
             mLoadedCells.push_back(store);
             updateWaterHeightField();
+
+            // Show lake water for this cell if it exists
+            if (mLake && store && store->getCell()->isExterior())
+            {
+                int gridX = store->getCell()->getGridX();
+                int gridY = store->getCell()->getGridY();
+                std::cout << "WaterManager::addCell: Loaded exterior cell (" << gridX << ", " << gridY
+                          << ") - attempting to show lake" << std::endl;
+                mLake->showWaterCell(gridX, gridY);
+            }
         }
     }
 
     void WaterManager::removeCell(const MWWorld::CellStore* store)
     {
         mSimulation->removeCell(store);
+
+        // Hide lake water for this cell if it exists
+        if (mLake && store && store->getCell()->isExterior())
+        {
+            int gridX = store->getCell()->getGridX();
+            int gridY = store->getCell()->getGridY();
+            mLake->hideWaterCell(gridX, gridY);
+        }
 
         // Remove from loaded cells tracking
         auto it = std::find(mLoadedCells.begin(), mLoadedCells.end(), store);
@@ -1244,6 +1262,11 @@ namespace MWRender
         std::cout << "=== Loading test lakes at real Morrowind locations ===" << std::endl;
 
         // Test lakes at different altitudes using actual world coordinates
+
+        // USER POSITION TEST - Lake at exact player location
+        addLakeAtWorldPos(20803.70f, -61583.41f, 498.96f);  // Cell (2, -8) at player height
+        std::cout << "*** ADDED LAKE AT PLAYER POSITION: (20803.70, -61583.41) at height 498.96 ***" << std::endl;
+
         // Pelagiad area (southern Vvardenfell, near starting area)
         addLakeAtWorldPos(2380.0f, -56032.0f, 0.0f);    // Sea level lake near Pelagiad
 
