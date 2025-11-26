@@ -53,6 +53,23 @@ namespace MWRender
         // SSR/Cubemap reflection system integration
         void setWaterManager(WaterManager* waterManager);
 
+        // Debug control
+        // Debug modes:
+        // 0 = Normal rendering (SSR + cubemap + water color)
+        // 1 = Solid color (verify geometry is rendering)
+        // 2 = World position visualization (RGB = XYZ)
+        // 3 = Normal visualization
+        // 4 = SSR only (no cubemap fallback)
+        // 5 = Cubemap only (no SSR)
+        // 6 = SSR confidence visualization (green = high confidence)
+        // 7 = Screen UV visualization
+        // 8 = Depth visualization
+        void setDebugMode(int mode);
+        int getDebugMode() const;
+
+        // Get lake cell count for debugging
+        size_t getCellCount() const { return mCellWaters.size(); }
+
     private:
         struct CellWater
         {

@@ -7,9 +7,9 @@
 
 ## QUICK STATUS
 
-### Current State: LAKE SSR/CUBEMAP INTEGRATION IMPLEMENTED - NEEDS TESTING ⚠️
+### Current State: LAKE RENDERING FIXES APPLIED - READY FOR TESTING ⚠️
 
-**Last Update:** 2025-11-26 (SSR/Cubemap Integration Complete)
+**Last Update:** 2025-11-26 (Depth Fix + Reflection Fix + Debug System)
 
 ### System Architecture: COMPLETE ✅
 **What's Working:**
@@ -42,19 +42,56 @@
 
 ### Critical Issues - Status
 
-**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ⚠️ IN PROGRESS
-- **First Attempt:** Changed `setWriteMask(false)` to `setWriteMask(true)` - DID NOT FIX
-- **Second Attempt:** Changed render bin from `RenderBin_Water (9)` to `RenderBin_Default (0)` + explicit `AutoDepth(LEQUAL, 0.0, 1.0, true)`
-- **Current Code:** [lake.cpp:331-338](apps/openmw/mwrender/lake.cpp#L331)
+**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ✅ FIXED
+- **Root Cause:** `GL_DEPTH_TEST` was not explicitly enabled and depth function wasn't properly configured for reversed-Z buffer
+- **Solution Applied (2025-11-26):**
+  1. Explicitly enabled `GL_DEPTH_TEST` on state set
+  2. Used `AutoDepth(LEQUAL, 0.0, 1.0, false)` which auto-handles reversed-Z
+  3. Kept `RenderBin_Water` (9) for proper transparent object ordering
+  4. Disabled face culling for visibility from above/below
+- **Current Code:** [lake.cpp:436-447](apps/openmw/mwrender/lake.cpp#L436)
   ```cpp
-  stateset->setRenderBinDetails(MWRender::RenderBin_Default, "RenderBin");
-  osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(osg::Depth::LEQUAL, 0.0, 1.0, true);
+  stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+  osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
+      osg::Depth::LEQUAL,  // Will be GEQUAL with reversed-Z
+      0.0, 1.0,            // Depth range
+      false                // Don't write depth - transparent surface
+  );
   ```
-- **Status:** NEEDS TESTING - try rendering with opaque geometry
+- **Status:** NEEDS TESTING
 
-**ISSUE #2: Lakes Have No SSR/Cubemap Reflections** ✅ IMPLEMENTED (untested)
+**ISSUE #2: Reflections Jumping When Camera Moves** ✅ FIXED
+- **Root Cause:** Shaders were using view-space coordinates that changed with camera movement instead of stable world-space coordinates
+- **Solution Applied (2025-11-26):**
+  1. Added proper matrix uniforms (`viewMatrix`, `projMatrix`, `invViewMatrix`, `cameraPos`) to `LakeStateSetUpdater`
+  2. Rewrote [lake.vert](files/shaders/compatibility/lake.vert):
+     - Computes true world position via `invViewMatrix * viewPos`
+     - Passes both `vWorldPos` (world space) and `vViewPos` (view space)
+  3. Rewrote [lake.frag](files/shaders/compatibility/lake.frag):
+     - All reflection calculations now use world-space coordinates
+     - Normal map sampling uses world XY coordinates instead of screen/UV coords
+     - View direction computed from `vWorldPos - cameraPos`
+- **Status:** NEEDS TESTING
+
+**ISSUE #3: No Debug Visibility** ✅ FIXED
+- **Solution Applied (2025-11-26):**
+  1. Added comprehensive logging via `[Lake]` prefix in OpenMW log
+  2. Added 9 debug visualization modes controlled via `Lake::setDebugMode(int)`:
+     - Mode 0: Normal rendering (default)
+     - Mode 1: Solid magenta (verify geometry renders)
+     - Mode 2: World position visualization (RGB = XYZ)
+     - Mode 3: Normal visualization
+     - Mode 4: SSR only (no cubemap)
+     - Mode 5: Cubemap only (no SSR)
+     - Mode 6: SSR confidence visualization (green = high)
+     - Mode 7: Screen UV visualization
+     - Mode 8: Depth visualization
+  3. Per-frame logging every 5 seconds shows: camera pos, SSR/cubemap status
+- **Status:** IMPLEMENTED
+
+**SSR/Cubemap Integration** ✅ IMPLEMENTED (untested)
 - **Solution Applied:**
-  1. Created `LakeStateSetUpdater` class ([lake.cpp:30-94](apps/openmw/mwrender/lake.cpp#L30)) for per-frame texture binding
+  1. Created `LakeStateSetUpdater` class ([lake.cpp:52-187](apps/openmw/mwrender/lake.cpp#L52)) for per-frame texture binding
   2. Added `Lake::setWaterManager()` method to connect lake to SSR/cubemap managers
   3. Rewrote [lake.vert](files/shaders/compatibility/lake.vert) with world position, screen position, linear depth
   4. Rewrote [lake.frag](files/shaders/compatibility/lake.frag) with:
@@ -64,9 +101,9 @@
      - Fresnel-based reflection blending
   5. Added normal map texture binding in `createWaterStateSet()`
   6. Wired up `mLake->setWaterManager(this)` in [water.cpp:474](apps/openmw/mwrender/water.cpp#L474)
-- **Status:** Reflections not visible yet - likely blocked by depth rendering issue
+- **Status:** NEEDS TESTING
 
-**ISSUE #3: JSON Lake Loading Not Implemented** ⏸️ DEFERRED
+**ISSUE #4: JSON Lake Loading Not Implemented** ⏸️ DEFERRED
 - **Problem:** Lake data exists in [lakes.json](MultiLevelWater/lakes.json) but is never parsed
 - **Current State:** Lakes are hardcoded in WaterManager::loadLakesFromJSON() ([water.cpp:1261-1314](apps/openmw/mwrender/water.cpp#L1261))
 - **What's Needed:** Actual JSON parsing to read lakes.json file
@@ -83,10 +120,23 @@
 - ✅ **Water type classification** - WaterHeightField tracks ocean/lake/river per cell
 
 ### Immediate Action Items
-1. ⚠️ **Fix lake depth rendering** - First fix didn't work, now trying `RenderBin_Default` + explicit depth
-2. ✅ ~~**Implement lake SSR/cubemap**~~ - Done: LakeStateSetUpdater + rewritten shaders
-3. **Build and test in-game** - Verify depth fix works, then check reflections
-4. **Optional:** Implement JSON parsing to replace hardcoded lakes
+1. ✅ ~~**Fix lake depth rendering**~~ - Added explicit `GL_DEPTH_TEST` + proper `AutoDepth` config
+2. ✅ ~~**Fix reflection jumping**~~ - Rewrote shaders to use world-space coordinates consistently
+3. ✅ ~~**Add debug system**~~ - 9 debug modes + comprehensive logging
+4. **Build and test in-game** - All fixes need in-game verification
+5. **Optional:** Implement JSON parsing to replace hardcoded lakes
+
+### Testing Checklist (After Build)
+```
+1. Launch game, check OpenMW.log for "[Lake]" messages
+2. Teleport to a lake location (cell 2,-8 has lake at height 498.96)
+3. Verify lakes render at correct depth (not over terrain/objects)
+4. Move camera - reflections should NOT jump
+5. Use Lua console to test debug modes:
+   - MWBase::Environment::get().getWorld()->getRendering()->getLake()->setDebugMode(1)
+   - Mode 1 should show solid magenta water
+   - Mode 2 shows world position as colors
+```
 
 ---
 

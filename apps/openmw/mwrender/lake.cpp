@@ -10,6 +10,8 @@
 #include <osg/BlendFunc>
 #include <osg/Texture2D>
 #include <osg/TextureCubeMap>
+#include <osg/PolygonMode>
+#include <osg/CullFace>
 
 #include <osgUtil/CullVisitor>
 
@@ -20,11 +22,32 @@
 #include <components/sceneutil/depth.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/misc/constants.hpp>
+#include <components/debug/debuglog.hpp>
 
 #include "renderbin.hpp"
 
 namespace MWRender
 {
+
+// Debug logging helper
+namespace
+{
+    bool sLakeDebugLoggingEnabled = true;  // Set to true to see lake system logs
+    int sLakeFrameCounter = 0;
+    constexpr int LOG_EVERY_N_FRAMES = 300;  // Log every 5 seconds at 60fps
+
+    void logLake(const std::string& msg)
+    {
+        if (sLakeDebugLoggingEnabled)
+            Log(Debug::Info) << "[Lake] " << msg;
+    }
+
+    void logLakeVerbose(const std::string& msg)
+    {
+        if (sLakeDebugLoggingEnabled && (sLakeFrameCounter % LOG_EVERY_N_FRAMES == 0))
+            Log(Debug::Info) << "[Lake:Verbose] " << msg;
+    }
+}
 
 // StateSetUpdater for per-frame SSR/cubemap texture binding
 class LakeStateSetUpdater : public SceneUtil::StateSetUpdater
@@ -32,7 +55,10 @@ class LakeStateSetUpdater : public SceneUtil::StateSetUpdater
 public:
     LakeStateSetUpdater(WaterManager* waterManager)
         : mWaterManager(waterManager)
+        , mDebugMode(0)
+        , mLastLogFrame(0)
     {
+        logLake("LakeStateSetUpdater created");
     }
 
     void setDefaults(osg::StateSet* stateset) override
@@ -48,6 +74,19 @@ public:
         // Near/far for depth linearization
         stateset->addUniform(new osg::Uniform("near", 1.0f));
         stateset->addUniform(new osg::Uniform("far", 300000.0f));
+
+        // Debug mode uniform: 0=normal, 1=solid color, 2=normals, 3=depth, 4=SSR only, 5=cubemap only
+        stateset->addUniform(new osg::Uniform("debugMode", mDebugMode));
+
+        // View/projection matrices for proper reflection calculations
+        stateset->addUniform(new osg::Uniform("viewMatrix", osg::Matrixf()));
+        stateset->addUniform(new osg::Uniform("projMatrix", osg::Matrixf()));
+        stateset->addUniform(new osg::Uniform("invViewMatrix", osg::Matrixf()));
+
+        // Camera position in world space
+        stateset->addUniform(new osg::Uniform("cameraPos", osg::Vec3f(0, 0, 0)));
+
+        logLake("LakeStateSetUpdater defaults set - texture units: SSR=0, Cubemap=1, Normal=2");
     }
 
     void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
@@ -56,16 +95,52 @@ public:
             return;
 
         osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+        if (!cv)
+            return;
+
+        sLakeFrameCounter++;
+        bool shouldLog = (sLakeFrameCounter % LOG_EVERY_N_FRAMES == 0);
+
+        // Get camera matrices
+        osg::Camera* camera = cv->getCurrentCamera();
+        if (camera)
+        {
+            osg::Matrixf viewMatrix = camera->getViewMatrix();
+            osg::Matrixf projMatrix = camera->getProjectionMatrix();
+            osg::Matrixf invViewMatrix = osg::Matrixf::inverse(viewMatrix);
+
+            osg::Uniform* viewUniform = stateset->getUniform("viewMatrix");
+            osg::Uniform* projUniform = stateset->getUniform("projMatrix");
+            osg::Uniform* invViewUniform = stateset->getUniform("invViewMatrix");
+            osg::Uniform* camPosUniform = stateset->getUniform("cameraPos");
+
+            if (viewUniform) viewUniform->set(viewMatrix);
+            if (projUniform) projUniform->set(projMatrix);
+            if (invViewUniform) invViewUniform->set(invViewMatrix);
+
+            // Extract camera position from inverse view matrix
+            osg::Vec3f camPos(invViewMatrix(3, 0), invViewMatrix(3, 1), invViewMatrix(3, 2));
+            if (camPosUniform) camPosUniform->set(camPos);
+
+            if (shouldLog)
+            {
+                logLakeVerbose("Camera pos: (" + std::to_string(camPos.x()) + ", "
+                    + std::to_string(camPos.y()) + ", " + std::to_string(camPos.z()) + ")");
+            }
+        }
 
         // Get SSR texture
         SSRManager* ssrMgr = mWaterManager->getSSRManager();
+        bool hasSSR = false;
         if (ssrMgr && ssrMgr->getResultTexture())
         {
             stateset->setTextureAttributeAndModes(0, ssrMgr->getResultTexture(), osg::StateAttribute::ON);
+            hasSSR = true;
         }
 
         // Get cubemap for approximate water position (use camera position as approximation)
         CubemapReflectionManager* cubemapMgr = mWaterManager->getCubemapManager();
+        bool hasCubemap = false;
         if (cubemapMgr)
         {
             osg::Vec3f camPos = cv->getEyeLocal();
@@ -73,13 +148,14 @@ public:
             if (cubemap)
             {
                 stateset->setTextureAttributeAndModes(1, cubemap, osg::StateAttribute::ON);
+                hasCubemap = true;
             }
         }
 
         // Update screen resolution from viewport
-        if (cv->getCurrentCamera())
+        if (camera)
         {
-            osg::Viewport* vp = cv->getCurrentCamera()->getViewport();
+            osg::Viewport* vp = camera->getViewport();
             if (vp)
             {
                 osg::Uniform* screenResUniform = stateset->getUniform("screenRes");
@@ -87,10 +163,27 @@ public:
                     screenResUniform->set(osg::Vec2f(vp->width(), vp->height()));
             }
         }
+
+        // Update debug mode
+        osg::Uniform* debugUniform = stateset->getUniform("debugMode");
+        if (debugUniform)
+            debugUniform->set(mDebugMode);
+
+        if (shouldLog)
+        {
+            logLakeVerbose("State update - SSR: " + std::string(hasSSR ? "yes" : "no")
+                + ", Cubemap: " + std::string(hasCubemap ? "yes" : "no")
+                + ", DebugMode: " + std::to_string(mDebugMode));
+        }
     }
+
+    void setDebugMode(int mode) { mDebugMode = mode; }
+    int getDebugMode() const { return mDebugMode; }
 
 private:
     WaterManager* mWaterManager;
+    int mDebugMode;
+    int mLastLogFrame;
 };
 
 Lake::Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
@@ -100,11 +193,15 @@ Lake::Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
     , mDefaultHeight(0.f)
     , mEnabled(false)
 {
+    logLake("Lake constructor started");
+
     mRootNode = new osg::PositionAttitudeTransform;
     mRootNode->setName("LakeRoot");
 
     // Create shared water state set for all lake cells
     mWaterStateSet = createWaterStateSet();
+
+    logLake("Lake constructor completed - root node created, state set initialized");
 }
 
 Lake::~Lake()
@@ -131,14 +228,13 @@ void Lake::setEnabled(bool enabled)
     if (mEnabled == enabled)
         return;
 
-    std::cout << "Lake::setEnabled called: " << enabled << " (was " << mEnabled << ")" << std::endl;
+    logLake("setEnabled: " + std::string(enabled ? "true" : "false") + " (was " + std::string(mEnabled ? "true" : "false") + ")");
 
     mEnabled = enabled;
 
     if (mEnabled)
     {
         addToScene(mParent);
-        std::cout << "Lake system enabled (root node added to scene)" << std::endl;
 
         // Show all existing lake cells that have transforms ready
         // This handles the case where cells were loaded before the lake system was enabled
@@ -149,16 +245,16 @@ void Lake::setEnabled(bool enabled)
             {
                 mRootNode->addChild(pair.second.transform);
                 shownCount++;
-                std::cout << "  Retroactively showing lake cell (" << pair.second.gridX << ", "
-                          << pair.second.gridY << ") at height " << pair.second.height << std::endl;
+                logLake("  Retroactively showing lake cell (" + std::to_string(pair.second.gridX) + ", "
+                          + std::to_string(pair.second.gridY) + ") at height " + std::to_string(pair.second.height));
             }
         }
-        std::cout << "Lake system enabled: retroactively showed " << shownCount << " cells" << std::endl;
+        logLake("Lake system ENABLED: root node added to scene, retroactively showed " + std::to_string(shownCount) + " cells");
     }
     else
     {
         removeFromScene(mParent);
-        std::cout << "Lake system disabled (root node removed from scene)" << std::endl;
+        logLake("Lake system DISABLED: root node removed from scene");
     }
 }
 
@@ -196,8 +292,8 @@ void Lake::addWaterCell(int gridX, int gridY, float height)
 {
     auto key = std::make_pair(gridX, gridY);
 
-    std::cout << "Lake::addWaterCell called: gridX=" << gridX << " gridY=" << gridY
-              << " height=" << height << " enabled=" << mEnabled << std::endl;
+    logLake("addWaterCell: grid=(" + std::to_string(gridX) + ", " + std::to_string(gridY)
+              + ") height=" + std::to_string(height) + " enabled=" + std::string(mEnabled ? "true" : "false"));
 
     // Remove existing cell if present
     if (mCellWaters.count(key))
@@ -211,21 +307,17 @@ void Lake::addWaterCell(int gridX, int gridY, float height)
 
     createCellGeometry(cell);
 
-    std::cout << "Lake cell geometry created, transform=" << (cell.transform != nullptr) << std::endl;
-
     mCellWaters[key] = cell;
 
     // Add to scene if enabled
     if (mEnabled && mRootNode && cell.transform)
     {
         mRootNode->addChild(cell.transform);
-        std::cout << "Lake cell added to scene (enabled)" << std::endl;
+        logLake("  -> Cell added to scene (system enabled)");
     }
     else
     {
-        std::cout << "Lake cell NOT added to scene: enabled=" << mEnabled
-                  << " rootNode=" << (mRootNode != nullptr)
-                  << " transform=" << (cell.transform != nullptr) << std::endl;
+        logLake("  -> Cell created but NOT added to scene (system disabled or not ready)");
     }
 }
 
@@ -319,27 +411,54 @@ void Lake::createCellGeometry(CellWater& cell)
 
 osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
 {
+    logLake("Creating lake water state set");
+
     osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
-    // Enable blending
+    // ============================================================
+    // DEPTH RENDERING FIX: Use proper depth configuration for lakes
+    // ============================================================
+    // Lakes need to:
+    // 1. Render AFTER opaque geometry (use RenderBin_Water = 9)
+    // 2. Read depth buffer to be occluded by terrain/objects
+    // 3. NOT write depth (blended transparent surface)
+    // 4. Use correct depth function for reversed-Z buffer
+    //
+    // The key fix: Explicitly enable GL_DEPTH_TEST and use AutoDepth
+    // which handles reversed-Z automatically.
+    // ============================================================
+
+    // Explicitly enable depth testing - this is critical!
+    stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+
+    // AutoDepth handles reversed-Z automatically:
+    // - LEQUAL becomes GEQUAL when reversed-Z is active
+    // - This ensures lake fragments are rejected when behind terrain
+    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
+        osg::Depth::LEQUAL,  // Will be GEQUAL with reversed-Z
+        0.0, 1.0,            // Depth range
+        false                // Don't write depth - transparent surface
+    );
+    stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+
+    logLake("Depth state: test=ON, function=LEQUAL/GEQUAL(rev), writeMask=false");
+
+    // Enable blending for transparency
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
 
     osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc;
     blendFunc->setFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     stateset->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
-    // Render lakes AFTER opaque geometry (bin 9) for proper blending
-    // Blended transparent objects must render after all opaque objects
+    // Render in water bin (after opaque geometry)
     stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
 
-    // Depth settings for blended water rendering:
-    // - Read depth (LEQUAL) to properly occlude behind terrain
-    // - Do NOT write depth (false) because blended objects are semi-transparent
-    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
-    depth->setWriteMask(false);
-    stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+    logLake("Blend state: enabled, SRC_ALPHA/ONE_MINUS_SRC_ALPHA, bin=Water(9)");
 
-    // Load water normal map texture
+    // Disable face culling so water is visible from above and below
+    stateset->setMode(GL_CULL_FACE, osg::StateAttribute::OFF);
+
+    // Load water normal map texture (texture unit 2)
     constexpr VFS::Path::NormalizedView waterNormalImage("textures/omw/water_nm.png");
     osg::ref_ptr<osg::Texture2D> normalMap = new osg::Texture2D(
         mResourceSystem->getImageManager()->getImage(waterNormalImage));
@@ -348,19 +467,41 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     mResourceSystem->getSceneManager()->applyFilterSettings(normalMap);
     stateset->setTextureAttributeAndModes(2, normalMap, osg::StateAttribute::ON);
 
+    logLake("Normal map loaded at texture unit 2");
+
     // Use ShaderManager to get lake shaders
     Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
 
     osg::ref_ptr<osg::Program> program = new osg::Program;
+    program->setName("LakeShader");
 
     // Use lake shaders with SSR+cubemap support
     auto vert = shaderManager.getShader("lake.vert", {}, osg::Shader::VERTEX);
     auto frag = shaderManager.getShader("lake.frag", {}, osg::Shader::FRAGMENT);
 
-    if (vert) program->addShader(vert);
-    if (frag) program->addShader(frag);
+    if (vert)
+    {
+        program->addShader(vert);
+        logLake("Vertex shader loaded: lake.vert");
+    }
+    else
+    {
+        logLake("WARNING: Failed to load lake.vert!");
+    }
+
+    if (frag)
+    {
+        program->addShader(frag);
+        logLake("Fragment shader loaded: lake.frag");
+    }
+    else
+    {
+        logLake("WARNING: Failed to load lake.frag!");
+    }
 
     stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
+
+    logLake("Lake water state set created successfully");
 
     return stateset;
 }
@@ -372,10 +513,8 @@ void Lake::showWaterCell(int gridX, int gridY)
 
     if (it != mCellWaters.end())
     {
-        std::cout << "Lake::showWaterCell: Found lake cell (" << gridX << ", " << gridY
-                  << ") at height " << it->second.height << std::endl;
-        std::cout << "  mEnabled=" << mEnabled << " mRootNode=" << (mRootNode != nullptr)
-                  << " transform=" << (it->second.transform != nullptr) << std::endl;
+        logLake("showWaterCell: Found cell (" + std::to_string(gridX) + ", " + std::to_string(gridY)
+                  + ") height=" + std::to_string(it->second.height));
 
         // Only add to scene if lake system is enabled and cell isn't already visible
         if (mEnabled && mRootNode && it->second.transform)
@@ -383,22 +522,19 @@ void Lake::showWaterCell(int gridX, int gridY)
             if (!mRootNode->containsNode(it->second.transform))
             {
                 mRootNode->addChild(it->second.transform);
-                std::cout << "  >>> LAKE CELL ADDED TO SCENE <<<" << std::endl;
+                logLake("  -> CELL SHOWN (added to scene)");
             }
             else
             {
-                std::cout << "  Lake cell already in scene" << std::endl;
+                logLake("  -> Cell already visible");
             }
         }
         else
         {
-            std::cout << "  Lake cell NOT added - system not ready" << std::endl;
+            logLake("  -> Cell NOT shown (system disabled/not ready)");
         }
     }
-    else
-    {
-        std::cout << "Lake::showWaterCell: NO lake cell found at (" << gridX << ", " << gridY << ")" << std::endl;
-    }
+    // Don't log when cell not found - this is normal for cells without lakes
 }
 
 void Lake::hideWaterCell(int gridX, int gridY)
@@ -414,10 +550,28 @@ void Lake::hideWaterCell(int gridX, int gridY)
             if (mRootNode->containsNode(it->second.transform))
             {
                 mRootNode->removeChild(it->second.transform);
-                std::cout << "Lake::hideWaterCell: Hiding cell (" << gridX << ", " << gridY << ")" << std::endl;
+                logLake("hideWaterCell: Hidden cell (" + std::to_string(gridX) + ", " + std::to_string(gridY) + ")");
             }
         }
     }
+}
+
+void Lake::setDebugMode(int mode)
+{
+    LakeStateSetUpdater* updater = dynamic_cast<LakeStateSetUpdater*>(mStateSetUpdater.get());
+    if (updater)
+    {
+        updater->setDebugMode(mode);
+        logLake("Debug mode set to " + std::to_string(mode));
+    }
+}
+
+int Lake::getDebugMode() const
+{
+    LakeStateSetUpdater* updater = dynamic_cast<LakeStateSetUpdater*>(mStateSetUpdater.get());
+    if (updater)
+        return updater->getDebugMode();
+    return 0;
 }
 
 }
