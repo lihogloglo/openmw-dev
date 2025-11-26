@@ -7,9 +7,9 @@
 
 ## QUICK STATUS
 
-### Current State: CRITICAL FIXES APPLIED - REBUILD AND TEST ⚠️
+### Current State: DEPTH ISSUE UNSOLVED - REQUIRES INVESTIGATION ❌
 
-**Last Update:** 2025-11-26 (Depth Write Fix + Vertex Shader Fix)
+**Last Update:** 2025-11-26 (Multiple fixes attempted, issue persists)
 
 ### System Architecture: COMPLETE ✅
 **What's Working:**
@@ -42,60 +42,125 @@
 
 ### Critical Issues - Status
 
-**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ✅ FIXED (2025-11-26)
+**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ❌ UNSOLVED (2025-11-26)
 
-**Root Cause Identified (2025-11-26):**
-- **Problem:** `writeMask(false)` prevented lakes from writing to depth buffer
-- **Effect:** Lakes render at correct depth but DON'T UPDATE the depth buffer
-- **Result:** Terrain behind lakes still has terrain depth, causing lakes to render OVER everything
+**Visual Symptoms (Confirmed via Testing):**
+- ❌ Lakes render OVER terrain (completely covers terrain)
+- ❌ Foliage ALWAYS renders over lakes (even when underwater looking up)
+- ❌ Terrain is visible but appears behind lake surface
+- ⚠️ Issue is INDEPENDENT of viewing angle (top-down or underwater)
 
-**Visual Symptoms Observed:**
-- Lakes render OVER terrain ❌
-- Lakes render UNDER foliage ✓ (foliage in bin 10, renders after lakes in bin 9)
-- This confirmed the render bin ordering was correct, but depth writes were the problem
+**Critical Context:**
+- Lakes are at different altitudes per cell (498.96, 1100, 1250, 1400, 1600, 1800)
+- Player can view lakes from ABOVE (standing on ground) or BELOW (swimming underwater)
+- Foliage rendering over lakes even when underwater indicates depth function is broken
 
-**Fix Applied:** [lake.cpp:487-491](apps/openmw/mwrender/lake.cpp#L487)
+**Attempted Fixes (All Failed):**
+
+**Attempt #1: Enable Depth Writes** ❌
 ```cpp
-osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
-    osg::Depth::LEQUAL,  // Auto-converts to GEQUAL with reversed-Z
-    0.0, 1.0,            // Depth range
-    true                 // CHANGED: Enable depth writes for proper occlusion
-);
+writeMask = true  // Instead of false
 ```
+**Result:** Made it WORSE - now foliage renders over lakes even underwater
 
-**Why This Fixes It:**
-1. Terrain renders (bin 0) → writes depth = 0.9
-2. Lake renders (bin 9) → tests depth: 0.8 >= 0.9? YES, passes
-3. Lake WRITES depth = 0.8 (was skipped before!)
-4. Objects behind lake test: 0.85 >= 0.8? YES → objects render correctly behind water
-
-**Status:** ✅ FIXED - Rebuild and test to verify lakes no longer render over terrain
-
-**ISSUE #2: Reflection Jumping When Camera Moves** ✅ PARTIALLY FIXED (2025-11-26)
-
-**Symptoms Observed:**
-- Reflections jump/flicker when camera moves
-- Water normal animation is stable (uses world coordinates)
-- Likely caused by SSR texture itself containing unstable reflections
-
-**Fix Applied:** [lake.vert:36-40](files/shaders/compatibility/lake.vert#L36)
+**Attempt #2: Fixed Vertex Shader W-Component** ⚠️ BUG FIXED, BUT DEPTH ISSUE PERSISTS
 ```glsl
-// Step 2: Transform view space back to world space using inverse view matrix
-// IMPORTANT: Ensure w=1.0 for proper homogeneous coordinate transformation
+// Before (WRONG):
 viewPos4.w = 1.0;
-vec4 worldPos4 = invViewMatrix * viewPos4;
-vWorldPos = worldPos4.xyz / worldPos4.w;  // Perspective divide for safety
-```
+gl_Position = gl_ProjectionMatrix * viewPos4;  // Uses broken w!
 
-**What Changed:**
-- Explicitly set `w=1.0` before inverse view matrix transformation
-- Added perspective divide (`worldPos4.xyz / worldPos4.w`) for correct homogeneous coordinates
-- This ensures stable world positions that don't drift when camera moves
+// After (FIXED):
+vec4 viewPosForWorldTransform = vec4(viewPos4.xyz, 1.0);  // Separate copy
+gl_Position = gl_ProjectionMatrix * viewPos4;  // Uses original w
+```
+**Technical Details:**
+- Original bug: Setting `viewPos4.w = 1.0` before perspective projection broke homogeneous coordinates
+- The w component contains perspective information crucial for correct depth buffer values
+- Fix: Create separate vec4 for inverse view matrix transform, preserve original w for projection
+- Location: [lake.vert:39-45](files/shaders/compatibility/lake.vert#L39-L45)
+
+**Result:** Bug was real and fix is correct, BUT depth rendering issue persists unchanged
+- This confirms the depth problem is NOT related to vertex transformation
+- Depth issue must be in depth test configuration, render bin ordering, or fragment processing
+
+**Attempt #3: Reverted Depth Writes** ❌
+```cpp
+writeMask = false  // Back to original
+```
+**Result:** Back to original problem state
+
+**Current Configuration (After All Attempts):**
+- Depth test: ENABLED
+- Depth function: LEQUAL (becomes GEQUAL with reversed-Z)
+- Depth write mask: FALSE
+- Reversed-Z: ACTIVE (confirmed in logs)
+- Render bin: RenderBin_Water (9)
+
+**Diagnostic Logs Captured:**
+```
+[Lake] ===== LAKE DEPTH CONFIGURATION =====
+[Lake] Depth test: ENABLED
+[Lake] Depth function: LEQUAL (will become GEQUAL if reversed-Z active)
+[Lake] Depth write mask: FALSE (REVERTED FOR TESTING)
+[Lake] Reversed-Z active: YES
+[Lake] Render bin: RenderBin_Water (9)
+
+[Lake] Creating geometry for cell (2, -8):
+[Lake]   World position: (20480.000000, -61440.000000, 498.959991)
+[Lake:Verbose] Camera pos: (19124.892578, -61641.312500, 407.362305)
+```
+**Analysis:** Lake at Z=498.96, camera at Z=407.36 → lake is 91 units ABOVE camera (correct)
+
+**Hypotheses for Root Cause:**
+
+1. **Render Bin Ordering Issue**
+   - RenderBin_Water (9) may not be correct for multi-altitude lakes
+   - Ocean uses same bin, but ocean is single global plane
+   - Lakes need different bin OR depth-sorted rendering within bin
+
+2. **Face Culling Disabled**
+   - `GL_CULL_FACE = OFF` allows viewing from both sides
+   - This may interact badly with depth testing for transparent surfaces
+   - Underwater viewing requires seeing "back faces" of water plane
+
+3. **AutoDepth Reversed-Z Conversion**
+   - LEQUAL → GEQUAL conversion may not be applying correctly
+   - Ocean uses explicit `GEQUAL` with plain `osg::Depth`
+   - Lakes use `AutoDepth` with `LEQUAL` (relies on automatic conversion)
+
+4. **Transparency + Depth Testing Conflict**
+   - Transparent surfaces with depth testing but no depth writes are complex
+   - May require custom shader depth output
+   - Multi-altitude adds additional complexity
+
+**Status:** ❌ UNSOLVED - Requires different approach (possibly shader-based depth output or different rendering architecture)
+
+**ISSUE #2: Reflection Flickering** ⚠️ PARTIALLY IMPROVED (2025-11-26)
+
+**Visual Symptoms (Confirmed via Testing):**
+- ⚠️ Reflections flicker/jitter when camera moves
+- ✅ Water normal animation is stable (uses world coordinates correctly)
+- ⚠️ Reflections are "barely visible" and "seem bugged"
+
+**Fix Applied:** [lake.vert:39-41](files/shaders/compatibility/lake.vert#L39)
+```glsl
+// Create separate vector for world transform to avoid breaking gl_Position
+vec4 viewPosForWorldTransform = vec4(viewPos4.xyz, 1.0);
+vec4 worldPos4 = invViewMatrix * viewPosForWorldTransform;
+vWorldPos = worldPos4.xyz / worldPos4.w;
+```
+**Result:** Reflections returned to "okay" quality but still flicker
+
+**Root Cause Analysis:**
+- SSR shader (ssrmanager.cpp) likely has reversed-Z depth issues
+- Inline SSR raymarch checks `if (depth >= 0.9999)` which is WRONG for reversed-Z
+- With reversed-Z: far = 0.0, near = 1.0 (inverted)
+- SSR should check `if (depth <= 0.0001)` instead
 
 **Remaining Issue:**
-- SSR texture itself may contain jumping reflections if the SSR raymarch shader has bugs
-- The inline SSR shader (ssrmanager.cpp) might not handle reversed-Z correctly
-- Cubemap reflections should be stable (they don't depend on screen space)
+- SSR texture contains unstable/flickering reflections
+- Cubemap fallback should be stable (needs testing with debug mode 5)
+- SSR confidence values may be incorrect causing bad blending
 
 - **Texture Binding Architecture:**
   ```
