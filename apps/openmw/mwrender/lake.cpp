@@ -85,6 +85,12 @@ public:
 
         // Camera position in world space
         stateset->addUniform(new osg::Uniform("cameraPos", osg::Vec3f(0, 0, 0)));
+        
+        // OG Water Shader Uniforms
+        stateset->addUniform(new osg::Uniform("osg_SimulationTime", 0.0f));
+        stateset->addUniform(new osg::Uniform("rainIntensity", 0.0f));
+        stateset->addUniform(new osg::Uniform("enableRainRipples", false));
+        stateset->addUniform(new osg::Uniform("playerPos", osg::Vec3f(0,0,0))); // Needed for ripples
 
         logLake("LakeStateSetUpdater defaults set - texture units: SSR=0, Cubemap=1, Normal=2");
     }
@@ -125,6 +131,25 @@ public:
             // Extract camera position from inverse view matrix
             osg::Vec3f camPos(invViewMatrix(3, 0), invViewMatrix(3, 1), invViewMatrix(3, 2));
             if (camPosUniform) camPosUniform->set(camPos);
+
+            // Update playerPos uniform (using camera pos as proxy for now)
+            osg::Uniform* playerPosUniform = stateset->getUniform("playerPos");
+            if (playerPosUniform) playerPosUniform->set(camPos);
+
+            // Update simulation time
+            osg::Uniform* timeUniform = stateset->getUniform("osg_SimulationTime");
+            if (timeUniform)
+            {
+                // We need a monotonic time source. osg::FrameStamp?
+                // For now, just incrementing a static or using frame number might be too jerky.
+                // Better to get it from the frame stamp if possible, but we don't have easy access here.
+                // Let's assume the scene manager updates osg_SimulationTime globally or we need to pass it.
+                // Actually, osg_SimulationTime is usually a global uniform set by the renderer.
+                // If we need to set it manually:
+                static float simTime = 0.0f;
+                simTime += 0.016f; // Approx 60fps
+                timeUniform->set(simTime);
+            }
 
             if (shouldLog)
             {
@@ -338,8 +363,33 @@ void Lake::addWaterCell(int gridX, int gridY, float height)
 {
     auto key = std::make_pair(gridX, gridY);
 
+    // Validate height
+    if (!Units::isValidHeight(height))
+    {
+        logLake("ERROR: Invalid height " + std::to_string(height) + " for cell ("
+                  + std::to_string(gridX) + ", " + std::to_string(gridY) + ")");
+        logLake("  Height must be between " + std::to_string(Units::MIN_ALTITUDE)
+                  + " and " + std::to_string(Units::MAX_ALTITUDE) + " units");
+        return;
+    }
+
+    // Convert grid to world coordinates for validation
+    float worldX, worldY;
+    Units::gridToWorld(gridX, gridY, worldX, worldY);
+
+    if (!Units::isValidWorldPos(worldX, worldY))
+    {
+        logLake("WARNING: Cell (" + std::to_string(gridX) + ", " + std::to_string(gridY)
+                  + ") at world pos (" + std::to_string(worldX) + ", " + std::to_string(worldY)
+                  + ") is outside normal Morrowind bounds");
+    }
+
     logLake("addWaterCell: grid=(" + std::to_string(gridX) + ", " + std::to_string(gridY)
-              + ") height=" + std::to_string(height) + " enabled=" + std::string(mEnabled ? "true" : "false"));
+              + ") height=" + std::to_string(height) + " units ("
+              + std::to_string(height * Units::FEET_PER_UNIT) + " feet, "
+              + std::to_string(height * Units::METERS_PER_UNIT) + " meters)"
+              + " enabled=" + std::string(mEnabled ? "true" : "false"));
+    logLake("  World position: (" + std::to_string(worldX) + ", " + std::to_string(worldY) + ")");
 
     // Remove existing cell if present
     if (mCellWaters.count(key))
@@ -396,10 +446,9 @@ void Lake::clearAllCells()
 
 float Lake::getWaterHeightAt(const osg::Vec3f& pos) const
 {
-    // Convert world position to grid coordinates
-    const float cellSize = Constants::CellSizeInUnits;  // 8192 MW units
-    int gridX = static_cast<int>(std::floor(pos.x() / cellSize));
-    int gridY = static_cast<int>(std::floor(pos.y() / cellSize));
+    // Convert world position to grid coordinates using Units helper
+    int gridX, gridY;
+    Units::worldToGrid(pos.x(), pos.y(), gridX, gridY);
 
     auto key = std::make_pair(gridX, gridY);
     auto it = mCellWaters.find(key);
@@ -412,15 +461,17 @@ float Lake::getWaterHeightAt(const osg::Vec3f& pos) const
 
 void Lake::createCellGeometry(CellWater& cell)
 {
-    const float cellSize = Constants::CellSizeInUnits;  // 8192 MW units
+    const float cellSize = Units::CELL_SIZE_UNITS;  // 8192 MW units
     const float cellCenterX = cell.gridX * cellSize + cellSize * 0.5f;
     const float cellCenterY = cell.gridY * cellSize + cellSize * 0.5f;
     const float halfSize = cellSize * 0.5f;
 
     logLake("Creating geometry for cell (" + std::to_string(cell.gridX) + ", " + std::to_string(cell.gridY) + "):");
-    logLake("  Cell size: " + std::to_string(cellSize) + " units");
+    logLake("  Cell size: " + std::to_string(cellSize) + " units ("
+              + std::to_string(Units::CELL_SIZE_FEET) + " feet, "
+              + std::to_string(Units::CELL_SIZE_METERS) + " meters)");
     logLake("  World position: (" + std::to_string(cellCenterX) + ", " + std::to_string(cellCenterY) + ", " + std::to_string(cell.height) + ")");
-    logLake("  Quad extends: " + std::to_string(halfSize) + " units in each direction");
+    logLake("  Quad extends: ±" + std::to_string(halfSize) + " units from center");
 
     // Transform at cell center, water height
     cell.transform = new osg::PositionAttitudeTransform;
@@ -467,42 +518,37 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
     // ============================================================
-    // DEPTH RENDERING FIX: Use proper depth configuration for lakes
+    // DEPTH RENDERING FIX: Match ocean.cpp configuration
     // ============================================================
     // Lakes need to:
     // 1. Render AFTER opaque geometry (use RenderBin_Water = 9)
     // 2. Read depth buffer to be occluded by terrain/objects
-    // 3. NOT write depth (blended transparent surface)
-    // 4. Use correct depth function for reversed-Z buffer
+    // 3. Write depth for proper sorting with other transparent objects
+    // 4. Use GEQUAL for reversed-Z buffer (standard in OpenMW)
     //
-    // The key fix: Explicitly enable GL_DEPTH_TEST and use AutoDepth
-    // which handles reversed-Z automatically.
+    // CRITICAL FIX: Ocean uses manual osg::Depth with GEQUAL + writeMask=true
+    // This is the correct configuration for reversed-Z depth buffer.
     // ============================================================
 
-    // Explicitly enable depth testing - this is critical!
+    // Enable depth testing - critical for proper occlusion
     stateset->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
 
-    // HYPOTHESIS: The depth issue might be that writeMask=true is causing problems
-    // Let's try reverting to writeMask=false first, and add detailed logging
-    //
-    // AutoDepth handles reversed-Z automatically:
-    // - LEQUAL becomes GEQUAL when reversed-Z is active
-    // - This ensures lake fragments are rejected when behind terrain
-    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(
-        osg::Depth::LEQUAL,  // Will be GEQUAL with reversed-Z
-        0.0, 1.0,            // Depth range
-        false                // REVERT: Back to false for testing
-    );
+    // Manual depth configuration
+    // CRITICAL: Log confirms "Using reverse-z depth buffer".
+    // In Reversed-Z: Near=1.0, Far=0.0.
+    // We want to pass if Z_frag >= Z_buf (closer or equal).
+    // LEQUAL (<=) would mean "pass if farther", which explains invisibility (fails against cleared 0.0 buffer).
+    osg::ref_ptr<osg::Depth> depth = new osg::Depth;
+    depth->setWriteMask(true);
+    depth->setFunction(osg::Depth::GEQUAL); 
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
 
-    logLake("===== LAKE DEPTH CONFIGURATION =====");
+    logLake("===== LAKE DEPTH CONFIGURATION (FIXED) =====");
     logLake("Depth test: ENABLED");
-    logLake("Depth function: LEQUAL (will become GEQUAL if reversed-Z active)");
-    logLake("Depth write mask: FALSE (REVERTED FOR TESTING)");
-    logLake("Reversed-Z active: " + std::string(SceneUtil::AutoDepth::isReversed() ? "YES" : "NO"));
+    logLake("Depth function: GEQUAL (Reversed-Z Correct)");
+    logLake("Depth write mask: TRUE");
     logLake("Render bin: RenderBin_Water (9)");
-    logLake("Depth range: 0.0 to 1.0");
-    logLake("===================================");
+    logLake("==========================================");
 
     // Enable blending for transparency
     stateset->setMode(GL_BLEND, osg::StateAttribute::ON);

@@ -7,6 +7,7 @@
 #include <osg/Vec3f>
 #include <osg/Callback>
 #include <map>
+#include <cmath>
 
 namespace osg
 {
@@ -24,6 +25,59 @@ namespace Resource
 
 namespace MWRender
 {
+    // ============================================================================
+    // MORROWIND UNIT SYSTEM
+    // ============================================================================
+    // In Morrowind: 22.1 units = 1 foot (from game engine documentation)
+    // This means: 1 unit ≈ 0.0453 feet ≈ 0.0138 meters ≈ 1.38 cm
+    // Cell size: 8192 units = ~370.5 feet = ~113 meters
+    // ============================================================================
+    namespace Units
+    {
+        // Base conversion constants
+        constexpr float UNITS_PER_FOOT = 22.1f;
+        constexpr float FEET_PER_UNIT = 1.0f / 22.1f;
+        constexpr float UNITS_PER_METER = UNITS_PER_FOOT / 0.3048f;  // ~72.53
+        constexpr float METERS_PER_UNIT = 1.0f / UNITS_PER_METER;    // ~0.0138
+
+        // Cell dimensions
+        constexpr float CELL_SIZE_UNITS = 8192.0f;
+        constexpr float CELL_SIZE_FEET = CELL_SIZE_UNITS * FEET_PER_UNIT;      // ~370.5 feet
+        constexpr float CELL_SIZE_METERS = CELL_SIZE_UNITS * METERS_PER_UNIT;  // ~113 meters
+
+        // Validation bounds (Morrowind world is roughly -130k to +130k in each axis)
+        constexpr float MAX_WORLD_COORD = 300000.0f;   // Conservative maximum coordinate
+        constexpr float MIN_WORLD_COORD = -300000.0f;  // Conservative minimum coordinate
+        constexpr float MAX_ALTITUDE = 10000.0f;       // Maximum height in MW (Red Mountain)
+        constexpr float MIN_ALTITUDE = -5000.0f;       // Minimum depth (underwater areas)
+
+        // Validation functions
+        inline bool isValidWorldPos(float x, float y)
+        {
+            return x >= MIN_WORLD_COORD && x <= MAX_WORLD_COORD &&
+                   y >= MIN_WORLD_COORD && y <= MAX_WORLD_COORD;
+        }
+
+        inline bool isValidHeight(float h)
+        {
+            return h >= MIN_ALTITUDE && h <= MAX_ALTITUDE;
+        }
+
+        // World position to grid cell conversion
+        inline void worldToGrid(float worldX, float worldY, int& gridX, int& gridY)
+        {
+            gridX = static_cast<int>(std::floor(worldX / CELL_SIZE_UNITS));
+            gridY = static_cast<int>(std::floor(worldY / CELL_SIZE_UNITS));
+        }
+
+        // Grid cell to world position (cell center)
+        inline void gridToWorld(int gridX, int gridY, float& worldX, float& worldY)
+        {
+            worldX = gridX * CELL_SIZE_UNITS + CELL_SIZE_UNITS * 0.5f;
+            worldY = gridY * CELL_SIZE_UNITS + CELL_SIZE_UNITS * 0.5f;
+        }
+    }
+
     class WaterManager;
 
     class Lake : public WaterBody
@@ -56,14 +110,18 @@ namespace MWRender
         // Debug control
         // Debug modes:
         // 0 = Normal rendering (SSR + cubemap + water color)
-        // 1 = Solid color (verify geometry is rendering)
-        // 2 = World position visualization (RGB = XYZ)
-        // 3 = Normal visualization
-        // 4 = SSR only (no cubemap fallback)
-        // 5 = Cubemap only (no SSR)
+        // 1 = Solid color (verify geometry is rendering) - MAGENTA
+        // 2 = World position visualization (RGB = XYZ) - should NOT change with camera
+        // 3 = Normal visualization (animated wave normals)
+        // 4 = SSR only (no cubemap fallback) - screen-space reflections
+        // 5 = Cubemap only (no SSR) - environment map reflections
         // 6 = SSR confidence visualization (green = high confidence)
-        // 7 = Screen UV visualization
-        // 8 = Depth visualization
+        // 7 = Screen UV visualization (RG = screen coordinates)
+        // 8 = Depth visualization (linear depth, grayscale)
+        // 9 = Emergency fallback (simple water color, no reflections)
+        // 10 = Fragment depth value (grayscale, raw gl_FragCoord.z)
+        // 11 = Near/far visualization (blue=near, red=far, for reversed-Z)
+        // 12 = Depth range indicator (green=near, yellow=mid, red=far)
         void setDebugMode(int mode);
         int getDebugMode() const;
 
