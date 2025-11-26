@@ -7,9 +7,9 @@
 
 ## QUICK STATUS
 
-### Current State: LAKES IMPLEMENTED, RENDERING ISSUES IDENTIFIED ⚠️
+### Current State: LAKE SSR/CUBEMAP INTEGRATION IMPLEMENTED - NEEDS TESTING ⚠️
 
-**Last Update:** 2025-11-26 (System Audit Completed)
+**Last Update:** 2025-11-26 (SSR/Cubemap Integration Complete)
 
 ### System Architecture: COMPLETE ✅
 **What's Working:**
@@ -28,48 +28,49 @@
 
 **Test Lakes (using real world coordinates):**
 - Player Position Test (20803.70, -61583.41) → cell (2, -8): height 498.96
+- **HIGH ALTITUDE TESTS around cell (2, -8):**
+  - Cell (3, -8): (28000, -62000) height 1100
+  - Cell (2, -7): (20000, -53000) height 1250
+  - Cell (1, -8): (12000, -62000) height 1400
+  - Cell (3, -7): (26000, -54000) height 1600
+  - Cell (1, -7): (10000, -52000) height 1800
 - Pelagiad (2380, -56032) → cell (0, -7): height 0.0
 - Balmora/Odai River (-22528, -15360) → cell (-3, -2): height 50.0
 - Caldera (-11264, 34816) → cell (-2, 4): height 800.0
 - Vivec (19072, -71680) → cell (2, -9): height 0.0
 - Red Mountain (40960, 81920) → cell (5, 10): height 1500.0
 
-### Critical Issues Identified ❌
+### Critical Issues - Status
 
-**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)**
-- **Problem:** Lakes appear to render on top of all terrain and objects
-- **Root Cause:** Lakes use `AutoDepth` with `setWriteMask(false)` ([lake.cpp:246-247](apps/openmw/mwrender/lake.cpp#L246))
-  - This disables depth writing, causing lakes to be transparent to depth buffer
-  - Result: Lakes don't properly occlude or be occluded by terrain/objects
-- **Comparison:** Ocean uses standard `osg::Depth` with `setWriteMask(true)` ([ocean.cpp:1083](apps/openmw/mwrender/ocean.cpp#L1083))
-- **Solution Needed:** Either:
-  1. Change lakes to use standard depth writes like ocean, OR
-  2. Adjust depth function to properly handle transparency with occlusion
-- **Location:** [lake.cpp:244-248](apps/openmw/mwrender/lake.cpp#L244)
+**ISSUE #1: Lakes Render Over Everything (Z-Fighting/Depth)** ⚠️ IN PROGRESS
+- **First Attempt:** Changed `setWriteMask(false)` to `setWriteMask(true)` - DID NOT FIX
+- **Second Attempt:** Changed render bin from `RenderBin_Water (9)` to `RenderBin_Default (0)` + explicit `AutoDepth(LEQUAL, 0.0, 1.0, true)`
+- **Current Code:** [lake.cpp:331-338](apps/openmw/mwrender/lake.cpp#L331)
+  ```cpp
+  stateset->setRenderBinDetails(MWRender::RenderBin_Default, "RenderBin");
+  osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(osg::Depth::LEQUAL, 0.0, 1.0, true);
+  ```
+- **Status:** NEEDS TESTING - try rendering with opaque geometry
 
-**ISSUE #2: Lakes Have No SSR/Cubemap Reflections**
-- **Problem:** Lake shader is placeholder blue color with simple wave animation
-- **Root Cause:**
-  - Lake shader ([lake.frag](files/shaders/compatibility/lake.frag)) only outputs solid blue color
-  - No texture bindings for SSR or cubemap in lake state set
-  - SSR/cubemap textures only bound to old water system via ShaderWaterStateSetUpdater ([water.cpp:687-688](apps/openmw/mwrender/water.cpp#L687))
-  - Lakes use separate shader path, not integrated with SSR/cubemap pipeline
-- **What's Missing:**
-  - SSR texture binding (texture unit 5)
-  - Cubemap texture binding (texture unit 6)
-  - Proper reflection sampling in lake.frag shader
-  - Uniforms for view/projection matrices
-- **Solution Needed:**
-  1. Add SSR/cubemap texture binding to Lake::createWaterStateSet()
-  2. Rewrite lake.frag to sample SSR and cubemap like the old water shader
-  3. Add StateSetUpdater to lake geometry to update per-frame uniforms
-- **Location:** [lake.cpp:230-265](apps/openmw/mwrender/lake.cpp#L230), [lake.frag:1-14](files/shaders/compatibility/lake.frag)
+**ISSUE #2: Lakes Have No SSR/Cubemap Reflections** ✅ IMPLEMENTED (untested)
+- **Solution Applied:**
+  1. Created `LakeStateSetUpdater` class ([lake.cpp:30-94](apps/openmw/mwrender/lake.cpp#L30)) for per-frame texture binding
+  2. Added `Lake::setWaterManager()` method to connect lake to SSR/cubemap managers
+  3. Rewrote [lake.vert](files/shaders/compatibility/lake.vert) with world position, screen position, linear depth
+  4. Rewrote [lake.frag](files/shaders/compatibility/lake.frag) with:
+     - SSR texture sampling (unit 0) with confidence-based blending
+     - Cubemap fallback sampling (unit 1)
+     - Normal map animation (unit 2) for wave effects
+     - Fresnel-based reflection blending
+  5. Added normal map texture binding in `createWaterStateSet()`
+  6. Wired up `mLake->setWaterManager(this)` in [water.cpp:474](apps/openmw/mwrender/water.cpp#L474)
+- **Status:** Reflections not visible yet - likely blocked by depth rendering issue
 
-**ISSUE #3: JSON Lake Loading Not Implemented**
+**ISSUE #3: JSON Lake Loading Not Implemented** ⏸️ DEFERRED
 - **Problem:** Lake data exists in [lakes.json](MultiLevelWater/lakes.json) but is never parsed
-- **Current State:** Lakes are hardcoded in WaterManager::loadLakesFromJSON() ([water.cpp:1257-1286](apps/openmw/mwrender/water.cpp#L1257))
+- **Current State:** Lakes are hardcoded in WaterManager::loadLakesFromJSON() ([water.cpp:1261-1314](apps/openmw/mwrender/water.cpp#L1261))
 - **What's Needed:** Actual JSON parsing to read lakes.json file
-- **Location:** [water.cpp:1257-1286](apps/openmw/mwrender/water.cpp#L1257)
+- **Priority:** Low - hardcoded lakes work for testing
 
 ### What Works Correctly ✅
 - ✅ **Per-cell lake geometry** - Individual water planes per cell at custom altitudes
@@ -82,9 +83,9 @@
 - ✅ **Water type classification** - WaterHeightField tracks ocean/lake/river per cell
 
 ### Immediate Action Items
-1. **Fix lake depth rendering** - Change lake.cpp to use proper depth writes
-2. **Implement lake SSR/cubemap** - Add texture bindings and rewrite lake.frag shader
-3. **Test in-game** - Verify lakes render correctly without z-fighting
+1. ⚠️ **Fix lake depth rendering** - First fix didn't work, now trying `RenderBin_Default` + explicit depth
+2. ✅ ~~**Implement lake SSR/cubemap**~~ - Done: LakeStateSetUpdater + rewritten shaders
+3. **Build and test in-game** - Verify depth fix works, then check reflections
 4. **Optional:** Implement JSON parsing to replace hardcoded lakes
 
 ---

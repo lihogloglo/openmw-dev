@@ -1,13 +1,21 @@
 #include "lake.hpp"
+#include "water.hpp"
+#include "ssrmanager.hpp"
+#include "cubemapreflection.hpp"
 
 #include <osg/Geometry>
 #include <osg/Geode>
 #include <osg/PositionAttitudeTransform>
 #include <osg/Depth>
 #include <osg/BlendFunc>
+#include <osg/Texture2D>
+#include <osg/TextureCubeMap>
+
+#include <osgUtil/CullVisitor>
 
 #include <components/shader/shadermanager.hpp>
 #include <components/resource/resourcesystem.hpp>
+#include <components/resource/imagemanager.hpp>
 #include <components/sceneutil/statesetupdater.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/resource/scenemanager.hpp>
@@ -18,9 +26,77 @@
 namespace MWRender
 {
 
+// StateSetUpdater for per-frame SSR/cubemap texture binding
+class LakeStateSetUpdater : public SceneUtil::StateSetUpdater
+{
+public:
+    LakeStateSetUpdater(WaterManager* waterManager)
+        : mWaterManager(waterManager)
+    {
+    }
+
+    void setDefaults(osg::StateSet* stateset) override
+    {
+        // Set texture unit uniforms
+        stateset->addUniform(new osg::Uniform("ssrTexture", 0));
+        stateset->addUniform(new osg::Uniform("environmentMap", 1));
+        stateset->addUniform(new osg::Uniform("normalMap", 2));
+
+        // Screen resolution for SSR sampling
+        stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f(1920.f, 1080.f)));
+
+        // Near/far for depth linearization
+        stateset->addUniform(new osg::Uniform("near", 1.0f));
+        stateset->addUniform(new osg::Uniform("far", 300000.0f));
+    }
+
+    void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
+    {
+        if (!mWaterManager)
+            return;
+
+        osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+
+        // Get SSR texture
+        SSRManager* ssrMgr = mWaterManager->getSSRManager();
+        if (ssrMgr && ssrMgr->getResultTexture())
+        {
+            stateset->setTextureAttributeAndModes(0, ssrMgr->getResultTexture(), osg::StateAttribute::ON);
+        }
+
+        // Get cubemap for approximate water position (use camera position as approximation)
+        CubemapReflectionManager* cubemapMgr = mWaterManager->getCubemapManager();
+        if (cubemapMgr)
+        {
+            osg::Vec3f camPos = cv->getEyeLocal();
+            osg::TextureCubeMap* cubemap = cubemapMgr->getCubemapForPosition(camPos);
+            if (cubemap)
+            {
+                stateset->setTextureAttributeAndModes(1, cubemap, osg::StateAttribute::ON);
+            }
+        }
+
+        // Update screen resolution from viewport
+        if (cv->getCurrentCamera())
+        {
+            osg::Viewport* vp = cv->getCurrentCamera()->getViewport();
+            if (vp)
+            {
+                osg::Uniform* screenResUniform = stateset->getUniform("screenRes");
+                if (screenResUniform)
+                    screenResUniform->set(osg::Vec2f(vp->width(), vp->height()));
+            }
+        }
+    }
+
+private:
+    WaterManager* mWaterManager;
+};
+
 Lake::Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
     : mParent(parent)
     , mResourceSystem(resourceSystem)
+    , mWaterManager(nullptr)
     , mDefaultHeight(0.f)
     , mEnabled(false)
 {
@@ -33,7 +109,21 @@ Lake::Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
 
 Lake::~Lake()
 {
+    if (mStateSetUpdater && mRootNode)
+        mRootNode->removeCullCallback(mStateSetUpdater);
     removeFromScene(mParent);
+}
+
+void Lake::setWaterManager(WaterManager* waterManager)
+{
+    mWaterManager = waterManager;
+
+    // Now that we have the water manager, we can create the state set updater
+    if (mWaterManager && !mStateSetUpdater)
+    {
+        mStateSetUpdater = new LakeStateSetUpdater(mWaterManager);
+        mRootNode->addCullCallback(mStateSetUpdater);
+    }
 }
 
 void Lake::setEnabled(bool enabled)
@@ -238,21 +328,30 @@ osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()
     blendFunc->setFunction(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     stateset->setAttributeAndModes(blendFunc, osg::StateAttribute::ON);
 
-    // Set render bin for water
-    stateset->setRenderBinDetails(MWRender::RenderBin_Water, "RenderBin");
+    // Render lakes with opaque geometry (bin 0) for proper depth testing
+    // Using Water bin (9) with blending causes depth issues
+    stateset->setRenderBinDetails(MWRender::RenderBin_Default, "RenderBin");
 
     // Depth settings for water rendering
-    // Match vanilla water setup: AutoDepth with write mask disabled
-    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth;
-    depth->setWriteMask(false);
+    // Use proper depth writes so lakes integrate correctly with scene depth buffer
+    osg::ref_ptr<osg::Depth> depth = new SceneUtil::AutoDepth(osg::Depth::LEQUAL, 0.0, 1.0, true);
     stateset->setAttributeAndModes(depth, osg::StateAttribute::ON);
+
+    // Load water normal map texture
+    constexpr VFS::Path::NormalizedView waterNormalImage("textures/omw/water_nm.png");
+    osg::ref_ptr<osg::Texture2D> normalMap = new osg::Texture2D(
+        mResourceSystem->getImageManager()->getImage(waterNormalImage));
+    normalMap->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+    normalMap->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+    mResourceSystem->getSceneManager()->applyFilterSettings(normalMap);
+    stateset->setTextureAttributeAndModes(2, normalMap, osg::StateAttribute::ON);
 
     // Use ShaderManager to get lake shaders
     Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
 
     osg::ref_ptr<osg::Program> program = new osg::Program;
 
-    // Use simple lake shaders (TODO: replace with proper water shader with SSR+cubemap)
+    // Use lake shaders with SSR+cubemap support
     auto vert = shaderManager.getShader("lake.vert", {}, osg::Shader::VERTEX);
     auto frag = shaderManager.getShader("lake.frag", {}, osg::Shader::FRAGMENT);
 

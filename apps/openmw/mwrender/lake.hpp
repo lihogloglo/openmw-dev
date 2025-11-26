@@ -5,6 +5,7 @@
 
 #include <osg/ref_ptr>
 #include <osg/Vec3f>
+#include <osg/Callback>
 #include <map>
 
 namespace osg
@@ -12,6 +13,8 @@ namespace osg
     class Geometry;
     class PositionAttitudeTransform;
     class StateSet;
+    class Texture2D;
+    class TextureCubeMap;
 }
 
 namespace Resource
@@ -21,6 +24,8 @@ namespace Resource
 
 namespace MWRender
 {
+    class WaterManager;
+
     class Lake : public WaterBody
     {
     public:
@@ -45,6 +50,9 @@ namespace MWRender
         void showWaterCell(int gridX, int gridY);
         void hideWaterCell(int gridX, int gridY);
 
+        // SSR/Cubemap reflection system integration
+        void setWaterManager(WaterManager* waterManager);
+
     private:
         struct CellWater
         {
@@ -59,10 +67,12 @@ namespace MWRender
 
         osg::ref_ptr<osg::Group> mParent;
         Resource::ResourceSystem* mResourceSystem;
+        WaterManager* mWaterManager;  // For SSR/cubemap access (non-owning)
 
         osg::ref_ptr<osg::PositionAttitudeTransform> mRootNode;
         std::map<std::pair<int, int>, CellWater> mCellWaters;
         osg::ref_ptr<osg::StateSet> mWaterStateSet;
+        osg::ref_ptr<osg::Callback> mStateSetUpdater;
 
         float mDefaultHeight;
         bool mEnabled;

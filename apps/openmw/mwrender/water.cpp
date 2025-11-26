@@ -470,6 +470,10 @@ namespace MWRender
         mSSRManager->initialize(1920, 1080);
         mCubemapManager->initialize();
 
+        // Connect lake to WaterManager for SSR/cubemap access
+        if (mLake)
+            mLake->setWaterManager(this);
+
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
 
         mWaterGeom = SceneUtil::createWaterGeometry(Constants::CellSizeInUnits * 150, 40, 900);
@@ -1266,6 +1270,30 @@ namespace MWRender
         // USER POSITION TEST - Lake at exact player location
         addLakeAtWorldPos(20803.70f, -61583.41f, 498.96f);  // Cell (2, -8) at player height
         std::cout << "*** ADDED LAKE AT PLAYER POSITION: (20803.70, -61583.41) at height 498.96 ***" << std::endl;
+
+        // HIGH ALTITUDE TEST LAKES around cell (2, -8)
+        // Cell (2, -8) is X: 16384-24576, Y: -65536 to -57344
+        // Adding smaller "puddles" at altitudes > 1000
+
+        // Cell (3, -8) - east of player, high altitude
+        addLakeAtWorldPos(28000.0f, -62000.0f, 1100.0f);  // Cell (3, -8) at 1100
+        std::cout << "Added high lake at cell (3, -8) height 1100" << std::endl;
+
+        // Cell (2, -7) - north of player, higher altitude
+        addLakeAtWorldPos(20000.0f, -53000.0f, 1250.0f);  // Cell (2, -7) at 1250
+        std::cout << "Added high lake at cell (2, -7) height 1250" << std::endl;
+
+        // Cell (1, -8) - west of player, highest altitude
+        addLakeAtWorldPos(12000.0f, -62000.0f, 1400.0f);  // Cell (1, -8) at 1400
+        std::cout << "Added high lake at cell (1, -8) height 1400" << std::endl;
+
+        // Cell (3, -7) - northeast, very high
+        addLakeAtWorldPos(26000.0f, -54000.0f, 1600.0f);  // Cell (3, -7) at 1600
+        std::cout << "Added high lake at cell (3, -7) height 1600" << std::endl;
+
+        // Cell (1, -7) - northwest, extreme altitude
+        addLakeAtWorldPos(10000.0f, -52000.0f, 1800.0f);  // Cell (1, -7) at 1800
+        std::cout << "Added high lake at cell (1, -7) height 1800" << std::endl;
 
         // Pelagiad area (southern Vvardenfell, near starting area)
         addLakeAtWorldPos(2380.0f, -56032.0f, 0.0f);    // Sea level lake near Pelagiad
