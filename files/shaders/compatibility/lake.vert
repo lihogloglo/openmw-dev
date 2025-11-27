@@ -20,6 +20,9 @@ const float rippleMapWorldScale = 2.0;
 
 void main()
 {
+    // CRITICAL FIX: gl_Vertex is now in world space (no transform applied in C++)
+    // This prevents the lake from "moving" when the camera moves
+
     // Standard MVP transformation
     gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
 
@@ -27,10 +30,8 @@ void main()
     position = gl_ModelViewMatrix * gl_Vertex;
     linearDepth = -position.z;
 
-    // World position: cell center + local vertex offset
-    // This avoids precision loss from reconstructing large world coordinates
-    // gl_Vertex is in local space, centered at origin for each cell
-    worldPos = cellCenter + gl_Vertex.xyz;
+    // World position is just gl_Vertex (already in world space)
+    worldPos = gl_Vertex.xyz;
 
     // Ripple UVs centered on player
     rippleMapUV = (worldPos.xy - playerPos.xy + (rippleMapSize * rippleMapWorldScale / 2.0))

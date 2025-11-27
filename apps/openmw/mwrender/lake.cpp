@@ -506,20 +506,21 @@ void Lake::createCellGeometry(CellWater& cell)
     logLake("  World position: (" + std::to_string(cellCenterX) + ", " + std::to_string(cellCenterY) + ", " + std::to_string(cell.height) + ")");
     logLake("  Quad extends: ±" + std::to_string(halfSize) + " units from center");
 
-    // Transform at cell center, water height
-    cell.transform = new osg::PositionAttitudeTransform;
-    cell.transform->setPosition(osg::Vec3f(cellCenterX, cellCenterY, cell.height));
+    // CRITICAL FIX: Use a simple Group instead of PositionAttitudeTransform
+    // The vertices will be placed directly in world coordinates, avoiding double transformation
+    cell.transform = new osg::Group;
     cell.transform->setName("LakeCell_" + std::to_string(cell.gridX) + "_" + std::to_string(cell.gridY));
 
-    // Geometry (local coords, centered at origin)
+    // Geometry (WORLD coords, not local - this prevents movement artifacts)
     cell.geometry = new osg::Geometry;
     cell.geometry->setDataVariance(osg::Object::STATIC);
 
+    // Place vertices directly in world space
     osg::ref_ptr<osg::Vec3Array> verts = new osg::Vec3Array(4);
-    (*verts)[0] = osg::Vec3f(-halfSize, -halfSize, 0.f);
-    (*verts)[1] = osg::Vec3f( halfSize, -halfSize, 0.f);
-    (*verts)[2] = osg::Vec3f( halfSize,  halfSize, 0.f);
-    (*verts)[3] = osg::Vec3f(-halfSize,  halfSize, 0.f);
+    (*verts)[0] = osg::Vec3f(cellCenterX - halfSize, cellCenterY - halfSize, cell.height);
+    (*verts)[1] = osg::Vec3f(cellCenterX + halfSize, cellCenterY - halfSize, cell.height);
+    (*verts)[2] = osg::Vec3f(cellCenterX + halfSize, cellCenterY + halfSize, cell.height);
+    (*verts)[3] = osg::Vec3f(cellCenterX - halfSize, cellCenterY + halfSize, cell.height);
     cell.geometry->setVertexArray(verts);
 
     osg::ref_ptr<osg::Vec2Array> texcoords = new osg::Vec2Array(4);
@@ -543,8 +544,7 @@ void Lake::createCellGeometry(CellWater& cell)
     geode->addDrawable(cell.geometry);
     cell.transform->addChild(geode);
 
-    // Add cell center uniform for world position calculation in shader
-    // This avoids floating-point precision issues with large world coordinates
+    // Cell center uniform is still needed for shader calculations (normal mapping UVs etc)
     osg::StateSet* ss = cell.transform->getOrCreateStateSet();
     ss->addUniform(new osg::Uniform("cellCenter", osg::Vec3f(cellCenterX, cellCenterY, cell.height)));
 

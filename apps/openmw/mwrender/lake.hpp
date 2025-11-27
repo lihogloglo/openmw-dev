@@ -12,6 +12,7 @@
 namespace osg
 {
     class Geometry;
+    class Group;
     class PositionAttitudeTransform;
     class StateSet;
     class Texture2D;
@@ -135,7 +136,7 @@ namespace MWRender
             int gridX, gridY;
             float height;
             osg::Vec3f waterColor;
-            osg::ref_ptr<osg::PositionAttitudeTransform> transform;
+            osg::ref_ptr<osg::Group> transform;
             osg::ref_ptr<osg::Geometry> geometry;
         };
 

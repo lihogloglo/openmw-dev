@@ -59,22 +59,23 @@ namespace MWRender
         mFallbackCubemap->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         mFallbackCubemap->setWrap(osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_EDGE);
 
-        // Initialize all 6 faces with a sky blue color (RGB: 135, 206, 235)
+        // Initialize all 6 faces with a neutral gray color (RGB: 128, 128, 128)
         // This prevents the cubemap from being black when no regions are active
+        // We use gray instead of sky blue to avoid overly blue water appearance
         int resolution = mParams.resolution;
-        std::vector<unsigned char> skyBlueData(resolution * resolution * 3);
+        std::vector<unsigned char> neutralGrayData(resolution * resolution * 3);
         for (int i = 0; i < resolution * resolution; ++i)
         {
-            skyBlueData[i * 3 + 0] = 135; // R
-            skyBlueData[i * 3 + 1] = 206; // G
-            skyBlueData[i * 3 + 2] = 235; // B
+            neutralGrayData[i * 3 + 0] = 128; // R
+            neutralGrayData[i * 3 + 1] = 128; // G
+            neutralGrayData[i * 3 + 2] = 128; // B
         }
 
         for (int face = 0; face < 6; ++face)
         {
             osg::ref_ptr<osg::Image> image = new osg::Image;
             image->setImage(resolution, resolution, 1, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE,
-                skyBlueData.data(), osg::Image::NO_DELETE);
+                neutralGrayData.data(), osg::Image::NO_DELETE);
             mFallbackCubemap->setImage(face, image);
         }
     }
@@ -256,6 +257,10 @@ namespace MWRender
         if (!mParams.enabled)
             return;
 
+        // CRITICAL FIX: Don't disable cameras after every frame!
+        // Cubemaps need to persist once rendered, not flicker on/off every frame
+        // We only need to trigger updates when the scene changes significantly
+
         // Update timers and mark regions needing updates
         for (auto& region : mRegions)
         {
@@ -264,13 +269,6 @@ namespace MWRender
             if (region.timeSinceUpdate >= region.updateInterval)
             {
                 region.needsUpdate = true;
-            }
-
-            // Disable cameras after rendering (they render for one frame only)
-            for (int face = 0; face < 6; ++face)
-            {
-                if (region.renderCameras[face])
-                    region.renderCameras[face]->setNodeMask(0);
             }
         }
 
