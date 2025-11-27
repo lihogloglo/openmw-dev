@@ -93,6 +93,7 @@ namespace MWRender
             float timeSinceUpdate;                      ///< Time since last update
             bool needsUpdate;                           ///< Dirty flag
             bool camerasActive;                         ///< Cameras are currently enabled for rendering
+            int framesSinceEnabled;                     ///< Frames since cameras were enabled
 
             CubemapRegion()
                 : center(0, 0, 0)
@@ -101,6 +102,7 @@ namespace MWRender
                 , timeSinceUpdate(0.0f)
                 , needsUpdate(true)
                 , camerasActive(false)
+                , framesSinceEnabled(0)
             {
             }
         };

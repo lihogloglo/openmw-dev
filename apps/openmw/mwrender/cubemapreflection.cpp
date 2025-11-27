@@ -250,11 +250,8 @@ namespace MWRender
 
         Log(Debug::Info) << "[Cubemap] Rendering cubemap at (" << region.center.x() << ", " << region.center.y() << ", " << region.center.z() << ")";
 
-        // Enable cameras persistently - they will stay enabled and render every frame
-        // This is OK performance-wise because:
-        // 1. We only enable ONE region per update cycle (see update() function)
-        // 2. The updateInterval (default 5 seconds) controls how often we switch to different regions
-        // 3. Having the nearest region's cubemap update every frame ensures smooth reflections
+        // Enable cameras for ONE-SHOT rendering
+        // They will be disabled in the next frame's update() call after OSG has rendered them
         for (int face = 0; face < 6; ++face)
         {
             if (region.renderCameras[face])
@@ -265,17 +262,18 @@ namespace MWRender
                 osg::Vec3f up = FACE_UPS[face];
                 region.renderCameras[face]->setViewMatrixAsLookAt(eye, center, up);
 
-                // Enable camera persistently
+                // Enable camera for one-shot render
                 region.renderCameras[face]->setNodeMask(Mask_RenderToTexture);
-                Log(Debug::Verbose) << "[Cubemap]   Enabled camera face " << face << " (will render every frame)";
+                Log(Debug::Verbose) << "[Cubemap]   Enabled camera face " << face << " (one-shot)";
             }
         }
 
         region.needsUpdate = false;
         region.timeSinceUpdate = 0.0f;
         region.camerasActive = true;
+        region.framesSinceEnabled = 0; // Reset frame counter
 
-        Log(Debug::Info) << "[Cubemap] Cubemap cameras enabled - will render continuously until replaced";
+        Log(Debug::Info) << "[Cubemap] Cubemap cameras enabled for one-shot render";
     }
 
     void CubemapReflectionManager::updateRegion(int index)
@@ -293,7 +291,6 @@ namespace MWRender
 
         static int frameCount = 0;
         static bool loggedOnce = false;
-        static int lastActiveRegion = -1;
         frameCount++;
         bool shouldLog = (frameCount % 300 == 0); // Log every 5 seconds at 60fps
 
@@ -303,36 +300,41 @@ namespace MWRender
             loggedOnce = true;
         }
 
-        // Find the nearest region to determine which one should be active
-        int nearestIndex = findNearestRegionIndex(cameraPos);
-
-        // If we switched to a different region, disable the old one's cameras
-        if (nearestIndex != lastActiveRegion && lastActiveRegion >= 0 && lastActiveRegion < static_cast<int>(mRegions.size()))
+        // FIRST: Disable cameras that have finished their one-shot render
+        // This happens BEFORE any new cameras are enabled, ensuring proper frame timing
+        for (size_t i = 0; i < mRegions.size(); ++i)
         {
-            if (shouldLog)
-                Log(Debug::Info) << "[Cubemap] Switching from region #" << lastActiveRegion << " to region #" << nearestIndex;
-
-            // Disable cameras from the previously active region
-            CubemapRegion& oldRegion = mRegions[lastActiveRegion];
-            for (int face = 0; face < 6; ++face)
+            CubemapRegion& region = mRegions[i];
+            if (region.camerasActive)
             {
-                if (oldRegion.renderCameras[face])
-                    oldRegion.renderCameras[face]->setNodeMask(0);
+                region.framesSinceEnabled++;
+
+                // Disable cameras after they've been active for 1 frame
+                // Frame 0: cameras enabled by renderCubemap()
+                // Frame 1: OSG renders to cubemap during PRE_RENDER phase
+                // Frame 1 (here): we disable cameras after rendering is done
+                if (region.framesSinceEnabled >= 1)
+                {
+                    for (int face = 0; face < 6; ++face)
+                    {
+                        if (region.renderCameras[face])
+                            region.renderCameras[face]->setNodeMask(0);
+                    }
+                    region.camerasActive = false;
+
+                    if (shouldLog)
+                        Log(Debug::Info) << "[Cubemap] Disabled region #" << i << " cameras after one-shot render";
+                }
             }
-            oldRegion.camerasActive = false;
         }
 
-        lastActiveRegion = nearestIndex;
+        // Find the nearest region to determine which one should be updated
+        int nearestIndex = findNearestRegionIndex(cameraPos);
 
-        // Update timers for inactive regions only
-        // Active region doesn't need timer-based updates since it renders every frame
+        // Update timers for all regions
         int needsUpdateCount = 0;
         for (size_t i = 0; i < mRegions.size(); ++i)
         {
-            // Skip the currently active region - it's already rendering
-            if (static_cast<int>(i) == nearestIndex && mRegions[i].camerasActive)
-                continue;
-
             mRegions[i].timeSinceUpdate += dt;
 
             if (mRegions[i].timeSinceUpdate >= mRegions[i].updateInterval)
@@ -344,19 +346,16 @@ namespace MWRender
 
         if (needsUpdateCount > 0 && shouldLog)
         {
-            Log(Debug::Info) << "[Cubemap] " << needsUpdateCount << " inactive regions need update (interval=" << mParams.updateInterval << "s)";
+            Log(Debug::Info) << "[Cubemap] " << needsUpdateCount << " regions need update (interval=" << mParams.updateInterval << "s)";
         }
 
-        // Enable nearest region if it's not active yet
-        if (nearestIndex >= 0 && !mRegions[nearestIndex].camerasActive)
+        // Render nearest region if it needs an update
+        if (nearestIndex >= 0 && mRegions[nearestIndex].needsUpdate)
         {
             if (shouldLog)
-                Log(Debug::Info) << "[Cubemap] Activating nearest region #" << nearestIndex;
+                Log(Debug::Info) << "[Cubemap] Triggering one-shot render for nearest region #" << nearestIndex;
             renderCubemap(mRegions[nearestIndex]);
-            return;
         }
-
-        // Nearest region is already active and rendering continuously - nothing to do
     }
 
     void CubemapReflectionManager::setEnabled(bool enabled)
