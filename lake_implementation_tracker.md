@@ -4,9 +4,9 @@
 Comprehensive overhaul and stabilization of the Multi-Level Lake System. This document tracks all implementation steps, test results, and architectural improvements.
 
 ## Status Overview
-- **Current Phase**: Session 6 - Cubemap RTT Fix & Performance Crisis
-- **Last Action**: Fixed cubemap rendering (RTT configuration), but introduced crash due to continuous rendering
-- **Next Step**: Implement one-shot cubemap rendering to fix crashes while maintaining working reflections
+- **Current Phase**: Session 7 - One-Shot Rendering Implementation (FAILED)
+- **Last Action**: Attempted one-shot cubemap rendering with frame-delayed disabling, but crashes persist
+- **Next Step**: Investigate deeper root cause - possibly RTT configuration, race conditions, or need to completely disable cubemaps temporarily
 
 ## Completed Tasks
 
@@ -379,3 +379,118 @@ Frame N+1: Player moves near Region B
 1. Check for `[Cubemap:Cull]` messages in logs - this will tell us if cameras are actually culling the scene
 2. If cull callback is working but still gray, the issue is likely in the FBO attachment or texture binding
 3. If cull callback is NOT working, we need to investigate the scene root setup
+
+## Session 7 Summary
+
+**What We Attempted:**
+1. **One-Shot Cubemap Rendering**: Implemented frame-delayed camera disabling to fix crashes
+   - Added `framesSinceEnabled` counter to `CubemapRegion` struct
+   - Modified `renderCubemap()` to enable cameras for one-shot render and reset counter
+   - Modified `update()` to disable cameras after 1 frame (deferred disable pattern)
+   - Expected: Cameras render once, get disabled, cubemap texture persists
+   - **Status**: FAILED - game still crashes very fast
+
+**What We Changed:**
+- `cubemapreflection.hpp` lines 96, 105:
+  - Added `int framesSinceEnabled` field to track frames since camera enable
+  - Initialized to 0 in constructor
+- `cubemapreflection.cpp` lines 243-277 (`renderCubemap()`):
+  - Removed "continuous rendering" approach from Session 5/6
+  - Added `region.framesSinceEnabled = 0` reset when enabling cameras
+  - Changed logging to indicate "one-shot render"
+- `cubemapreflection.cpp` lines 287-359 (`update()`):
+  - Added deferred camera disable loop at START of update (before any new enables)
+  - Cameras disabled when `framesSinceEnabled >= 1` (after 1 frame)
+  - Changed region selection to render ANY region with `needsUpdate=true`
+  - Removed `lastActiveRegion` tracking (no longer needed with one-shot approach)
+
+**Root Cause Analysis - Why Still Crashing:**
+
+### Hypothesis 1: Timing Is Still Wrong (LIKELY)
+- Frame 0: `renderCubemap()` enables cameras, sets `framesSinceEnabled = 0`, `camerasActive = true`
+- Frame 0: OSG PRE_RENDER phase - do cameras actually render yet?
+- Frame 1: `update()` increments `framesSinceEnabled` to 1, immediately disables cameras
+- **Issue**: OSG might need cameras enabled for 2+ frames, or PRE_RENDER might happen AFTER update()
+
+### Hypothesis 2: RTT Configuration Causing Driver Issues (LIKELY)
+- Session 6 added `PIXEL_BUFFER_RTT` which fixed rendering but may be unstable
+- Multiple RTT cameras being enabled/disabled rapidly could trigger driver bugs
+- FBO binding/unbinding every frame for 6 faces might overwhelm GPU driver
+- **Evidence**: Crashes started AFTER RTT configuration was fixed in Session 6
+
+### Hypothesis 3: Scene Graph Race Condition (POSSIBLE)
+- `CubemapCullCallback` traverses `mSceneRoot` which may be modified during cell loading
+- Cameras trying to render while lake geometry is being added/removed
+- No synchronization between cubemap updates and scene modifications
+
+### Hypothesis 4: Memory/Resource Leak (POSSIBLE)
+- Each render cycle might leak GPU resources (FBOs, textures, buffers)
+- Even one-shot rendering causes cumulative resource exhaustion
+- Crashes happen when GPU memory/handles exhausted
+
+### Hypothesis 5: Multiple Regions Updating Simultaneously (POSSIBLE)
+- Current code updates ANY region with `needsUpdate=true`
+- If multiple regions reach their update interval simultaneously, multiple sets of 6 cameras render
+- This could spike GPU load and cause crashes similar to continuous rendering
+
+**What We Learned:**
+1. **One-shot rendering alone doesn't fix the crash** - deeper issue than just continuous rendering
+2. **The crash happens "very very fast"** - suggests it's not accumulation over time but immediate
+3. **Session 6's RTT fixes might be a double-edged sword** - enabled rendering but introduced instability
+4. **Need more diagnostic data**: Without logs, we can't tell if cameras are even attempting to render
+
+**Possible Next Steps (For Future Session):**
+
+### Option 1: Temporarily Disable Cubemaps Entirely
+- Set all cameras to `setNodeMask(0)` permanently
+- Test if game is stable without ANY cubemap rendering
+- This isolates whether cubemaps are the crash source
+
+### Option 2: Increase Frame Delay
+- Change `framesSinceEnabled >= 1` to `>= 2` or `>= 3`
+- Give OSG more time to complete rendering before disabling
+- Test if timing is the issue
+
+### Option 3: Limit Concurrent Updates
+- Only allow ONE region to have `camerasActive=true` at a time
+- Add queue system for regions that need updates
+- Prevent multiple simultaneous RTT operations
+
+### Option 4: Reduce RTT Complexity
+- Try simpler RTT configuration (remove PIXEL_BUFFER_RTT)
+- Use FRAME_BUFFER_OBJECT only
+- Test if Session 6's RTT changes caused the instability
+
+### Option 5: Add Update Cooldown
+- After ANY region renders, add 1-2 second cooldown before next region can render
+- Prevents rapid camera enable/disable cycles
+- Gives GPU time to finish operations
+
+### Option 6: Investigate OSG Camera Best Practices
+- Research OSG documentation for PRE_RENDER camera lifecycle
+- Find examples of working dynamic RTT camera systems
+- Check if there's a "safe" enable/disable pattern we're missing
+
+**Critical Questions to Answer:**
+1. Does the crash happen during first cubemap render, or after several updates?
+2. Are there any error messages in logs before crash?
+3. Does crash happen even with only 1 lake region?
+4. Does reducing resolution (512→256 or 128) prevent crashes?
+5. Does the crash happen if cameras are enabled but never disabled?
+
+**Files Modified This Session:**
+- `apps/openmw/mwrender/cubemapreflection.hpp` - Added `framesSinceEnabled` field
+- `apps/openmw/mwrender/cubemapreflection.cpp` - Implemented one-shot rendering with deferred disable
+- `lake_implementation_tracker.md` - This document
+
+**Architecture Note:**
+The one-shot rendering implementation is CORRECT in theory:
+- Frame N: Enable cameras
+- Frame N+1: OSG renders during PRE_RENDER, then we disable
+- Frame N+2+: Texture persists in GPU memory
+
+But something about the RTT setup or OSG interaction is causing crashes. The issue is not the logic, but likely:
+- Driver compatibility with rapid FBO switching
+- OSG render order assumptions
+- Resource cleanup timing
+- Or a fundamental incompatibility with how OpenMW's scene graph works
