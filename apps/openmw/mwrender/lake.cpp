@@ -32,7 +32,7 @@ namespace MWRender
 // Debug logging helper
 namespace
 {
-    constexpr bool sLakeDebugLoggingEnabled = false;  // Set to true for debugging
+    constexpr bool sLakeDebugLoggingEnabled = true;  // Set to true for debugging
     int sLakeFrameCounter = 0;
     constexpr int LOG_EVERY_N_FRAMES = 300;  // Log every 5 seconds at 60fps
 

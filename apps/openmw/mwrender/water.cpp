@@ -913,6 +913,18 @@ namespace MWRender
             currentWaterType = (std::abs(mTop) <= 10.0f) ? WaterType::Ocean : WaterType::Lake;
         }
 
+        // TEMPORARY FIX: Check if Lake system has water at current position
+        // This handles programmatically-added lakes that the WaterHeightField doesn't know about
+        if (mLake && !mInterior)
+        {
+            float lakeHeight = mLake->getWaterHeightAt(cameraPos);
+            if (lakeHeight > -999.0f)  // Lake system has water here
+            {
+                currentWaterType = WaterType::Lake;
+                waterHeight = lakeHeight;
+            }
+        }
+
         bool useOcean = (currentWaterType == WaterType::Ocean);
         bool useLake = (currentWaterType == WaterType::Lake || currentWaterType == WaterType::River);
 
@@ -1218,21 +1230,19 @@ namespace MWRender
         //   ]
         // }
 
-        if (filepath.empty())
-        {
-            // No filepath provided, skip loading
-            return;
-        }
-
-        // JSON parsing implementation would go here
-        Log(Debug::Warning) << "loadLakesFromJSON not yet implemented - filepath: " << filepath;
-
         // ============================================================================
         // TEMPORARY: Hardcoded test lakes for rendering validation
         // TODO: Remove this section once .omwaddon integration is complete
         // ============================================================================
 
         Log(Debug::Info) << "[Lake] Loading temporary hardcoded test lakes...";
+
+        // If filepath provided, try to load JSON (not yet implemented)
+        if (!filepath.empty())
+        {
+            Log(Debug::Warning) << "loadLakesFromJSON not yet implemented - filepath: " << filepath;
+            // JSON parsing implementation would go here
+        }
 
         // Test lakes at different altitudes using actual Morrowind world coordinates
         // Note: 22.1 units = 1 foot, so ~1450 units = 20 meters
