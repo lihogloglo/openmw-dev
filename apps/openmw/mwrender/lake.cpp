@@ -151,6 +151,30 @@ public:
                 timeUniform->set(static_cast<float>(time));
             }
 
+            // Update Near/Far/ReverseZ for correct depth linearization
+            double zNear, zFar, left, right, bottom, top;
+            if (camera->getProjectionMatrixAsFrustum(left, right, bottom, top, zNear, zFar))
+            {
+                osg::Uniform* nearUniform = stateset->getUniform("near");
+                osg::Uniform* farUniform = stateset->getUniform("far");
+                
+                if (nearUniform) nearUniform->set(static_cast<float>(zNear));
+                if (farUniform) farUniform->set(static_cast<float>(zFar));
+            }
+            
+            // Check for Reverse-Z
+            bool isReverseZ = SceneUtil::AutoDepth::isReversed();
+            osg::Uniform* reverseZUniform = stateset->getUniform("reverseZ");
+            if (!reverseZUniform)
+            {
+                reverseZUniform = new osg::Uniform("reverseZ", isReverseZ);
+                stateset->addUniform(reverseZUniform);
+            }
+            else
+            {
+                reverseZUniform->set(isReverseZ);
+            }
+
             if (shouldLog)
             {
                 logLakeVerbose("Camera pos: (" + std::to_string(camPos.x()) + ", "

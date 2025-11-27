@@ -463,6 +463,14 @@ namespace MWRender
 
         // Initialize cubemap reflection system for lakes/rivers (SSR is inline in shader)
         mCubemapManager = std::make_unique<CubemapReflectionManager>(mParent, mSceneRoot, mResourceSystem);
+        
+        // Increase max regions to support multiple lakes
+        CubemapReflectionManager::Params params;
+        params.maxRegions = 32; // Support up to 32 active lake regions
+        params.resolution = 512;
+        params.updateInterval = 2.0f; // Update every 2 seconds
+        mCubemapManager->setParams(params);
+        
         mCubemapManager->initialize();
 
         // Connect lake to WaterManager for reflection system access
@@ -810,22 +818,7 @@ namespace MWRender
 
             // Ocean and Lake will be enabled/disabled based on water type in update()
 
-            // Create cubemap region for exterior cells
-            if (mCubemapManager)
-            {
-                // Use cell center as cubemap position
-                osg::Vec3f cubemapCenter = getSceneNodeCoordinates(
-                    store->getCell()->getGridX(),
-                    store->getCell()->getGridY()
-                );
-
-                // Check if we need to add a region (limit to 8 max)
-                if (mCubemapManager->getRegionCount() < 8)
-                {
-                    // Add cubemap with 1000 unit radius
-                    mCubemapManager->addRegion(cubemapCenter, 1000.0f);
-                }
-            }
+            // Ocean and Lake will be enabled/disabled based on water type in update()
         }
         else
         {
@@ -1190,7 +1183,24 @@ namespace MWRender
     void WaterManager::addLakeCell(int gridX, int gridY, float height)
     {
         if (mLake)
+        {
             mLake->addWaterCell(gridX, gridY, height);
+
+            // Add a cubemap region for this lake cell
+            if (mCubemapManager)
+            {
+                // Calculate world position for cubemap center
+                // Place it slightly above the water surface (e.g., player eye height ~1.7m = ~110 units)
+                // But for reflections, surface level is usually best, or slightly above to avoid clipping waves
+                float worldX, worldY;
+                Units::gridToWorld(gridX, gridY, worldX, worldY);
+                osg::Vec3f center(worldX, worldY, height + 64.0f); // ~3 feet above water
+
+                // Use cell size as radius (8192 units)
+                // This ensures the cubemap covers the whole cell
+                mCubemapManager->addRegion(center, Constants::CellSizeInUnits);
+            }
+        }
     }
 
     void WaterManager::addLakeAtWorldPos(float worldX, float worldY, float height)

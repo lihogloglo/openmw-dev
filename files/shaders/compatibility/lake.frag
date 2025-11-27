@@ -20,6 +20,7 @@ uniform float near;
 uniform float far;
 uniform int debugMode;
 uniform float ssrMixStrength;
+uniform bool reverseZ;
 
 const vec2 BIG_WAVES = vec2(0.1, 0.1);
 const vec2 MID_WAVES = vec2(0.1, 0.1);
@@ -60,7 +61,11 @@ float fresnel_dielectric(vec3 I, vec3 N, float eta)
 
 float linearizeDepth(float depth, float nearPlane, float farPlane)
 {
-    return nearPlane * farPlane / (farPlane + depth * (nearPlane - farPlane));
+    float d = depth;
+    if (reverseZ)
+        d = 1.0 - d;
+        
+    return nearPlane * farPlane / (farPlane + d * (nearPlane - farPlane));
 }
 
 float screenEdgeFade(vec2 uv)
