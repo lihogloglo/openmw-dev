@@ -17,7 +17,8 @@
       "Bash(git rm:*)",
       "Bash(Select-String -Pattern \"error|openmw-lib\\.vcxproj|succeeded\")",
       "Bash(cat:*)",
-      "Bash(test:*)"
+      "Bash(test:*)",
+      "Bash(Select-String -Pattern \"error|water\\.cpp|lake\\.\" -Context 0,2)"
     ],
     "deny": [],
     "ask": []

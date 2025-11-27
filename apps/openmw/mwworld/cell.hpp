@@ -47,6 +47,10 @@ namespace MWWorld
         std::string_view getDescription() const { return mDescription; }
         const MoodData& getMood() const { return mMood; }
         float getWaterHeight() const { return mWaterHeight; }
+        bool hasWaterColor() const { return mHasWaterColor; }
+        float getWaterColorR() const { return mWaterColorR; }
+        float getWaterColorG() const { return mWaterColorG; }
+        float getWaterColorB() const { return mWaterColorB; }
         const ESM::RefId& getId() const { return mId; }
         ESM::RefId getWorldSpace() const { return mIsExterior ? mParent : mId; }
 
@@ -68,6 +72,10 @@ namespace MWWorld
         ESM::RefId mId;
         ESM::RefId mParent;
         float mWaterHeight;
+        bool mHasWaterColor{ false };
+        float mWaterColorR{ 0.15f };
+        float mWaterColorG{ 0.25f };
+        float mWaterColorB{ 0.35f };
         std::string mDescription;
         MoodData mMood;
     };

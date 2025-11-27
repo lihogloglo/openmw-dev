@@ -1213,7 +1213,7 @@ namespace MWRender
         // Expected JSON format:
         // {
         //   "lakes": [
-        //     { "worldX": 20803.70, "worldY": -61583.41, "height": 498.96 },
+        //     { "worldX": 20803.70, "worldY": -61583.41, "height": 498.96, "waterColor": [0.15, 0.25, 0.35] },
         //     ...
         //   ]
         // }
@@ -1226,6 +1226,61 @@ namespace MWRender
 
         // JSON parsing implementation would go here
         Log(Debug::Warning) << "loadLakesFromJSON not yet implemented - filepath: " << filepath;
+
+        // ============================================================================
+        // TEMPORARY: Hardcoded test lakes for rendering validation
+        // TODO: Remove this section once .omwaddon integration is complete
+        // ============================================================================
+
+        Log(Debug::Info) << "[Lake] Loading temporary hardcoded test lakes...";
+
+        // Test lakes at different altitudes using actual Morrowind world coordinates
+        // Note: 22.1 units = 1 foot, so ~1450 units = 20 meters
+
+        // Player Position Test - Lake at test location cell (2, -8)
+        addLakeAtWorldPos(20803.70f, -61583.41f, 500.0f);  // ~22.6 feet / 6.9m
+        Log(Debug::Info) << "[Lake] Added test lake at player position: (20803.70, -61583.41) height 500 (~7m)";
+
+        // HIGH ALTITUDE TEST LAKES around cell (2, -8) for altitude testing
+        // These are intentionally at extreme altitudes with dramatic differences to test multi-level water rendering
+
+        addLakeAtWorldPos(28000.0f, -62000.0f, 2200.0f);  // Cell (3, -8) - ~99 feet / 30m
+        Log(Debug::Info) << "[Lake] Added high-altitude test lake at cell (3, -8) height 2200 (~30m)";
+
+        addLakeAtWorldPos(20000.0f, -53000.0f, 4400.0f);  // Cell (2, -7) - ~199 feet / 61m
+        Log(Debug::Info) << "[Lake] Added high-altitude test lake at cell (2, -7) height 4400 (~61m)";
+
+        addLakeAtWorldPos(12000.0f, -62000.0f, 6600.0f);  // Cell (1, -8) - ~299 feet / 91m
+        Log(Debug::Info) << "[Lake] Added high-altitude test lake at cell (1, -8) height 6600 (~91m)";
+
+        addLakeAtWorldPos(26000.0f, -54000.0f, 8800.0f);  // Cell (3, -7) - ~398 feet / 121m
+        Log(Debug::Info) << "[Lake] Added high-altitude test lake at cell (3, -7) height 8800 (~121m)";
+
+        addLakeAtWorldPos(10000.0f, -52000.0f, 11000.0f);  // Cell (1, -7) - ~498 feet / 152m
+        Log(Debug::Info) << "[Lake] Added high-altitude test lake at cell (1, -7) height 11000 (~152m)";
+
+        // Real Morrowind location test lakes at reasonable altitudes
+
+        addLakeAtWorldPos(2380.0f, -56032.0f, 0.0f);     // Pelagiad area (sea level)
+        Log(Debug::Info) << "[Lake] Added test lake near Pelagiad at sea level";
+
+        addLakeAtWorldPos(-22528.0f, -15360.0f, 1500.0f);  // Balmora/Odai River - ~68 feet / 21m
+        Log(Debug::Info) << "[Lake] Added test lake at Balmora/Odai River height 1500 (~21m)";
+
+        addLakeAtWorldPos(-11264.0f, 34816.0f, 5800.0f);  // Caldera - ~262 feet / 80m
+        Log(Debug::Info) << "[Lake] Added test lake at Caldera height 5800 (~80m)";
+
+        addLakeAtWorldPos(19072.0f, -71680.0f, 0.0f);    // Vivec (sea level)
+        Log(Debug::Info) << "[Lake] Added test lake at Vivec at sea level";
+
+        addLakeAtWorldPos(40960.0f, 81920.0f, 15000.0f);  // Red Mountain - ~679 feet / 207m
+        Log(Debug::Info) << "[Lake] Added test lake at Red Mountain height 15000 (~207m)";
+
+        Log(Debug::Info) << "[Lake] Finished loading " << (mLake ? mLake->getCellCount() : 0) << " temporary test lakes";
+
+        // ============================================================================
+        // END TEMPORARY SECTION
+        // ============================================================================
     }
 
     void WaterManager::setLakeDebugMode(int mode)

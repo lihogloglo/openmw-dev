@@ -112,6 +112,7 @@ namespace ESM
             , mHasAmbi(true)
             , mWater(0)
             , mHasWaterHeightSub(false)
+            , mHasWaterColor(false)
             , mMapColor(0)
             , mRefNumCounter(0)
         {
@@ -132,6 +133,13 @@ namespace ESM
 
         float mWater; // Water level
         bool mHasWaterHeightSub;
+
+        // Water color (RGB floats 0-1) - for per-cell water tinting in multi-level water system
+        float mWaterColorR{ 0.15f };
+        float mWaterColorG{ 0.25f };
+        float mWaterColorB{ 0.35f };
+        bool mHasWaterColor{ false };
+
         int32_t mMapColor;
         // Counter for RefNums. This is only used during content file editing and has no impact on gameplay.
         // It prevents overwriting previous refNums, even if they were deleted.

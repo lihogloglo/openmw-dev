@@ -351,7 +351,7 @@ void Lake::removeFromScene(osg::Group* parent)
         parent->removeChild(mRootNode);
 }
 
-void Lake::addWaterCell(int gridX, int gridY, float height)
+void Lake::addWaterCell(int gridX, int gridY, float height, const osg::Vec3f& waterColor)
 {
     auto key = std::make_pair(gridX, gridY);
 
@@ -380,6 +380,7 @@ void Lake::addWaterCell(int gridX, int gridY, float height)
               + ") height=" + std::to_string(height) + " units ("
               + std::to_string(height * Units::FEET_PER_UNIT) + " feet, "
               + std::to_string(height * Units::METERS_PER_UNIT) + " meters)"
+              + " color=(" + std::to_string(waterColor.x()) + ", " + std::to_string(waterColor.y()) + ", " + std::to_string(waterColor.z()) + ")"
               + " enabled=" + std::string(mEnabled ? "true" : "false"));
     logLake("  World position: (" + std::to_string(worldX) + ", " + std::to_string(worldY) + ")");
 
@@ -392,6 +393,7 @@ void Lake::addWaterCell(int gridX, int gridY, float height)
     cell.gridX = gridX;
     cell.gridY = gridY;
     cell.height = height;
+    cell.waterColor = waterColor;
 
     createCellGeometry(cell);
 
@@ -451,6 +453,21 @@ float Lake::getWaterHeightAt(const osg::Vec3f& pos) const
     return -1000.0f;  // No water at this position
 }
 
+osg::Vec3f Lake::getWaterColorAt(const osg::Vec3f& pos) const
+{
+    // Convert world position to grid coordinates using Units helper
+    int gridX, gridY;
+    Units::worldToGrid(pos.x(), pos.y(), gridX, gridY);
+
+    auto key = std::make_pair(gridX, gridY);
+    auto it = mCellWaters.find(key);
+
+    if (it != mCellWaters.end())
+        return it->second.waterColor;
+
+    return osg::Vec3f(0.15f, 0.25f, 0.35f);  // Default water color
+}
+
 void Lake::createCellGeometry(CellWater& cell)
 {
     const float cellSize = Units::CELL_SIZE_UNITS;  // 8192 MW units
@@ -506,6 +523,9 @@ void Lake::createCellGeometry(CellWater& cell)
     // This avoids floating-point precision issues with large world coordinates
     osg::StateSet* ss = cell.transform->getOrCreateStateSet();
     ss->addUniform(new osg::Uniform("cellCenter", osg::Vec3f(cellCenterX, cellCenterY, cell.height)));
+
+    // Add per-cell water color uniform
+    ss->addUniform(new osg::Uniform("waterColor", cell.waterColor));
 }
 
 osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()

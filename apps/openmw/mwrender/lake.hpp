@@ -95,10 +95,11 @@ namespace MWRender
         void removeFromScene(osg::Group* parent) override;
 
         // Per-cell water management
-        void addWaterCell(int gridX, int gridY, float height);
+        void addWaterCell(int gridX, int gridY, float height, const osg::Vec3f& waterColor = osg::Vec3f(0.15f, 0.25f, 0.35f));
         void removeWaterCell(int gridX, int gridY);
         void clearAllCells();
         float getWaterHeightAt(const osg::Vec3f& pos) const;
+        osg::Vec3f getWaterColorAt(const osg::Vec3f& pos) const;
 
         // Per-cell visibility control (for integration with cell loading)
         void showWaterCell(int gridX, int gridY);
@@ -133,6 +134,7 @@ namespace MWRender
         {
             int gridX, gridY;
             float height;
+            osg::Vec3f waterColor;
             osg::ref_ptr<osg::PositionAttitudeTransform> transform;
             osg::ref_ptr<osg::Geometry> geometry;
         };

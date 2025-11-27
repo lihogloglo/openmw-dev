@@ -87,6 +87,10 @@ namespace MWWorld
         , mId(cell.mId)
         , mParent(ESM::Cell::sDefaultWorldspaceId)
         , mWaterHeight(cell.mWater)
+        , mHasWaterColor(cell.mHasWaterColor)
+        , mWaterColorR(cell.mWaterColorR)
+        , mWaterColorG(cell.mWaterColorG)
+        , mWaterColorB(cell.mWaterColorB)
         , mDescription(cell.getDescription())
         , mMood{
             .mAmbiantColor = cell.mAmbi.mAmbient,

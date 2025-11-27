@@ -157,6 +157,27 @@ namespace ESM
                     else
                         mWater = waterLevel;
                     break;
+                case fourCC("WCOL"):
+                    // Water color subrecord: 12 bytes (3 floats RGB, range 0-1)
+                    esm.getHT(mWaterColorR);
+                    esm.getHT(mWaterColorG);
+                    esm.getHT(mWaterColorB);
+                    mHasWaterColor = true;
+                    // Validate color values
+                    if (!std::isfinite(mWaterColorR) || !std::isfinite(mWaterColorG) || !std::isfinite(mWaterColorB)
+                        || mWaterColorR < 0.0f || mWaterColorR > 1.0f
+                        || mWaterColorG < 0.0f || mWaterColorG > 1.0f
+                        || mWaterColorB < 0.0f || mWaterColorB > 1.0f)
+                    {
+                        Log(Debug::Warning) << "Warning: Encountered invalid water color in cell " << mName
+                                            << " defined in " << esm.getContext().filename
+                                            << " - using default";
+                        mWaterColorR = 0.15f;
+                        mWaterColorG = 0.25f;
+                        mWaterColorB = 0.35f;
+                        mHasWaterColor = false;
+                    }
+                    break;
                 case fourCC("AMBI"):
                     esm.getSubComposite(mAmbi);
                     mHasAmbi = true;
@@ -209,6 +230,12 @@ namespace ESM
             // in resaved cell records that lack this information.
             if (mHasWaterHeightSub)
                 esm.writeHNT("WHGT", mWater);
+            if (mHasWaterColor)
+            {
+                esm.writeHNT("WCOL", mWaterColorR);
+                esm.writeHNT("WCOL", mWaterColorG);
+                esm.writeHNT("WCOL", mWaterColorB);
+            }
             if (mData.mFlags & QuasiEx)
                 esm.writeHNOCRefId("RGNN", mRegion);
             else if (mHasAmbi)
@@ -219,6 +246,13 @@ namespace ESM
             esm.writeHNOCRefId("RGNN", mRegion);
             if (mMapColor != 0)
                 esm.writeHNT("NAM5", mMapColor);
+            // Water color can also be specified for exterior cells
+            if (mHasWaterColor)
+            {
+                esm.writeHNT("WCOL", mWaterColorR);
+                esm.writeHNT("WCOL", mWaterColorG);
+                esm.writeHNT("WCOL", mWaterColorB);
+            }
         }
     }
 
@@ -337,6 +371,10 @@ namespace ESM
 
         mHasAmbi = true;
         mHasWaterHeightSub = true;
+        mHasWaterColor = false;
+        mWaterColorR = 0.15f;
+        mWaterColorG = 0.25f;
+        mWaterColorB = 0.35f;
         mAmbi.mAmbient = 0;
         mAmbi.mSunlight = 0;
         mAmbi.mFog = 0;
