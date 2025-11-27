@@ -14,7 +14,6 @@
 #include "ocean.hpp"
 #include "lake.hpp"
 #include "waterheightfield.hpp"
-#include "ssrmanager.hpp"
 #include "cubemapreflection.hpp"
 
 namespace osg
@@ -90,10 +89,12 @@ namespace MWRender
         std::unique_ptr<WaterHeightField> mWaterHeightField;
         std::vector<const MWWorld::CellStore*> mLoadedCells;
 
-        // SSR + Cubemap reflection system for lakes/rivers
-        std::unique_ptr<SSRManager> mSSRManager;
+        // Cubemap reflection system for lakes/rivers (SSR is inline in lake shader)
         std::unique_ptr<CubemapReflectionManager> mCubemapManager;
-        bool mUseSSRReflections;
+
+        // Scene buffers for inline SSR (provided by RenderingManager)
+        osg::ref_ptr<osg::Texture2D> mSceneColorBuffer;
+        osg::ref_ptr<osg::Texture2D> mSceneDepthBuffer;
 
         void updateWaterHeightField();
 
@@ -169,9 +170,13 @@ namespace MWRender
         float getOceanSpread() const;
         float getOceanFoamAmount() const;
 
-        // SSR + Cubemap accessors
-        SSRManager* getSSRManager() { return mSSRManager.get(); }
+        // Reflection system accessors
         CubemapReflectionManager* getCubemapManager() { return mCubemapManager.get(); }
+
+        // Scene buffer accessors for inline SSR
+        void setSceneBuffers(osg::Texture2D* colorBuffer, osg::Texture2D* depthBuffer);
+        osg::Texture2D* getSceneColorBuffer();
+        osg::Texture2D* getSceneDepthBuffer();
 
         // Lake management
         void addLakeCell(int gridX, int gridY, float height);  // Grid-based (internal use)
@@ -179,8 +184,9 @@ namespace MWRender
         void removeLakeCell(int gridX, int gridY);
         void removeLakeAtWorldPos(float worldX, float worldY);
         void loadLakesFromJSON(const std::string& filepath);
-        bool useSSRReflections() const { return mUseSSRReflections; }
         osg::TextureCubeMap* getCubemapForPosition(const osg::Vec3f& pos);
+
+        void setLakeDebugMode(int mode);
     };
 
 }

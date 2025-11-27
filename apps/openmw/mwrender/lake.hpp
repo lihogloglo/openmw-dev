@@ -104,7 +104,7 @@ namespace MWRender
         void showWaterCell(int gridX, int gridY);
         void hideWaterCell(int gridX, int gridY);
 
-        // SSR/Cubemap reflection system integration
+        // Reflection system integration (inline SSR + cubemap fallback)
         void setWaterManager(WaterManager* waterManager);
 
         // Debug control
@@ -149,7 +149,7 @@ namespace MWRender
         osg::ref_ptr<osg::StateSet> mWaterStateSet;
         osg::ref_ptr<osg::Callback> mStateSetUpdater;
 
-        float mDefaultHeight;
+
         bool mEnabled;
     };
 }

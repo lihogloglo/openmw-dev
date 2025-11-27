@@ -1,54 +1,38 @@
 #version 120
 
-// Lake vertex shader - Adapted from ogwatershader/water.vert
+// Lake vertex shader
+// Uses cell center uniform to avoid floating-point precision issues with large world coordinates
 
-varying vec4 position;
-varying float linearDepth;
-varying vec3 worldPos;
-varying vec2 rippleMapUV;
+varying vec4 position;      // View-space position (for lighting, SSR)
+varying float linearDepth;  // Linear depth for effects
+varying vec3 worldPos;      // World position for normal map sampling
+varying vec2 rippleMapUV;   // Ripple effect UVs
 
-// Uniforms
-uniform mat4 viewMatrix;
-uniform mat4 projMatrix;
-uniform mat4 invViewMatrix;
-uniform vec3 cameraPos;
-uniform vec3 playerPos; // For ripple UVs
+// Cell center in world space (set per-cell from C++)
+uniform vec3 cellCenter;
 
-// Constants from water.vert
+// Player position for ripple UVs
+uniform vec3 playerPos;
+
+// Ripple map parameters
 const float rippleMapSize = 512.0;
 const float rippleMapWorldScale = 2.0;
 
-// Helper function from lib/view/depth.glsl (inlined for simplicity if include fails, but we'll try include)
-#include "lib/view/depth.glsl" 
-
-// float getLinearDepth(float z_b, float view_z)
-// {
-//     // Simplified linear depth
-//     return -view_z;
-// }
-
 void main()
 {
+    // Standard MVP transformation
     gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;
-    
-    position = gl_Vertex;
-    
-    // World pos calculation
-    // gl_Vertex is in local space. For lakes, local space might be world space if transform is identity?
-    // Lake cells are positioned by PositionAttitudeTransform.
-    // So gl_Vertex is local to the cell center.
-    // We need world position.
-    // gl_ModelViewMatrix * gl_Vertex gives View Space.
-    // invViewMatrix * ViewSpace gives World Space.
-    
-    vec4 viewPos4 = gl_ModelViewMatrix * gl_Vertex;
-    vec3 viewPos = viewPos4.xyz;
-    
-    vec4 worldPos4 = invViewMatrix * viewPos4;
-    worldPos = worldPos4.xyz / worldPos4.w;
-    
-    // Ripple UVs
-    rippleMapUV = (worldPos.xy - playerPos.xy + (rippleMapSize * rippleMapWorldScale / 2.0)) / rippleMapSize / rippleMapWorldScale;
-    
-    linearDepth = -viewPos.z; // Standard linear depth approximation
+
+    // View-space position for lighting calculations
+    position = gl_ModelViewMatrix * gl_Vertex;
+    linearDepth = -position.z;
+
+    // World position: cell center + local vertex offset
+    // This avoids precision loss from reconstructing large world coordinates
+    // gl_Vertex is in local space, centered at origin for each cell
+    worldPos = cellCenter + gl_Vertex.xyz;
+
+    // Ripple UVs centered on player
+    rippleMapUV = (worldPos.xy - playerPos.xy + (rippleMapSize * rippleMapWorldScale / 2.0))
+                  / rippleMapSize / rippleMapWorldScale;
 }

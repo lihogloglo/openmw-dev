@@ -902,28 +902,16 @@ namespace MWRender
         mWater->setRainIntensity(rainIntensity);
         mWater->setRainRipplesEnabled(mSky->getRainRipplesEnabled());
 
-        // Update SSR with scene buffers if available
-        if (mWater && mWater->getSSRManager() && mPostProcessor)
+        // Provide scene buffers to WaterManager for inline SSR
+        if (mPostProcessor)
         {
-            auto* ssrMgr = mWater->getSSRManager();
-
-            // Get scene textures from post-processor (frame 0 for current frame)
-            osg::Texture2D* depthTex = dynamic_cast<osg::Texture2D*>(
-                mPostProcessor->getTexture(PostProcessor::Tex_Depth, 0).get());
-            osg::Texture2D* normalTex = dynamic_cast<osg::Texture2D*>(
-                mPostProcessor->getTexture(PostProcessor::Tex_Normal, 0).get());
-            osg::Texture2D* sceneTex = dynamic_cast<osg::Texture2D*>(
+            osg::Texture2D* sceneColor = dynamic_cast<osg::Texture2D*>(
                 mPostProcessor->getTexture(PostProcessor::Tex_Scene, 0).get());
+            osg::Texture2D* sceneDepth = dynamic_cast<osg::Texture2D*>(
+                mPostProcessor->getTexture(PostProcessor::Tex_Depth, 0).get());
 
-            if (depthTex && sceneTex)
-            {
-                ssrMgr->setInputTextures(sceneTex, depthTex, normalTex);
-
-                // Update SSR with current camera matrices
-                osg::Matrix viewMatrix = mViewer->getCamera()->getViewMatrix();
-                osg::Matrix projMatrix = mViewer->getCamera()->getProjectionMatrix();
-                ssrMgr->update(viewMatrix, projMatrix);
-            }
+            if (sceneColor && sceneDepth)
+                mWater->setSceneBuffers(sceneColor, sceneDepth);
         }
 
         mWater->update(dt, paused, mCamera->getPosition());

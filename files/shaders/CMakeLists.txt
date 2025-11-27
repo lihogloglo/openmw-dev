@@ -67,8 +67,6 @@ set(SHADER_FILES
     compatibility/lake.frag
     compatibility/ocean.vert
     compatibility/ocean.frag
-    compatibility/ssr_fullscreen.vert
-    compatibility/ssr_raymarch.frag
     lib/ocean/spectrum_compute.comp
     lib/ocean/fft_compute.comp
     lib/ocean/fft_butterfly.comp

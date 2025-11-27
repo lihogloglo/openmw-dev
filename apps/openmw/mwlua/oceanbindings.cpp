@@ -109,6 +109,15 @@ namespace MWLua
             }
         };
 
+        // Lake Debug Mode
+        api["setLakeDebugMode"] = [](int mode) {
+            MWRender::RenderingManager* rendering = MWBase::Environment::get().getWorld()->getRenderingManager();
+            if (rendering && rendering->getWater())
+            {
+                rendering->getWater()->setLakeDebugMode(mode);
+            }
+        };
+
         return LuaUtil::makeReadOnly(api);
     }
 }

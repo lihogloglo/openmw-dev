@@ -452,7 +452,6 @@ namespace MWRender
         , mCullCallback(nullptr)
         , mShaderWaterStateSetUpdater(nullptr)
         , mUseOcean(false)
-        , mUseSSRReflections(true)
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
@@ -462,15 +461,11 @@ namespace MWRender
         // Initialize water height field for multi-altitude water support
         mWaterHeightField = std::make_unique<WaterHeightField>(2048, 0.1f);
 
-        // Initialize SSR + Cubemap reflection system for lakes/rivers
-        mSSRManager = std::make_unique<SSRManager>(mParent, mResourceSystem);
+        // Initialize cubemap reflection system for lakes/rivers (SSR is inline in shader)
         mCubemapManager = std::make_unique<CubemapReflectionManager>(mParent, mSceneRoot, mResourceSystem);
-
-        // Initialize SSR with default 1080p resolution (will be resized based on actual window size)
-        mSSRManager->initialize(1920, 1080);
         mCubemapManager->initialize();
 
-        // Connect lake to WaterManager for SSR/cubemap access
+        // Connect lake to WaterManager for reflection system access
         if (mLake)
             mLake->setWaterManager(this);
 
@@ -685,13 +680,6 @@ namespace MWRender
                 stateset->addUniform(new osg::Uniform("rippleMap", 4));
             }
 
-            // SSR + Cubemap texture units (5 and 6)
-            if (mWater->useSSRReflections())
-            {
-                stateset->addUniform(new osg::Uniform("ssrTexture", 5));
-                stateset->addUniform(new osg::Uniform("environmentMap", 6));
-            }
-
             stateset->addUniform(new osg::Uniform("nodePosition", osg::Vec3f(mWater->getPosition())));
         }
 
@@ -708,24 +696,6 @@ namespace MWRender
             if (mRipples)
             {
                 stateset->setTextureAttributeAndModes(4, mRipples->getColorTexture(), osg::StateAttribute::ON);
-            }
-
-            // Bind SSR and Cubemap textures
-            if (mWater->useSSRReflections())
-            {
-                SSRManager* ssrMgr = mWater->getSSRManager();
-                if (ssrMgr && ssrMgr->getResultTexture())
-                {
-                    stateset->setTextureAttributeAndModes(5, ssrMgr->getResultTexture(), osg::StateAttribute::ON);
-                }
-
-                // Get cubemap for current water position
-                osg::Vec3f waterPos = osg::Vec3f(mWater->getPosition());
-                osg::TextureCubeMap* cubemap = mWater->getCubemapForPosition(waterPos);
-                if (cubemap)
-                {
-                    stateset->setTextureAttributeAndModes(6, cubemap, osg::StateAttribute::ON);
-                }
             }
 
             stateset->getUniform("nodePosition")->set(osg::Vec3f(mWater->getPosition()));
@@ -751,7 +721,6 @@ namespace MWRender
         defineMap["rippleMapSize"] = std::to_string(RipplesSurface::sRTTSize) + ".0";
         defineMap["sunlightScattering"] = Settings::water().mSunlightScattering ? "1" : "0";
         defineMap["wobblyShores"] = Settings::water().mWobblyShores ? "1" : "0";
-        defineMap["useSSRCubemap"] = mUseSSRReflections ? "1" : "0";
 
         Stereo::shaderStereoDefines(defineMap);
 
@@ -840,10 +809,9 @@ namespace MWRender
             mInterior = false;
 
             // Ocean and Lake will be enabled/disabled based on water type in update()
-            // No longer force-disabled for testing
 
-            // Create cubemap region for all water (testing mode)
-            if (mCubemapManager && mUseSSRReflections)
+            // Create cubemap region for exterior cells
+            if (mCubemapManager)
             {
                 // Use cell center as cubemap position
                 osg::Vec3f cubemapCenter = getSceneNodeCoordinates(
@@ -871,7 +839,7 @@ namespace MWRender
                 mOcean->setEnabled(false);
 
             // Create cubemap region for interior water
-            if (mCubemapManager && mUseSSRReflections)
+            if (mCubemapManager)
             {
                 osg::Vec3f cubemapCenter(0, 0, mTop);
 
@@ -948,16 +916,6 @@ namespace MWRender
         bool useOcean = (currentWaterType == WaterType::Ocean);
         bool useLake = (currentWaterType == WaterType::Lake || currentWaterType == WaterType::River);
 
-        // Debug logging for WaterManager update
-        static float timer = 0.0f;
-        timer += dt;
-        if (timer > 2.0f) {
-            std::cout << "WaterManager::update: Enabled=" << mEnabled << " Interior=" << mInterior
-                      << " WaterType=" << static_cast<int>(currentWaterType)
-                      << " UseOcean=" << useOcean << " UseLake=" << useLake << std::endl;
-            timer = 0.0f;
-        }
-
         // Enable/disable water bodies based on type
         if (mOcean)
             mOcean->setEnabled(mEnabled && mUseOcean && useOcean);
@@ -971,13 +929,9 @@ namespace MWRender
         if (mLake && mEnabled && useLake)
             mLake->update(dt, paused, cameraPos);
 
-        // Update SSR + Cubemap for lakes/rivers (not ocean)
-        if (mUseSSRReflections && useLake && mEnabled)
-        {
-            // Update cubemap reflections
-            if (mCubemapManager)
-                mCubemapManager->update(dt, cameraPos);
-        }
+        // Update cubemap reflections for lakes/rivers
+        if (useLake && mEnabled && mCubemapManager)
+            mCubemapManager->update(dt, cameraPos);
 
         if (!paused)
         {
@@ -1058,8 +1012,6 @@ namespace MWRender
             {
                 int gridX = store->getCell()->getGridX();
                 int gridY = store->getCell()->getGridY();
-                std::cout << "WaterManager::addCell: Loaded exterior cell (" << gridX << ", " << gridY
-                          << ") - attempting to show lake" << std::endl;
                 mLake->showWaterCell(gridX, gridY);
             }
         }
@@ -1236,9 +1188,6 @@ namespace MWRender
         int gridX = static_cast<int>(std::floor(worldX / cellSize));
         int gridY = static_cast<int>(std::floor(worldY / cellSize));
 
-        std::cout << "Adding lake at world pos (" << worldX << ", " << worldY << ") -> grid cell ("
-                  << gridX << ", " << gridY << ") at height " << height << std::endl;
-
         addLakeCell(gridX, gridY, height);
     }
 
@@ -1260,57 +1209,45 @@ namespace MWRender
 
     void WaterManager::loadLakesFromJSON(const std::string& filepath)
     {
-        // For now, just add test lakes manually using real Morrowind world coordinates
-        // TODO: Implement JSON parsing when needed
+        // TODO: Implement JSON parsing to load lake data from file
+        // Expected JSON format:
+        // {
+        //   "lakes": [
+        //     { "worldX": 20803.70, "worldY": -61583.41, "height": 498.96 },
+        //     ...
+        //   ]
+        // }
 
-        std::cout << "=== Loading test lakes at real Morrowind locations ===" << std::endl;
+        if (filepath.empty())
+        {
+            // No filepath provided, skip loading
+            return;
+        }
 
-        // Test lakes at different altitudes using actual world coordinates
+        // JSON parsing implementation would go here
+        Log(Debug::Warning) << "loadLakesFromJSON not yet implemented - filepath: " << filepath;
+    }
 
-        // USER POSITION TEST - Lake at exact player location
-        addLakeAtWorldPos(20803.70f, -61583.41f, 498.96f);  // Cell (2, -8) at player height
-        std::cout << "*** ADDED LAKE AT PLAYER POSITION: (20803.70, -61583.41) at height 498.96 ***" << std::endl;
+    void WaterManager::setLakeDebugMode(int mode)
+    {
+        if (mLake)
+            mLake->setDebugMode(mode);
+    }
 
-        // HIGH ALTITUDE TEST LAKES around cell (2, -8)
-        // Cell (2, -8) is X: 16384-24576, Y: -65536 to -57344
-        // Adding smaller "puddles" at altitudes > 1000
+    void WaterManager::setSceneBuffers(osg::Texture2D* colorBuffer, osg::Texture2D* depthBuffer)
+    {
+        mSceneColorBuffer = colorBuffer;
+        mSceneDepthBuffer = depthBuffer;
+    }
 
-        // Cell (3, -8) - east of player, high altitude
-        addLakeAtWorldPos(28000.0f, -62000.0f, 1100.0f);  // Cell (3, -8) at 1100
-        std::cout << "Added high lake at cell (3, -8) height 1100" << std::endl;
+    osg::Texture2D* WaterManager::getSceneColorBuffer()
+    {
+        return mSceneColorBuffer.get();
+    }
 
-        // Cell (2, -7) - north of player, higher altitude
-        addLakeAtWorldPos(20000.0f, -53000.0f, 1250.0f);  // Cell (2, -7) at 1250
-        std::cout << "Added high lake at cell (2, -7) height 1250" << std::endl;
-
-        // Cell (1, -8) - west of player, highest altitude
-        addLakeAtWorldPos(12000.0f, -62000.0f, 1400.0f);  // Cell (1, -8) at 1400
-        std::cout << "Added high lake at cell (1, -8) height 1400" << std::endl;
-
-        // Cell (3, -7) - northeast, very high
-        addLakeAtWorldPos(26000.0f, -54000.0f, 1600.0f);  // Cell (3, -7) at 1600
-        std::cout << "Added high lake at cell (3, -7) height 1600" << std::endl;
-
-        // Cell (1, -7) - northwest, extreme altitude
-        addLakeAtWorldPos(10000.0f, -52000.0f, 1800.0f);  // Cell (1, -7) at 1800
-        std::cout << "Added high lake at cell (1, -7) height 1800" << std::endl;
-
-        // Pelagiad area (southern Vvardenfell, near starting area)
-        addLakeAtWorldPos(2380.0f, -56032.0f, 0.0f);    // Sea level lake near Pelagiad
-
-        // Balmora area (western Vvardenfell)
-        addLakeAtWorldPos(-22528.0f, -15360.0f, 50.0f);  // Odai River near Balmora (slightly elevated)
-
-        // Caldera area (north-central, elevated region)
-        addLakeAtWorldPos(-11264.0f, 34816.0f, 800.0f);  // High altitude lake near Caldera
-
-        // Vivec area (southern coast)
-        addLakeAtWorldPos(19072.0f, -71680.0f, 0.0f);   // Vivec canals at sea level
-
-        // Red Mountain region (high altitude test)
-        addLakeAtWorldPos(40960.0f, 81920.0f, 1500.0f); // Very high altitude mountain lake
-
-        std::cout << "=== Test lakes loaded ===" << std::endl;
+    osg::Texture2D* WaterManager::getSceneDepthBuffer()
+    {
+        return mSceneDepthBuffer.get();
     }
 
 }

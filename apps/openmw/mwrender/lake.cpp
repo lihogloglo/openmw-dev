@@ -1,6 +1,5 @@
 #include "lake.hpp"
 #include "water.hpp"
-#include "ssrmanager.hpp"
 #include "cubemapreflection.hpp"
 
 #include <osg/Geometry>
@@ -25,6 +24,7 @@
 #include <components/debug/debuglog.hpp>
 
 #include "renderbin.hpp"
+#include "vismask.hpp"
 
 namespace MWRender
 {
@@ -32,7 +32,7 @@ namespace MWRender
 // Debug logging helper
 namespace
 {
-    bool sLakeDebugLoggingEnabled = true;  // Set to true to see lake system logs
+    constexpr bool sLakeDebugLoggingEnabled = false;  // Set to true for debugging
     int sLakeFrameCounter = 0;
     constexpr int LOG_EVERY_N_FRAMES = 300;  // Log every 5 seconds at 60fps
 
@@ -56,7 +56,6 @@ public:
     LakeStateSetUpdater(WaterManager* waterManager)
         : mWaterManager(waterManager)
         , mDebugMode(0)
-        , mLastLogFrame(0)
     {
         logLake("LakeStateSetUpdater created");
     }
@@ -64,9 +63,10 @@ public:
     void setDefaults(osg::StateSet* stateset) override
     {
         // Set texture unit uniforms
-        stateset->addUniform(new osg::Uniform("ssrTexture", 0));
+        stateset->addUniform(new osg::Uniform("sceneColorBuffer", 0));  // Scene color for SSR sampling
         stateset->addUniform(new osg::Uniform("environmentMap", 1));
         stateset->addUniform(new osg::Uniform("normalMap", 2));
+        stateset->addUniform(new osg::Uniform("depthBuffer", 3));
 
         // Screen resolution for SSR sampling
         stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f(1920.f, 1080.f)));
@@ -81,7 +81,7 @@ public:
         // View/projection matrices for proper reflection calculations
         stateset->addUniform(new osg::Uniform("viewMatrix", osg::Matrixf()));
         stateset->addUniform(new osg::Uniform("projMatrix", osg::Matrixf()));
-        stateset->addUniform(new osg::Uniform("invViewMatrix", osg::Matrixf()));
+        stateset->addUniform(new osg::Uniform("invProjMatrix", osg::Matrixf()));
 
         // Camera position in world space
         stateset->addUniform(new osg::Uniform("cameraPos", osg::Vec3f(0, 0, 0)));
@@ -91,6 +91,9 @@ public:
         stateset->addUniform(new osg::Uniform("rainIntensity", 0.0f));
         stateset->addUniform(new osg::Uniform("enableRainRipples", false));
         stateset->addUniform(new osg::Uniform("playerPos", osg::Vec3f(0,0,0))); // Needed for ripples
+        
+        // SSR Mix Strength (0.0 = full cubemap, 1.0 = full SSR where confident)
+        stateset->addUniform(new osg::Uniform("ssrMixStrength", 0.7f));
 
         logLake("LakeStateSetUpdater defaults set - texture units: SSR=0, Cubemap=1, Normal=2");
     }
@@ -118,18 +121,22 @@ public:
             osg::Matrixf viewMatrix = camera->getViewMatrix();
             osg::Matrixf projMatrix = camera->getProjectionMatrix();
             osg::Matrixf invViewMatrix = osg::Matrixf::inverse(viewMatrix);
+            osg::Matrixf invProjMatrix = osg::Matrixf::inverse(projMatrix);
 
             osg::Uniform* viewUniform = stateset->getUniform("viewMatrix");
             osg::Uniform* projUniform = stateset->getUniform("projMatrix");
             osg::Uniform* invViewUniform = stateset->getUniform("invViewMatrix");
+            osg::Uniform* invProjUniform = stateset->getUniform("invProjMatrix");
             osg::Uniform* camPosUniform = stateset->getUniform("cameraPos");
 
             if (viewUniform) viewUniform->set(viewMatrix);
             if (projUniform) projUniform->set(projMatrix);
             if (invViewUniform) invViewUniform->set(invViewMatrix);
+            if (invProjUniform) invProjUniform->set(invProjMatrix);
 
-            // Extract camera position from inverse view matrix
-            osg::Vec3f camPos(invViewMatrix(3, 0), invViewMatrix(3, 1), invViewMatrix(3, 2));
+            // Get camera position in world space
+            // Since the Lake node is in world space, getEyeLocal() returns world position
+            osg::Vec3f camPos = cv->getEyeLocal();
             if (camPosUniform) camPosUniform->set(camPos);
 
             // Update playerPos uniform (using camera pos as proxy for now)
@@ -138,17 +145,10 @@ public:
 
             // Update simulation time
             osg::Uniform* timeUniform = stateset->getUniform("osg_SimulationTime");
-            if (timeUniform)
+            if (timeUniform && cv->getFrameStamp())
             {
-                // We need a monotonic time source. osg::FrameStamp?
-                // For now, just incrementing a static or using frame number might be too jerky.
-                // Better to get it from the frame stamp if possible, but we don't have easy access here.
-                // Let's assume the scene manager updates osg_SimulationTime globally or we need to pass it.
-                // Actually, osg_SimulationTime is usually a global uniform set by the renderer.
-                // If we need to set it manually:
-                static float simTime = 0.0f;
-                simTime += 0.016f; // Approx 60fps
-                timeUniform->set(simTime);
+                double time = cv->getFrameStamp()->getSimulationTime();
+                timeUniform->set(static_cast<float>(time));
             }
 
             if (shouldLog)
@@ -158,33 +158,25 @@ public:
             }
         }
 
-        // Get SSR texture
-        SSRManager* ssrMgr = mWaterManager->getSSRManager();
-        bool hasSSR = false;
-        if (ssrMgr)
-        {
-            osg::Texture2D* ssrTex = ssrMgr->getResultTexture();
-            if (ssrTex)
-            {
-                stateset->setTextureAttributeAndModes(0, ssrTex, osg::StateAttribute::ON);
-                hasSSR = true;
+        // Get scene buffers for inline SSR raymarching
+        osg::Texture2D* colorBuffer = mWaterManager->getSceneColorBuffer();
+        osg::Texture2D* depthBuffer = mWaterManager->getSceneDepthBuffer();
+        bool hasBuffers = false;
 
-                if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
-                {
-                    // Log SSR texture info on first few frames
-                    logLake("SSR texture bound: size=" + std::to_string(ssrTex->getTextureWidth())
-                        + "x" + std::to_string(ssrTex->getTextureHeight())
-                        + ", format=" + std::to_string(ssrTex->getInternalFormat()));
-                }
-            }
-            else if (shouldLog)
+        if (colorBuffer && depthBuffer)
+        {
+            stateset->setTextureAttributeAndModes(0, colorBuffer, osg::StateAttribute::ON);
+            stateset->setTextureAttributeAndModes(3, depthBuffer, osg::StateAttribute::ON);
+            hasBuffers = true;
+
+            if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
             {
-                logLakeVerbose("WARNING: SSRManager exists but getResultTexture() returned null");
+                logLake("Scene buffers bound: Color=" + std::to_string(colorBuffer->getTextureWidth()) + "x" + std::to_string(colorBuffer->getTextureHeight()));
             }
         }
         else if (shouldLog && sLakeFrameCounter < LOG_EVERY_N_FRAMES * 2)
         {
-            logLake("WARNING: No SSRManager available for lake reflections");
+            logLake("WARNING: No scene buffers available for SSR raymarching");
         }
 
         // Get cubemap for approximate water position (use camera position as approximation)
@@ -241,7 +233,7 @@ public:
 
         if (shouldLog)
         {
-            logLakeVerbose("State update - SSR: " + std::string(hasSSR ? "YES" : "NO")
+            logLakeVerbose("State update - Scene Buffers: " + std::string(hasBuffers ? "YES" : "NO")
                 + ", Cubemap: " + std::string(hasCubemap ? "YES" : "NO")
                 + ", DebugMode: " + std::to_string(mDebugMode)
                 + ", Reversed-Z: " + std::string(SceneUtil::AutoDepth::isReversed() ? "YES" : "NO"));
@@ -254,20 +246,20 @@ public:
 private:
     WaterManager* mWaterManager;
     int mDebugMode;
-    int mLastLogFrame;
+
 };
 
 Lake::Lake(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
     : mParent(parent)
     , mResourceSystem(resourceSystem)
     , mWaterManager(nullptr)
-    , mDefaultHeight(0.f)
     , mEnabled(false)
 {
     logLake("Lake constructor started");
 
     mRootNode = new osg::PositionAttitudeTransform;
     mRootNode->setName("LakeRoot");
+    mRootNode->setNodeMask(Mask_Water);
 
     // Create shared water state set for all lake cells
     mWaterStateSet = createWaterStateSet();
@@ -331,13 +323,13 @@ void Lake::setEnabled(bool enabled)
 
 void Lake::update(float dt, bool paused, const osg::Vec3f& cameraPos)
 {
-    // Lake logic here (e.g. texture animation)
+    // Cell centers are set once at creation time via the cellCenter uniform
+    // No per-frame updates needed - the shader uses cellCenter + gl_Vertex for world position
 }
 
 void Lake::setHeight(float height)
 {
-    mDefaultHeight = height;
-    // Don't update existing cells - they have their own heights
+    // Default height is not used for lakes as they are cell-based
 }
 
 bool Lake::isUnderwater(const osg::Vec3f& pos) const
@@ -509,6 +501,11 @@ void Lake::createCellGeometry(CellWater& cell)
     osg::ref_ptr<osg::Geode> geode = new osg::Geode;
     geode->addDrawable(cell.geometry);
     cell.transform->addChild(geode);
+
+    // Add cell center uniform for world position calculation in shader
+    // This avoids floating-point precision issues with large world coordinates
+    osg::StateSet* ss = cell.transform->getOrCreateStateSet();
+    ss->addUniform(new osg::Uniform("cellCenter", osg::Vec3f(cellCenterX, cellCenterY, cell.height)));
 }
 
 osg::ref_ptr<osg::StateSet> Lake::createWaterStateSet()

@@ -12,12 +12,6 @@
 
 // Inspired by Blender GLSL Water by martinsh ( https://devlog-martinsh.blogspot.de/2012/07/waterundewater-shader-wip.html )
 
-// SSR + Cubemap uniforms
-#if @useSSRCubemap
-uniform sampler2D ssrTexture;
-uniform samplerCube environmentMap;
-#endif
-
 // tweakables -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- -- --
 
 const float VISIBILITY = 2500.0;
@@ -160,28 +154,7 @@ void main(void)
     screenCoordsOffset *= clamp(realWaterDepth / BUMP_SUPPRESS_DEPTH, 0.0, 1.0);
 #endif
     // reflection
-#if @useSSRCubemap
-    // SSR + Cubemap hybrid reflection
-    vec3 reflection;
-
-    // Sample SSR (RGB = color, A = confidence)
-    vec4 ssrSample = texture2D(ssrTexture, screenCoords);
-
-    // Sample cubemap as fallback
-    vec3 reflectDir = reflect(viewDir, normal);
-    vec3 cubemapSample = textureCube(environmentMap, reflectDir).rgb;
-
-    // Blend based on SSR confidence
-    float ssrConfidence = ssrSample.a;
-    if (ssrConfidence > 0.1) {
-        reflection = mix(cubemapSample, ssrSample.rgb, ssrConfidence);
-    } else {
-        reflection = cubemapSample;
-    }
-#else
-    // Fallback to old planar reflection
     vec3 reflection = sampleReflectionMap(screenCoords + screenCoordsOffset).rgb;
-#endif
 
     vec3 waterColor = WATER_COLOR * sunFade;
 
