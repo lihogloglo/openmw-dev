@@ -18,7 +18,8 @@
       "Bash(Select-String -Pattern \"error|openmw-lib\\.vcxproj|succeeded\")",
       "Bash(cat:*)",
       "Bash(test:*)",
-      "Bash(Select-String -Pattern \"error|water\\.cpp|lake\\.\" -Context 0,2)"
+      "Bash(Select-String -Pattern \"error|water\\.cpp|lake\\.\" -Context 0,2)",
+      "Bash(Select-String -Pattern \"error|warning C4|lake\\.cpp|lake\\.frag|cubemapreflection\\.cpp|succeeded\" -Context 0,2)"
     ],
     "deny": [],
     "ask": []

@@ -47,7 +47,7 @@ namespace MWRender
 
     void CubemapReflectionManager::initialize()
     {
-        // Create a simple fallback cubemap (will render sky only)
+        // Create a simple fallback cubemap initialized with sky blue color
         mFallbackCubemap = new osg::TextureCubeMap;
         mFallbackCubemap->setTextureSize(mParams.resolution, mParams.resolution);
         mFallbackCubemap->setInternalFormat(GL_RGB8);
@@ -58,6 +58,25 @@ namespace MWRender
         mFallbackCubemap->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
         mFallbackCubemap->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         mFallbackCubemap->setWrap(osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_EDGE);
+
+        // Initialize all 6 faces with a sky blue color (RGB: 135, 206, 235)
+        // This prevents the cubemap from being black when no regions are active
+        int resolution = mParams.resolution;
+        std::vector<unsigned char> skyBlueData(resolution * resolution * 3);
+        for (int i = 0; i < resolution * resolution; ++i)
+        {
+            skyBlueData[i * 3 + 0] = 135; // R
+            skyBlueData[i * 3 + 1] = 206; // G
+            skyBlueData[i * 3 + 2] = 235; // B
+        }
+
+        for (int face = 0; face < 6; ++face)
+        {
+            osg::ref_ptr<osg::Image> image = new osg::Image;
+            image->setImage(resolution, resolution, 1, GL_RGB8, GL_RGB, GL_UNSIGNED_BYTE,
+                skyBlueData.data(), osg::Image::NO_DELETE);
+            mFallbackCubemap->setImage(face, image);
+        }
     }
 
     void CubemapReflectionManager::setParams(const Params& params)

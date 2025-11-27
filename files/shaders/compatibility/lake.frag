@@ -38,7 +38,7 @@ const float SPEC_BRIGHTNESS = 1.5;
 
 const float SSR_MAX_DISTANCE = 8192.0;
 const int SSR_MAX_STEPS = 32;
-const float SSR_THICKNESS = 0.5;
+const float SSR_THICKNESS = 500.0;  // Increased from 0.5 to match Morrowind's scale
 const float SSR_FADE_START = 0.8;
 
 vec2 normalCoords(vec2 uv, float scale, float speed, float time, float timer1, float timer2, vec3 prevNormal)
@@ -79,28 +79,37 @@ float screenEdgeFade(vec2 uv)
 vec4 traceSSR(vec3 viewPos, vec3 viewNormal)
 {
     vec3 viewDir = normalize(viewPos);
-    vec3 reflectDir = reflect(viewDir, viewNormal);
-    
+    vec3 reflectDir = normalize(reflect(viewDir, viewNormal));
+
+    // Reject reflections pointing towards camera
     if (reflectDir.z > 0.0) {
         return vec4(0.0);
     }
-    
+
     vec3 rayPos = viewPos;
     float stepSize = SSR_MAX_DISTANCE / float(SSR_MAX_STEPS);
-    
+
     for (int i = 0; i < SSR_MAX_STEPS; i++) {
         rayPos += reflectDir * stepSize;
-        
+
+        // Project ray position to screen space
         vec4 clipPos = gl_ProjectionMatrix * vec4(rayPos, 1.0);
         vec2 rayUV = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
-        
+
+        // Exit if ray goes off screen
         if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0) break;
-        
+
+        // Sample depth buffer at ray's screen position
         float sceneDepth = texture2D(depthBuffer, rayUV).r;
         float sceneLinearDepth = linearizeDepth(sceneDepth, near, far);
+
+        // Get ray's linear depth (negative Z in view space, so negate it)
         float rayLinearDepth = -rayPos.z;
+
+        // Check if ray has intersected geometry
+        // depth_diff > 0 means ray is behind (farther than) the surface
         float depthDiff = rayLinearDepth - sceneLinearDepth;
-        
+
         if (depthDiff > 0.0 && depthDiff < SSR_THICKNESS) {
             vec3 hitColor = texture2D(sceneColorBuffer, rayUV).rgb;
             return vec4(hitColor, screenEdgeFade(rayUV));
@@ -131,21 +140,30 @@ void main()
     normal = normalize(vec3(-normal.x * BUMP, -normal.y * BUMP, normal.z));
     
     if (debugMode == 3) { gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); return; }
-    
+
+    // View direction in view space for SSR
     vec3 viewDir = normalize(position.xyz);
     vec3 viewPos = position.xyz;
+
+    // Transform normal to view space for SSR
     mat3 normalMatrix = transpose(mat3(gl_ModelViewMatrixInverse));
     vec3 viewNormal = normalize(normalMatrix * normal);
-    
+
+    // World-space view direction for cubemap and fresnel
+    vec3 worldViewDir = normalize(worldPos - cameraPos);
+
+    // IOR check: are we underwater?
     float ior = (cameraPos.z > worldPos.z - 5.0) ? (1.333 / 1.0) : (1.0 / 1.333);
-    float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
-    
+    float fresnel = clamp(fresnel_dielectric(worldViewDir, normal, ior), 0.0, 1.0);
+
+    // SSR raymarching
     vec4 ssrResult = traceSSR(viewPos, viewNormal);
     vec3 ssrColor = ssrResult.rgb;
     float ssrConfidence = ssrResult.a * ssrMixStrength;
-    
-    vec3 reflectDir = reflect(viewDir, normal);
-    vec3 cubemapColor = textureCube(environmentMap, reflectDir).rgb;
+
+    // Cubemap reflection using world-space direction
+    vec3 worldReflectDir = reflect(worldViewDir, normal);
+    vec3 cubemapColor = textureCube(environmentMap, worldReflectDir).rgb;
     vec3 reflection = mix(cubemapColor, ssrColor, ssrConfidence);
     
     if (debugMode == 4) { gl_FragData[0] = vec4(ssrColor, 1.0); return; }
@@ -159,9 +177,9 @@ void main()
     
     vec3 sunWorldDir = normalize((gl_ModelViewMatrixInverse * vec4(gl_LightSource[0].position.xyz, 0.0)).xyz);
     float sunFade = length(gl_LightModel.ambient.xyz);
-    
+
     vec3 specNormal = normalize(vec3(normal.x * SPEC_BUMPINESS, normal.y * SPEC_BUMPINESS, normal.z));
-    float phongTerm = max(dot(reflect(viewDir, specNormal), sunWorldDir), 0.0);
+    float phongTerm = max(dot(reflect(worldViewDir, specNormal), sunWorldDir), 0.0);
     float specular = clamp(pow(atan(phongTerm * 1.55), SPEC_HARDNESS) * SPEC_BRIGHTNESS, 0.0, 1.0);
     
     vec3 waterColorTinted = WATER_COLOR * sunFade;
