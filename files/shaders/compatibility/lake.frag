@@ -35,7 +35,7 @@ const float SPEC_HARDNESS = 256.0;
 const float SPEC_BUMPINESS = 5.0;
 const float SPEC_BRIGHTNESS = 1.5;
 
-const float SSR_MAX_DISTANCE = 50.0;
+const float SSR_MAX_DISTANCE = 8192.0;
 const int SSR_MAX_STEPS = 32;
 const float SSR_THICKNESS = 0.5;
 const float SSR_FADE_START = 0.8;
@@ -137,7 +137,7 @@ void main()
     mat3 normalMatrix = transpose(mat3(gl_ModelViewMatrixInverse));
     vec3 viewNormal = normalize(normalMatrix * normal);
     
-    float ior = (cameraWorldPos.z > worldPos.z) ? (1.333 / 1.0) : (1.0 / 1.333);
+    float ior = (cameraWorldPos.z > worldPos.z - 5.0) ? (1.333 / 1.0) : (1.0 / 1.333);
     float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
     
     vec4 ssrResult = traceSSR(viewPos, viewNormal);
