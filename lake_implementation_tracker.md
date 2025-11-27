@@ -23,6 +23,12 @@ Comprehensive overhaul and stabilization of the Multi-Level Lake System. This do
 - [x] **Fix Surface Jitter**:
     -   *Action*: Added `-5.0` bias to IOR check in `lake.frag`.
     -   *Result*: Prevents IOR flipping/flickering at water surface level.
+- [x] **Fix Lake Movement & Sliding**:
+    -   *Action*: Modified `lake.frag` to calculate `viewDir` using View Space `position.xyz` instead of mixing World/Object space coordinates.
+    -   *Result*: Removes dependency on large world coordinates and cell centers, fixing the "sliding" reflection and geometry movement.
+- [x] **Fix Altitude Color/IOR Issues**:
+    -   *Action*: Updated `lake.cpp` to pass true world camera position (from Inverse View Matrix) to `cameraPos` uniform. Updated `lake.frag` to use this uniform for IOR check.
+    -   *Result*: `isUnderwater` check now works correctly at any altitude, preventing color flipping.
 
 ## Current Tasks (Verification)
 

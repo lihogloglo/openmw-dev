@@ -21,6 +21,7 @@ uniform float far;
 uniform int debugMode;
 uniform float ssrMixStrength;
 uniform bool reverseZ;
+uniform vec3 cameraPos;
 
 const vec2 BIG_WAVES = vec2(0.1, 0.1);
 const vec2 MID_WAVES = vec2(0.1, 0.1);
@@ -131,13 +132,12 @@ void main()
     
     if (debugMode == 3) { gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); return; }
     
-    vec3 cameraWorldPos = gl_ModelViewMatrixInverse[3].xyz;
-    vec3 viewDir = normalize(worldPos - cameraWorldPos);
+    vec3 viewDir = normalize(position.xyz);
     vec3 viewPos = position.xyz;
     mat3 normalMatrix = transpose(mat3(gl_ModelViewMatrixInverse));
     vec3 viewNormal = normalize(normalMatrix * normal);
     
-    float ior = (cameraWorldPos.z > worldPos.z - 5.0) ? (1.333 / 1.0) : (1.0 / 1.333);
+    float ior = (cameraPos.z > worldPos.z - 5.0) ? (1.333 / 1.0) : (1.0 / 1.333);
     float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
     
     vec4 ssrResult = traceSSR(viewPos, viewNormal);

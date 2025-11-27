@@ -135,8 +135,8 @@ public:
             if (invProjUniform) invProjUniform->set(invProjMatrix);
 
             // Get camera position in world space
-            // Since the Lake node is in world space, getEyeLocal() returns world position
-            osg::Vec3f camPos = cv->getEyeLocal();
+            // We use the inverse view matrix translation to get the true world position of the camera
+            osg::Vec3f camPos = invViewMatrix.getTrans();
             if (camPosUniform) camPosUniform->set(camPos);
 
             // Update playerPos uniform (using camera pos as proxy for now)
