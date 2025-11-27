@@ -7,6 +7,7 @@
 #include <osg/AlphaFunc>
 #include <osg/BlendFunc>
 #include <osg/ColorMaski>
+#include <osg/Depth>
 #include <osg/GLExtensions>
 #include <osg/Geometry>
 #include <osg/Material>
@@ -14,14 +15,15 @@
 #include <osg/Texture>
 #include <osg/ValueObject>
 
-#include <osgParticle/ParticleSystem>
-
 #include <osgUtil/TangentSpaceGenerator>
+
+#include <osgParticle/ParticleSystem>
 
 #include <components/debug/debuglog.hpp>
 #include <components/misc/osguservalues.hpp>
 #include <components/misc/strings/algorithm.hpp>
 #include <components/resource/imagemanager.hpp>
+#include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/glextensions.hpp>
 #include <components/sceneutil/morphgeometry.hpp>
 #include <components/sceneutil/riggeometry.hpp>
@@ -189,6 +191,7 @@ namespace Shader
         , mReconstructNormalZ(false)
         , mTexStageRequiringTangents(-1)
         , mSoftParticles(false)
+        , mMeshBlending(false)
         , mNode(nullptr)
     {
     }
@@ -313,6 +316,53 @@ namespace Shader
         bool softEffect = false;
         if (node.getUserValue(Misc::OsgUserValues::sXSoftEffect, softEffect) && softEffect)
             mRequirements.back().mSoftParticles = true;
+
+        bool meshBlend = false;
+        if (node.getUserValue(Misc::OsgUserValues::sXMeshBlend, meshBlend) && meshBlend)
+            mRequirements.back().mMeshBlending = true;
+        else if (Misc::StringUtils::ciFind(node.getName(), "rock") != std::string::npos)
+        {
+            mRequirements.back().mMeshBlending = true;
+            meshBlend = true;
+        }
+
+        if (meshBlend)
+        {
+            if (!writableStateSet)
+                writableStateSet = getWritableStateSet(node);
+            
+            // Set default uniforms for mesh blending if not present
+            if (!stateset->getUniform("particleSize"))
+                writableStateSet->addUniform(new osg::Uniform("particleSize", 100.0f));
+            
+            // Force into transparent bin to ensure we render after opaque geometry (terrain)
+            // and have access to the opaque depth buffer.
+            if (stateset->getRenderingHint() != osg::StateSet::TRANSPARENT_BIN)
+            {
+                writableStateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+                
+                // Ensure blending is enabled
+                if (!stateset->getMode(GL_BLEND))
+                    writableStateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+
+                // We want rocks to write to depth buffer to occlude each other properly,
+                // even though they are in the transparent bin.
+                // Standard transparent objects usually don't write depth, but for solid objects blending edges, it's better.
+                // Check if we need to force depth write.
+                // osg::Depth* depth = dynamic_cast<osg::Depth*>(stateset->getAttribute(osg::StateAttribute::DEPTH));
+                // if (!depth || depth->getWriteMask()) ...
+                // Actually, let's just add a Depth attribute forcing write if not present.
+                // But we don't want to override if it's already set to something specific.
+                // Let's assume the default for the mesh is correct (usually writes depth) 
+                // but the TRANSPARENT_BIN hint might disable it in the renderer?
+                // OpenMW's SceneUtil might handle this.
+                // Let's explicitly set a Depth attribute to write depth.
+                
+                // Use AutoDepth to handle Reverse Z correctly (automatically flips LEQUAL to GEQUAL if needed).
+                // Default constructor sets LEQUAL and WriteMask = true.
+                writableStateSet->setAttributeAndModes(new SceneUtil::AutoDepth, osg::StateAttribute::ON);
+            }
+        }
 
         // Make sure to disregard any state that came from a previous call to createProgram
         osg::ref_ptr<AddedState> addedState = getAddedState(*stateset);
@@ -728,20 +778,23 @@ namespace Shader
 
         if (reqs.mAlphaBlend && mSupportsNormalsRT)
         {
-            if (reqs.mSoftParticles)
+            if (reqs.mSoftParticles || reqs.mMeshBlending)
                 defineMap["disableNormals"] = "1";
             auto colorMask = new osg::ColorMaski(1, false, false, false, false);
             writableStateSet->setAttribute(colorMask);
             addedState->setAttribute(colorMask);
         }
 
-        if (reqs.mSoftParticles)
+        if (reqs.mSoftParticles || reqs.mMeshBlending)
         {
             const int unitSoftEffect
                 = mShaderManager.reserveGlobalTextureUnits(Shader::ShaderManager::Slot::OpaqueDepthTexture);
             writableStateSet->addUniform(new osg::Uniform("opaqueDepthTex", unitSoftEffect));
             addedState->addUniform("opaqueDepthTex");
         }
+        
+        defineMap["meshBlending"] = reqs.mMeshBlending ? "1" : "0";
+        defineMap["reverseZ"] = SceneUtil::AutoDepth::isReversed() ? "1" : "0";
 
         if (writableStateSet->getMode(GL_ALPHA_TEST) != osg::StateAttribute::INHERIT
             && !previousAddedState->hasMode(GL_ALPHA_TEST))

@@ -9,6 +9,7 @@ namespace Misc
     {
         static const std::string sFileHash;
         static const std::string sXSoftEffect;
+        static const std::string sXMeshBlend;
     };
 }
 

@@ -116,6 +116,7 @@ namespace Shader
             int mTexStageRequiringTangents;
 
             bool mSoftParticles;
+            bool mMeshBlending;
 
             // the Node that requested these requirements
             osg::Node* mNode;

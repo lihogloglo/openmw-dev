@@ -103,9 +103,16 @@ varying vec4 passTangent;
 #if @softParticles
 #include "lib/particle/soft.glsl"
 
-uniform float particleSize;
 uniform bool particleFade;
 uniform float softFalloffDepth;
+#endif
+
+#if @meshBlending
+#include "lib/particle/mesh_blend.glsl"
+#endif
+
+#if @softParticles || @meshBlending
+uniform float particleSize;
 #endif
 
 #if @particleOcclusion
@@ -258,6 +265,16 @@ vec2 screenCoords = gl_FragCoord.xy / screenRes;
         particleSize,
         particleFade,
         softFalloffDepth
+    );
+#endif
+
+#if !defined(FORCE_OPAQUE) && @meshBlending
+    gl_FragData[0].a *= calcMeshBlendFade(
+        passViewPos,
+        near,
+        far,
+        sampleOpaqueDepthTex(screenCoords).x,
+        particleSize
     );
 #endif
 

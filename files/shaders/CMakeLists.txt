@@ -14,6 +14,7 @@ set(SHADER_FILES
     lib/luminance/constants.glsl
     lib/particle/soft.glsl
     lib/particle/occlusion.glsl
+    lib/particle/mesh_blend.glsl
     lib/util/quickstep.glsl
     lib/util/coordinates.glsl
     lib/util/distortion.glsl
