@@ -10,6 +10,8 @@
 
 #include <osgUtil/CullVisitor>
 
+#include <components/debug/debuglog.hpp>
+
 #include <vector>
 
 namespace Resource
@@ -30,6 +32,7 @@ namespace MWRender
     public:
         CubemapCullCallback(osg::Group* sceneRoot)
             : mSceneRoot(sceneRoot)
+            , mCallCount(0)
         {
         }
 
@@ -38,14 +41,28 @@ namespace MWRender
             osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(nv);
             if (cv && mSceneRoot.valid())
             {
+                // Debug logging - log first few calls to verify callback is working
+                if (mCallCount < 10 || (mCallCount % 300 == 0))
+                {
+                    Log(Debug::Info) << "[Cubemap:Cull] Callback called (count=" << mCallCount
+                        << "), traversing scene root with " << mSceneRoot->getNumChildren() << " children";
+                }
+                mCallCount++;
+
                 // Traverse scene without adding as child - breaks circular reference
                 mSceneRoot->accept(*cv);
+            }
+            else
+            {
+                if (mCallCount == 0)
+                    Log(Debug::Warning) << "[Cubemap:Cull] Callback called but no CullVisitor or invalid sceneRoot!";
             }
             traverse(node, nv);
         }
 
     private:
         osg::observer_ptr<osg::Group> mSceneRoot;
+        mutable int mCallCount;
     };
 
     /**
@@ -75,6 +92,7 @@ namespace MWRender
             float updateInterval;                       ///< Seconds between updates
             float timeSinceUpdate;                      ///< Time since last update
             bool needsUpdate;                           ///< Dirty flag
+            bool camerasActive;                         ///< Cameras are currently enabled for rendering
 
             CubemapRegion()
                 : center(0, 0, 0)
@@ -82,6 +100,7 @@ namespace MWRender
                 , updateInterval(5.0f)
                 , timeSinceUpdate(0.0f)
                 , needsUpdate(true)
+                , camerasActive(false)
             {
             }
         };

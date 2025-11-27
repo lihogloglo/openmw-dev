@@ -36,10 +36,12 @@ const float SPEC_HARDNESS = 256.0;
 const float SPEC_BUMPINESS = 5.0;
 const float SPEC_BRIGHTNESS = 1.5;
 
-const float SSR_MAX_DISTANCE = 8192.0;
-const int SSR_MAX_STEPS = 32;
-const float SSR_THICKNESS = 500.0;  // Increased from 0.5 to match Morrowind's scale
-const float SSR_FADE_START = 0.8;
+// SSR Parameters - optimized based on Godot reference shader
+const float SSR_MAX_DISTANCE = 4096.0;  // Reduced from 8192 for better performance (still ~185 feet)
+const int SSR_MAX_STEPS = 16;  // Reduced from 32 - fewer steps with adaptive sizing
+const float SSR_STEP_SIZE = 1.0;  // Adaptive step multiplier (like Godot's ssr_resolution)
+const float SSR_MAX_DIFF = 300.0;  // Maximum depth difference for hit detection (like Godot's ssr_max_diff)
+const float SSR_FADE_START = 0.15;  // Screen border fadeout start (like Godot's ssr_screen_border_fadeout)
 
 vec2 normalCoords(vec2 uv, float scale, float speed, float time, float timer1, float timer2, vec3 prevNormal)
 {
@@ -69,13 +71,21 @@ float linearizeDepth(float depth, float nearPlane, float farPlane)
     return nearPlane * farPlane / (farPlane + d * (nearPlane - farPlane));
 }
 
-float screenEdgeFade(vec2 uv)
+// Godot-style screen border fadeout - smooth alpha transition at edges
+float screenEdgeFade(vec2 screenPosition)
 {
-    vec2 fade = smoothstep(vec2(0.0), vec2(1.0 - SSR_FADE_START), uv) 
-              * (1.0 - smoothstep(vec2(SSR_FADE_START), vec2(1.0), uv));
-    return fade.x * fade.y;
+    // Fade from edges to center (ranging from 0.0 at edges to 1.0 in center)
+    vec2 shifted = 4.0 * screenPosition * (1.0 - screenPosition);
+    float mask = shifted.x * shifted.y;
+
+    // Smoothstep with offset for smooth transition
+    float offset = mix(0.0, 0.5, (clamp(SSR_FADE_START, 0.75, 1.0) - 0.75) / 0.25);
+    float alpha = clamp(smoothstep(0.0, 2.0 * SSR_FADE_START, mask) - offset, 0.0, 1.0);
+
+    return (SSR_FADE_START < 0.001) ? 1.0 : alpha;
 }
 
+// Optimized SSR raymarching based on Godot water shader
 vec4 traceSSR(vec3 viewPos, vec3 viewNormal)
 {
     vec3 viewDir = normalize(viewPos);
@@ -86,35 +96,43 @@ vec4 traceSSR(vec3 viewPos, vec3 viewNormal)
         return vec4(0.0);
     }
 
-    vec3 rayPos = viewPos;
-    float stepSize = SSR_MAX_DISTANCE / float(SSR_MAX_STEPS);
+    vec3 currentPosViewSpace = viewPos;
+    vec2 currentScreenPos = vec2(0.0);
+
+    // Adaptive step size based on distance
+    float baseStepSize = SSR_MAX_DISTANCE / float(SSR_MAX_STEPS);
 
     for (int i = 0; i < SSR_MAX_STEPS; i++) {
-        rayPos += reflectDir * stepSize;
+        // Adaptive stepping - increase step size with distance for better performance
+        float adaptiveStep = baseStepSize * (1.0 + float(i) * SSR_STEP_SIZE * 0.1);
+        currentPosViewSpace += reflectDir * adaptiveStep;
 
-        // Project ray position to screen space
-        vec4 clipPos = gl_ProjectionMatrix * vec4(rayPos, 1.0);
-        vec2 rayUV = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
+        // Project to screen space
+        vec4 clipPos = gl_ProjectionMatrix * vec4(currentPosViewSpace, 1.0);
+        currentScreenPos = (clipPos.xy / clipPos.w) * 0.5 + 0.5;
 
-        // Exit if ray goes off screen
-        if (rayUV.x < 0.0 || rayUV.x > 1.0 || rayUV.y < 0.0 || rayUV.y > 1.0) break;
+        // Early exit if ray goes off screen
+        if (currentScreenPos.x < 0.0 || currentScreenPos.x > 1.0 ||
+            currentScreenPos.y < 0.0 || currentScreenPos.y > 1.0) {
+            break;
+        }
 
-        // Sample depth buffer at ray's screen position
-        float sceneDepth = texture2D(depthBuffer, rayUV).r;
-        float sceneLinearDepth = linearizeDepth(sceneDepth, near, far);
+        // Sample depth at current position
+        float depthSample = texture2D(depthBuffer, currentScreenPos).r;
+        float sceneLinearDepth = linearizeDepth(depthSample, near, far);
+        float rayLinearDepth = -currentPosViewSpace.z;
 
-        // Get ray's linear depth (negative Z in view space, so negate it)
-        float rayLinearDepth = -rayPos.z;
-
-        // Check if ray has intersected geometry
-        // depth_diff > 0 means ray is behind (farther than) the surface
+        // Godot-style depth comparison: check if ray passed through surface
         float depthDiff = rayLinearDepth - sceneLinearDepth;
 
-        if (depthDiff > 0.0 && depthDiff < SSR_THICKNESS) {
-            vec3 hitColor = texture2D(sceneColorBuffer, rayUV).rgb;
-            return vec4(hitColor, screenEdgeFade(rayUV));
+        // Hit detection: ray must be behind surface but within threshold
+        if (depthDiff >= 0.0 && depthDiff < SSR_MAX_DIFF) {
+            vec3 hitColor = texture2D(sceneColorBuffer, currentScreenPos).rgb;
+            float edgeFade = screenEdgeFade(currentScreenPos);
+            return vec4(hitColor, edgeFade);
         }
     }
+
     return vec4(0.0);
 }
 

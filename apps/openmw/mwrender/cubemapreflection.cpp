@@ -9,6 +9,8 @@
 
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
+#include <components/debug/debuglog.hpp>
+#include <components/sceneutil/depth.hpp>
 
 #include "vismask.hpp"
 
@@ -47,7 +49,9 @@ namespace MWRender
 
     void CubemapReflectionManager::initialize()
     {
-        // Create a simple fallback cubemap initialized with sky blue color
+        Log(Debug::Info) << "[Cubemap] Initializing CubemapReflectionManager with resolution " << mParams.resolution;
+
+        // Create a simple fallback cubemap initialized with neutral gray color
         mFallbackCubemap = new osg::TextureCubeMap;
         mFallbackCubemap->setTextureSize(mParams.resolution, mParams.resolution);
         mFallbackCubemap->setInternalFormat(GL_RGB8);
@@ -59,16 +63,16 @@ namespace MWRender
         mFallbackCubemap->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
         mFallbackCubemap->setWrap(osg::Texture::WRAP_R, osg::Texture::CLAMP_TO_EDGE);
 
-        // Initialize all 6 faces with a neutral gray color (RGB: 128, 128, 128)
+        // Initialize all 6 faces with a light neutral gray color (RGB: 180, 180, 180)
         // This prevents the cubemap from being black when no regions are active
-        // We use gray instead of sky blue to avoid overly blue water appearance
+        // We use light gray instead of sky blue to avoid overly blue water appearance
         int resolution = mParams.resolution;
         std::vector<unsigned char> neutralGrayData(resolution * resolution * 3);
         for (int i = 0; i < resolution * resolution; ++i)
         {
-            neutralGrayData[i * 3 + 0] = 128; // R
-            neutralGrayData[i * 3 + 1] = 128; // G
-            neutralGrayData[i * 3 + 2] = 128; // B
+            neutralGrayData[i * 3 + 0] = 180; // R
+            neutralGrayData[i * 3 + 1] = 180; // G
+            neutralGrayData[i * 3 + 2] = 180; // B
         }
 
         for (int face = 0; face < 6; ++face)
@@ -78,6 +82,8 @@ namespace MWRender
                 neutralGrayData.data(), osg::Image::NO_DELETE);
             mFallbackCubemap->setImage(face, image);
         }
+
+        Log(Debug::Info) << "[Cubemap] Fallback cubemap initialized with neutral gray (180,180,180)";
     }
 
     void CubemapReflectionManager::setParams(const Params& params)
@@ -105,11 +111,18 @@ namespace MWRender
             osg::Camera* camera = new osg::Camera;
             camera->setName("Cubemap Face " + std::to_string(face));
             camera->setRenderOrder(osg::Camera::PRE_RENDER, -200); // Render before main scene and SSR
-            camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+            camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
             camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
+            SceneUtil::setCameraClearDepth(camera);
             camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            camera->setClearColor(osg::Vec4(0.5f, 0.7f, 1.0f, 1.0f)); // Sky blue
+            camera->setClearColor(osg::Vec4(0.7f, 0.7f, 0.7f, 1.0f)); // Neutral gray to avoid overly blue reflections
             camera->setViewport(0, 0, mParams.resolution, mParams.resolution);
+            camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
+
+            // Set culling mode to match localmap (enable far plane culling, disable small feature culling)
+            osg::Camera::CullingMode cullingMode
+                = (osg::Camera::DEFAULT_CULLING | osg::Camera::FAR_PLANE_CULLING) & ~(osg::Camera::SMALL_FEATURE_CULLING);
+            camera->setCullingMode(cullingMode);
 
             // Attach to cubemap face
             camera->attach(osg::Camera::COLOR_BUFFER,
@@ -131,7 +144,8 @@ namespace MWRender
             camera->setCullMask(
                 Mask_Scene | Mask_Object | Mask_Static | Mask_Terrain | Mask_Actor | Mask_Sky | Mask_Lighting);
 
-            camera->setNodeMask(Mask_RenderToTexture); // Always enabled for RTT
+            // Start with camera DISABLED - will be enabled when needed
+            camera->setNodeMask(0);
 
             region.renderCameras[face] = camera;
 
@@ -147,7 +161,10 @@ namespace MWRender
     int CubemapReflectionManager::addRegion(const osg::Vec3f& center, float radius)
     {
         if (mRegions.size() >= static_cast<size_t>(mParams.maxRegions))
+        {
+            Log(Debug::Warning) << "[Cubemap] Cannot add region - max regions reached (" << mParams.maxRegions << ")";
             return -1;
+        }
 
         CubemapRegion region;
         region.center = center;
@@ -156,7 +173,11 @@ namespace MWRender
         createCubemapRegion(region);
 
         mRegions.push_back(region);
-        return static_cast<int>(mRegions.size() - 1);
+        int index = static_cast<int>(mRegions.size() - 1);
+
+        Log(Debug::Info) << "[Cubemap] Added region #" << index << " at (" << center.x() << ", " << center.y() << ", " << center.z() << ") radius=" << radius;
+
+        return index;
     }
 
     void CubemapReflectionManager::removeRegion(int index)
@@ -222,9 +243,18 @@ namespace MWRender
     void CubemapReflectionManager::renderCubemap(CubemapRegion& region)
     {
         if (!mParams.dynamicUpdates || !mParams.enabled)
+        {
+            Log(Debug::Verbose) << "[Cubemap] renderCubemap skipped - dynamicUpdates=" << mParams.dynamicUpdates << " enabled=" << mParams.enabled;
             return;
+        }
 
-        // Enable cameras for one frame to render cubemap
+        Log(Debug::Info) << "[Cubemap] Rendering cubemap at (" << region.center.x() << ", " << region.center.y() << ", " << region.center.z() << ")";
+
+        // Enable cameras persistently - they will stay enabled and render every frame
+        // This is OK performance-wise because:
+        // 1. We only enable ONE region per update cycle (see update() function)
+        // 2. The updateInterval (default 5 seconds) controls how often we switch to different regions
+        // 3. Having the nearest region's cubemap update every frame ensures smooth reflections
         for (int face = 0; face < 6; ++face)
         {
             if (region.renderCameras[face])
@@ -235,13 +265,17 @@ namespace MWRender
                 osg::Vec3f up = FACE_UPS[face];
                 region.renderCameras[face]->setViewMatrixAsLookAt(eye, center, up);
 
-                // Enable for this frame
+                // Enable camera persistently
                 region.renderCameras[face]->setNodeMask(Mask_RenderToTexture);
+                Log(Debug::Verbose) << "[Cubemap]   Enabled camera face " << face << " (will render every frame)";
             }
         }
 
         region.needsUpdate = false;
         region.timeSinceUpdate = 0.0f;
+        region.camerasActive = true;
+
+        Log(Debug::Info) << "[Cubemap] Cubemap cameras enabled - will render continuously until replaced";
     }
 
     void CubemapReflectionManager::updateRegion(int index)
@@ -257,38 +291,72 @@ namespace MWRender
         if (!mParams.enabled)
             return;
 
-        // CRITICAL FIX: Don't disable cameras after every frame!
-        // Cubemaps need to persist once rendered, not flicker on/off every frame
-        // We only need to trigger updates when the scene changes significantly
+        static int frameCount = 0;
+        static bool loggedOnce = false;
+        static int lastActiveRegion = -1;
+        frameCount++;
+        bool shouldLog = (frameCount % 300 == 0); // Log every 5 seconds at 60fps
 
-        // Update timers and mark regions needing updates
-        for (auto& region : mRegions)
+        if (!loggedOnce && mRegions.size() > 0)
         {
-            region.timeSinceUpdate += dt;
-
-            if (region.timeSinceUpdate >= region.updateInterval)
-            {
-                region.needsUpdate = true;
-            }
+            Log(Debug::Info) << "[Cubemap] First update() call - " << mRegions.size() << " regions active";
+            loggedOnce = true;
         }
 
-        // Update nearest region with highest priority
+        // Find the nearest region to determine which one should be active
         int nearestIndex = findNearestRegionIndex(cameraPos);
-        if (nearestIndex >= 0 && mRegions[nearestIndex].needsUpdate)
+
+        // If we switched to a different region, disable the old one's cameras
+        if (nearestIndex != lastActiveRegion && lastActiveRegion >= 0 && lastActiveRegion < static_cast<int>(mRegions.size()))
         {
-            renderCubemap(mRegions[nearestIndex]);
-            return; // Only update one cubemap per frame for performance
+            if (shouldLog)
+                Log(Debug::Info) << "[Cubemap] Switching from region #" << lastActiveRegion << " to region #" << nearestIndex;
+
+            // Disable cameras from the previously active region
+            CubemapRegion& oldRegion = mRegions[lastActiveRegion];
+            for (int face = 0; face < 6; ++face)
+            {
+                if (oldRegion.renderCameras[face])
+                    oldRegion.renderCameras[face]->setNodeMask(0);
+            }
+            oldRegion.camerasActive = false;
         }
 
-        // Update any other regions that need it
-        for (auto& region : mRegions)
+        lastActiveRegion = nearestIndex;
+
+        // Update timers for inactive regions only
+        // Active region doesn't need timer-based updates since it renders every frame
+        int needsUpdateCount = 0;
+        for (size_t i = 0; i < mRegions.size(); ++i)
         {
-            if (region.needsUpdate)
+            // Skip the currently active region - it's already rendering
+            if (static_cast<int>(i) == nearestIndex && mRegions[i].camerasActive)
+                continue;
+
+            mRegions[i].timeSinceUpdate += dt;
+
+            if (mRegions[i].timeSinceUpdate >= mRegions[i].updateInterval)
             {
-                renderCubemap(region);
-                return; // One cubemap per frame
+                mRegions[i].needsUpdate = true;
+                needsUpdateCount++;
             }
         }
+
+        if (needsUpdateCount > 0 && shouldLog)
+        {
+            Log(Debug::Info) << "[Cubemap] " << needsUpdateCount << " inactive regions need update (interval=" << mParams.updateInterval << "s)";
+        }
+
+        // Enable nearest region if it's not active yet
+        if (nearestIndex >= 0 && !mRegions[nearestIndex].camerasActive)
+        {
+            if (shouldLog)
+                Log(Debug::Info) << "[Cubemap] Activating nearest region #" << nearestIndex;
+            renderCubemap(mRegions[nearestIndex]);
+            return;
+        }
+
+        // Nearest region is already active and rendering continuously - nothing to do
     }
 
     void CubemapReflectionManager::setEnabled(bool enabled)
