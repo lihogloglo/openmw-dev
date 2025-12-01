@@ -81,6 +81,17 @@ namespace Settings
             makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mMudBlurSpread{ mIndex, "Terrain", "mud blur spread",
             makeMaxStrictSanitizerFloat(0.1f) };
+
+        // GPU Tessellation settings (requires OpenGL 4.0+)
+        SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };
+        SettingValue<float> mTessellationMinDistance{ mIndex, "Terrain", "tessellation min distance",
+            makeMaxStrictSanitizerFloat(1.0f) };
+        SettingValue<float> mTessellationMaxDistance{ mIndex, "Terrain", "tessellation max distance",
+            makeMaxStrictSanitizerFloat(1.0f) };
+        SettingValue<float> mTessellationMinLevel{ mIndex, "Terrain", "tessellation min level",
+            makeClampSanitizerFloat(1.0f, 64.0f) };
+        SettingValue<float> mTessellationMaxLevel{ mIndex, "Terrain", "tessellation max level",
+            makeClampSanitizerFloat(1.0f, 64.0f) };
     };
 }
 

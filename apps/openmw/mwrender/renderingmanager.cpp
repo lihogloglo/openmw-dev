@@ -1498,6 +1498,9 @@ namespace MWRender
         newChunkMgr.mTerrain->setViewDistance(mViewDistance * (distanceMult ? 1.f / distanceMult : 1.f));
         newChunkMgr.mTerrain->enableHeightCullCallback(Settings::terrain().mWaterCulling);
 
+        // Enable GPU tessellation if setting is enabled (requires OpenGL 4.0+)
+        newChunkMgr.mTerrain->setTessellationEnabled(Settings::terrain().mTessellation);
+
         return mWorldspaceChunks.emplace(worldspace, std::move(newChunkMgr)).first->second;
     }
 

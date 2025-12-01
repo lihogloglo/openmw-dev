@@ -302,6 +302,17 @@ namespace Terrain
 
         float tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
+        // Use tessellation passes if enabled
+        if (mTessellationEnabled && !forCompositeMap)
+        {
+            auto passes = ::Terrain::createTessellationPasses(
+                mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
+            if (!passes.empty())
+                return passes;
+            // Fall back to regular passes if tessellation fails
+            Log(Debug::Warning) << "Tessellation passes failed, falling back to regular shaders";
+        }
+
         return ::Terrain::createPasses(
             useShaders, mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
     }
@@ -358,7 +369,11 @@ namespace Terrain
 
         unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
 
-        geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
+        // Use patch index buffer for tessellation, regular index buffer otherwise
+        if (mTessellationEnabled)
+            geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
+        else
+            geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
 
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
         unsigned int numUvSets = useCompositeMap ? 1 : 2;
@@ -378,6 +393,14 @@ namespace Terrain
         float cellSize = mStorage->getCellWorldSize(mWorldspace);
         osg::Vec3f chunkWorldOffset(chunkCenter.x() * cellSize, chunkCenter.y() * cellSize, 0.0f);
         chunkStateSet->addUniform(new osg::Uniform("chunkWorldOffset", chunkWorldOffset));
+
+        // Add camera position uniform for tessellation LOD calculation
+        // Note: This is set at chunk creation time. For dynamic updates, consider using
+        // a shared uniform or updating via a cull callback
+        if (mTessellationEnabled)
+        {
+            chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
+        }
 
         geometry->setStateSet(chunkStateSet);
 

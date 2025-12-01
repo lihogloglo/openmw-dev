@@ -55,6 +55,10 @@ namespace Terrain
         // Get snow deformation manager
         SnowDeformationManager* getSnowDeformationManager() override;
 
+        // Enable/disable GPU tessellation for terrain
+        void setTessellationEnabled(bool enabled) override;
+        bool getTessellationEnabled() const override;
+
         void cacheCell(View* view, int x, int y) override {}
         /// @note Not thread safe.
         void loadCell(int x, int y) override;

@@ -100,6 +100,11 @@ namespace Terrain
         // Update subdivision tracker (call each frame)
         void updateSubdivisionTracker(float dt);
 
+        // Enable/disable GPU tessellation for terrain (requires GL 4.0+)
+        // When enabled, uses tessellation shaders instead of CPU subdivision
+        void setTessellationEnabled(bool enabled) { mTessellationEnabled = enabled; }
+        bool getTessellationEnabled() const { return mTessellationEnabled; }
+
         void reportStats(unsigned int frameNumber, osg::Stats* stats) const override;
 
         void clearCache() override;
@@ -138,6 +143,9 @@ namespace Terrain
 
         // Tracks which chunks should stay subdivided for snow trail effect
         std::unique_ptr<SubdivisionTracker> mSubdivisionTracker;
+
+        // GPU tessellation flag (disabled by default, requires GL 4.0+)
+        bool mTessellationEnabled = false;
     };
 
 }

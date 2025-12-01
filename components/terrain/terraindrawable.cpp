@@ -1,6 +1,7 @@
 #include "terraindrawable.hpp"
 
 #include <osg/ClusterCullingCallback>
+#include <osg/Uniform>
 #include <osgUtil/CullVisitor>
 
 #include <components/sceneutil/lightmanager.hpp>
@@ -99,8 +100,19 @@ namespace Terrain
         bool pushedLight = mLightListCallback && mLightListCallback->pushLightState(this, cv);
 
         osg::StateSet* stateset = getStateSet();
+
+        // Dynamically update cameraPos uniform for tessellation LOD calculation
+        // This ensures tessellation adapts to current camera position, not chunk creation position
         if (stateset)
+        {
+            osg::Uniform* cameraPosUniform = stateset->getUniform("cameraPos");
+            if (cameraPosUniform)
+            {
+                osg::Vec3f eyePoint = cv->getEyePoint();
+                cameraPosUniform->set(eyePoint);
+            }
             cv->pushStateSet(stateset);
+        }
 
         for (PassVector::const_iterator it = mPasses.begin(); it != mPasses.end(); ++it)
         {

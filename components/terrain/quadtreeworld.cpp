@@ -653,4 +653,22 @@ namespace Terrain
         return mSnowDeformationManager.get();
     }
 
+    void QuadTreeWorld::setTessellationEnabled(bool enabled)
+    {
+        // Enable/disable tessellation in the terrain chunk manager
+        if (mChunkManager)
+        {
+            mChunkManager->setTessellationEnabled(enabled);
+        }
+    }
+
+    bool QuadTreeWorld::getTessellationEnabled() const
+    {
+        if (mChunkManager)
+        {
+            return mChunkManager->getTessellationEnabled();
+        }
+        return false;
+    }
+
 }

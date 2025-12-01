@@ -115,6 +115,10 @@ namespace Terrain
         // Get snow deformation manager (for accessing deformation texture)
         virtual SnowDeformationManager* getSnowDeformationManager() { return nullptr; }
 
+        // Enable/disable GPU tessellation for terrain (requires GL 4.0+)
+        virtual void setTessellationEnabled(bool enabled) {}
+        virtual bool getTessellationEnabled() const { return false; }
+
         ESM::RefId getWorldspace() { return mWorldspace; }
 
         Storage* getStorage() { return mStorage; }
