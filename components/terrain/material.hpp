@@ -27,6 +27,12 @@ namespace Terrain
     std::vector<osg::ref_ptr<osg::StateSet>> createPasses(bool useShaders, Resource::SceneManager* sceneManager,
         const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
         int blendmapScale, float layerTileSize, bool esm4terrain = false);
+
+    /// Create passes using tessellation shaders (requires GL 4.0+)
+    /// Returns empty vector if tessellation shaders fail to load
+    std::vector<osg::ref_ptr<osg::StateSet>> createTessellationPasses(Resource::SceneManager* sceneManager,
+        const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
+        int blendmapScale, float layerTileSize, bool esm4terrain = false);
 }
 
 #endif

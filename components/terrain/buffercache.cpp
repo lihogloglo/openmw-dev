@@ -9,8 +9,27 @@
 namespace
 {
 
+    // Forward declaration
+    template <typename IndexArrayType>
+    osg::ref_ptr<IndexArrayType> createIndexBufferImpl(osg::ref_ptr<IndexArrayType> indices, unsigned int flags, unsigned int verts);
+
     template <typename IndexArrayType>
     osg::ref_ptr<IndexArrayType> createIndexBuffer(unsigned int flags, unsigned int verts)
+    {
+        osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(osg::PrimitiveSet::TRIANGLES));
+        return createIndexBufferImpl<IndexArrayType>(indices, flags, verts);
+    }
+
+    template <typename IndexArrayType>
+    osg::ref_ptr<IndexArrayType> createPatchIndexBuffer(unsigned int flags, unsigned int verts)
+    {
+        // For tessellation, use GL_PATCHES with 3 vertices per patch (triangle patches)
+        osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(GL_PATCHES, 0, 3));
+        return createIndexBufferImpl<IndexArrayType>(indices, flags, verts);
+    }
+
+    template <typename IndexArrayType>
+    osg::ref_ptr<IndexArrayType> createIndexBufferImpl(osg::ref_ptr<IndexArrayType> indices, unsigned int flags, unsigned int verts)
     {
         // LOD level n means every 2^n-th vertex is kept, but we currently handle LOD elsewhere.
         size_t lodLevel = 0; //(flags >> (4*4));
@@ -24,8 +43,6 @@ namespace
 
         size_t increment = static_cast<size_t>(1) << lodLevel;
         assert(increment < verts);
-
-        osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(osg::PrimitiveSet::TRIANGLES));
         indices->reserve((verts - 1) * (verts - 1) * 2 * 3 / increment);
 
         size_t rowStart = 0, colStart = 0, rowEnd = verts - 1, colEnd = verts - 1;
@@ -230,11 +247,39 @@ namespace Terrain
         return buffer;
     }
 
+    osg::ref_ptr<osg::DrawElements> BufferCache::getPatchIndexBuffer(unsigned int numVerts, unsigned int flags)
+    {
+        std::pair<int, int> id = std::make_pair(numVerts, flags);
+        std::lock_guard<std::mutex> lock(mPatchIndexBufferMutex);
+
+        if (mPatchIndexBufferMap.find(id) != mPatchIndexBufferMap.end())
+        {
+            return mPatchIndexBufferMap[id];
+        }
+
+        osg::ref_ptr<osg::DrawElements> buffer;
+
+        if (numVerts * numVerts <= (0xffffu))
+            buffer = createPatchIndexBuffer<osg::DrawElementsUShort>(flags, numVerts);
+        else
+            buffer = createPatchIndexBuffer<osg::DrawElementsUInt>(flags, numVerts);
+
+        // Assign a EBO here to enable state sharing between different Geometries.
+        buffer->setElementBufferObject(new osg::ElementBufferObject);
+
+        mPatchIndexBufferMap[id] = buffer;
+        return buffer;
+    }
+
     void BufferCache::clearCache()
     {
         {
             std::lock_guard<std::mutex> lock(mIndexBufferMutex);
             mIndexBufferMap.clear();
+        }
+        {
+            std::lock_guard<std::mutex> lock(mPatchIndexBufferMutex);
+            mPatchIndexBufferMap.clear();
         }
         {
             std::lock_guard<std::mutex> lock(mUvBufferMutex);
@@ -247,6 +292,11 @@ namespace Terrain
         {
             std::lock_guard<std::mutex> lock(mIndexBufferMutex);
             for (const auto& [_, indexbuffer] : mIndexBufferMap)
+                indexbuffer->releaseGLObjects(state);
+        }
+        {
+            std::lock_guard<std::mutex> lock(mPatchIndexBufferMutex);
+            for (const auto& [_, indexbuffer] : mPatchIndexBufferMap)
                 indexbuffer->releaseGLObjects(state);
         }
         {

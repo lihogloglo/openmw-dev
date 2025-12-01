@@ -20,6 +20,12 @@ namespace Terrain
         /// @note Thread safe.
         osg::ref_ptr<osg::DrawElements> getIndexBuffer(unsigned int numVerts, unsigned int flags);
 
+        /// @brief Get an index buffer using GL_PATCHES primitive mode for tessellation.
+        /// @param numVerts Number of vertices per edge.
+        /// @param flags LOD flags (same as getIndexBuffer).
+        /// @note Thread safe.
+        osg::ref_ptr<osg::DrawElements> getPatchIndexBuffer(unsigned int numVerts, unsigned int flags);
+
         /// @note Thread safe.
         osg::ref_ptr<osg::Vec2Array> getUVBuffer(unsigned int numVerts);
 
@@ -32,6 +38,10 @@ namespace Terrain
         // combination of LOD deltas and index buffer LOD we may need.
         std::map<std::pair<int, int>, osg::ref_ptr<osg::DrawElements>> mIndexBufferMap;
         std::mutex mIndexBufferMutex;
+
+        // Patch index buffers for tessellation (GL_PATCHES)
+        std::map<std::pair<int, int>, osg::ref_ptr<osg::DrawElements>> mPatchIndexBufferMap;
+        std::mutex mPatchIndexBufferMutex;
 
         std::map<int, osg::ref_ptr<osg::Vec2Array>> mUvBufferMap;
         std::mutex mUvBufferMutex;

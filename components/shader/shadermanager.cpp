@@ -600,6 +600,44 @@ namespace Shader
         return found->second;
     }
 
+    osg::ref_ptr<osg::Program> ShaderManager::getTessellationProgram(
+        const std::string& templateName, const DefineMap& defines, const osg::Program* programTemplate)
+    {
+        // For tessellation, we need to load shaders from core/ directory explicitly
+        auto vert = getShader("core/" + templateName + ".vert", defines);
+        auto tesc = getShader("core/" + templateName + ".tesc", defines);
+        auto tese = getShader("core/" + templateName + ".tese", defines);
+        auto frag = getShader("core/" + templateName + ".frag", defines);
+
+        if (!vert || !tesc || !tese || !frag)
+        {
+            Log(Debug::Error) << "Failed to load tessellation shader: " << templateName;
+            return nullptr;
+        }
+
+        // Use vert+frag as the key (simplified - tessellation programs are less common)
+        std::lock_guard<std::mutex> lock(mMutex);
+        ProgramMap::iterator found = mPrograms.find(std::make_pair(vert, frag));
+        if (found == mPrograms.end())
+        {
+            if (!programTemplate)
+                programTemplate = mProgramTemplate;
+            osg::ref_ptr<osg::Program> program
+                = programTemplate ? cloneProgram(programTemplate) : osg::ref_ptr<osg::Program>(new osg::Program);
+
+            program->addShader(vert);
+            program->addShader(tesc);
+            program->addShader(tese);
+            program->addShader(frag);
+
+            addLinkedShaders(vert, program);
+            addLinkedShaders(frag, program);
+
+            found = mPrograms.insert(std::make_pair(std::make_pair(vert, frag), program)).first;
+        }
+        return found->second;
+    }
+
     osg::ref_ptr<osg::Program> ShaderManager::cloneProgram(const osg::Program* src)
     {
         osg::ref_ptr<osg::Program> program = static_cast<osg::Program*>(src->clone(osg::CopyOp::SHALLOW_COPY));

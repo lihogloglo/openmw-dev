@@ -5,6 +5,7 @@
 #include <osg/Capability>
 #include <osg/Depth>
 #include <osg/Fog>
+#include <osg/PatchParameter>
 #include <osg/TexEnvCombine>
 #include <osg/TexMat>
 #include <osg/Texture2D>
@@ -13,6 +14,7 @@
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/util.hpp>
+#include <components/settings/values.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/stereomanager.hpp>
 
@@ -351,6 +353,142 @@ namespace Terrain
                     stateset->setTextureAttributeAndModes(1, TexEnvCombine::value(), osg::StateAttribute::ON);
                 }
             }
+
+            passes.push_back(stateset);
+        }
+        return passes;
+    }
+
+    std::vector<osg::ref_ptr<osg::StateSet>> createTessellationPasses(Resource::SceneManager* sceneManager,
+        const std::vector<TextureLayer>& layers, const std::vector<osg::ref_ptr<osg::Texture2D>>& blendmaps,
+        int blendmapScale, float layerTileSize, bool esm4terrain)
+    {
+        auto& shaderManager = sceneManager->getShaderManager();
+        std::vector<osg::ref_ptr<osg::StateSet>> passes;
+
+        unsigned int blendmapIndex = 0;
+        for (std::vector<TextureLayer>::const_iterator it = layers.begin(); it != layers.end(); ++it)
+        {
+            bool firstLayer = (it == layers.begin());
+
+            osg::ref_ptr<osg::StateSet> stateset(new osg::StateSet);
+
+            // Set up tessellation patch parameters (3 vertices per patch = triangles)
+            osg::ref_ptr<osg::PatchParameter> patchParam = new osg::PatchParameter(3);
+            stateset->setAttribute(patchParam);
+
+            if (!blendmaps.empty())
+            {
+                stateset->setMode(GL_BLEND, osg::StateAttribute::ON);
+                if (sceneManager->getSupportsNormalsRT())
+                    stateset->setAttribute(new osg::Disablei(GL_BLEND, 1));
+                stateset->setRenderBinDetails(firstLayer ? 0 : 1, "RenderBin");
+                if (!firstLayer)
+                {
+                    stateset->setAttributeAndModes(BlendFunc::value(), osg::StateAttribute::ON);
+                    stateset->setAttributeAndModes(EqualDepth::value(), osg::StateAttribute::ON);
+                }
+                else
+                {
+                    stateset->setAttributeAndModes(BlendFuncFirst::value(), osg::StateAttribute::ON);
+                    stateset->setAttributeAndModes(LequalDepth::value(), osg::StateAttribute::ON);
+                }
+            }
+
+            stateset->setTextureAttributeAndModes(0, it->mDiffuseMap);
+
+            if (layerTileSize != 1.f)
+                stateset->setTextureAttributeAndModes(
+                    0, LayerTexMat::value(layerTileSize), osg::StateAttribute::ON);
+
+            stateset->addUniform(UniformCollection::value().mDiffuseMap);
+
+            if (!blendmaps.empty())
+            {
+                osg::ref_ptr<osg::Texture2D> blendmap = blendmaps.at(blendmapIndex++);
+
+                stateset->setTextureAttributeAndModes(1, blendmap.get());
+                if (!esm4terrain)
+                    stateset->setTextureAttributeAndModes(1, BlendmapTexMat::value(blendmapScale));
+                stateset->addUniform(UniformCollection::value().mBlendMap);
+            }
+
+            bool parallax = it->mNormalMap && it->mParallax;
+            bool reconstructNormalZ = false;
+
+            if (it->mNormalMap)
+            {
+                stateset->setTextureAttributeAndModes(2, it->mNormalMap);
+                stateset->addUniform(UniformCollection::value().mNormalMap);
+
+                const osg::Image* image = it->mNormalMap->getImage(0);
+                if (image)
+                {
+                    switch (SceneUtil::computeUnsizedPixelFormat(image->getPixelFormat()))
+                    {
+                        case GL_RG:
+                        case GL_RG_INTEGER:
+                        {
+                            reconstructNormalZ = true;
+                            parallax = false;
+                        }
+                    }
+                }
+            }
+
+            Shader::ShaderManager::DefineMap defineMap;
+            defineMap["normalMap"] = (it->mNormalMap) ? "1" : "0";
+            defineMap["blendMap"] = (!blendmaps.empty()) ? "1" : "0";
+            defineMap["specularMap"] = it->mSpecular ? "1" : "0";
+            defineMap["parallax"] = parallax ? "1" : "0";
+            defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
+            defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
+            defineMap["snowDeformation"] = "1";
+            Stereo::shaderStereoDefines(defineMap);
+
+            // Use tessellation program instead of regular program
+            auto program = shaderManager.getTessellationProgram("terrain", defineMap);
+
+            if (!program)
+            {
+                Log(Debug::Warning) << "Tessellation shader failed to load, falling back to regular terrain shader";
+                return {}; // Return empty to signal failure
+            }
+
+            // Bind vertex attributes for tessellation
+            program->addBindAttribLocation("aPosition", 0);
+            program->addBindAttribLocation("aNormal", 1);
+            program->addBindAttribLocation("aColor", 2);
+            program->addBindAttribLocation("aTexCoord0", 3);
+            program->addBindAttribLocation("aTerrainWeights", 6);
+
+            stateset->setAttributeAndModes(program);
+            stateset->addUniform(UniformCollection::value().mColorMode);
+
+            // Tessellation-specific uniforms from settings
+            // These control LOD based on camera distance
+            stateset->addUniform(new osg::Uniform("tessMinDistance", Settings::terrain().mTessellationMinDistance.get()));
+            stateset->addUniform(new osg::Uniform("tessMaxDistance", Settings::terrain().mTessellationMaxDistance.get()));
+            stateset->addUniform(new osg::Uniform("tessMinLevel", Settings::terrain().mTessellationMinLevel.get()));
+            stateset->addUniform(new osg::Uniform("tessMaxLevel", Settings::terrain().mTessellationMaxLevel.get()));
+
+            // Snow deformation map uniform (texture unit 7)
+            // The actual texture binding is done by SnowDeformationUpdater::setDefaults()
+            // but we need to declare the sampler uniform here for the tessellation shader
+            stateset->addUniform(new osg::Uniform("snowDeformationMap", 7));
+
+            // Default values for snow deformation uniforms
+            // These will be overridden by SnowDeformationUpdater if snow deformation is active
+            stateset->addUniform(new osg::Uniform("snowRTTWorldOrigin", osg::Vec3f(0.0f, 0.0f, 0.0f)));
+            stateset->addUniform(new osg::Uniform("snowRTTScale", 2048.0f));
+            stateset->addUniform(new osg::Uniform("snowDeformationEnabled", false));
+            stateset->addUniform(new osg::Uniform("snowDeformationDepth", 50.0f));
+            stateset->addUniform(new osg::Uniform("ashDeformationDepth", 20.0f));
+            stateset->addUniform(new osg::Uniform("mudDeformationDepth", 10.0f));
+
+            // Linear depth factor (used for fog calculations in TES)
+            // This should match what OpenMW uses for linear depth
+            stateset->addUniform(new osg::Uniform("linearFac", 1.0f));
 
             passes.push_back(stateset);
         }
