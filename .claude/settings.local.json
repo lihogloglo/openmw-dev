@@ -15,7 +15,9 @@
       "Bash(copy:*)",
       "Bash(cmd /c copy:*)",
       "Bash(cmd /c:*)",
-      "Bash(glxinfo:*)"
+      "Bash(glxinfo:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []
