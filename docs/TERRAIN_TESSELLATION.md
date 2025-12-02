@@ -267,8 +267,10 @@ void main() {
 ```
 
 **Key Design Decision**: Pass BOTH local and world positions:
-- `position`: Used for transformation via `gl_ModelViewMatrix` in TES
-- `worldPosition`: Used for tessellation LOD calculation (since cameraPos is world-space)
+- `position`: Used for transformation via `gl_ModelViewMatrix` in TES AND for LOD calculation in TCS
+- `worldPosition`: Used for deformation UV lookup only (NOT for LOD calculation!)
+
+**CRITICAL**: `cameraPos` is set from `CullVisitor::getEyePoint()` which returns the eye position in **local/model space**, not world space. Therefore, LOD calculation must use `position` (local), not `worldPosition` (world). Using world positions causes a coordinate space mismatch and results in incorrect tessellation levels.
 
 ### Tessellation Control Shader (terrain.tesc)
 
@@ -279,14 +281,15 @@ Calculates tessellation level based on camera distance:
 
 layout(vertices = 3) out;  // Triangle patches
 
-uniform vec3 cameraPos;
-uniform float tessMinDistance;  // 100.0
-uniform float tessMaxDistance;  // 1000.0
-uniform float tessMinLevel;     // 1.0
-uniform float tessMaxLevel;     // 16.0
+uniform vec3 cameraPos;           // Camera position in LOCAL/MODEL space (from CullVisitor::getEyePoint())
+uniform float tessMinDistance;    // 500.0 (default, ~23 feet / ~7 meters)
+uniform float tessMaxDistance;    // 5000.0 (default, ~230 feet / ~70 meters)
+uniform float tessMinLevel;       // 1.0
+uniform float tessMaxLevel;       // 16.0
 
-float calcTessLevel(vec3 worldPos0, vec3 worldPos1) {
-    vec3 edgeMidpoint = (worldPos0 + worldPos1) * 0.5;
+// Use LOCAL positions - cameraPos is in local/model space!
+float calcTessLevel(vec3 localPos0, vec3 localPos1) {
+    vec3 edgeMidpoint = (localPos0 + localPos1) * 0.5;
     float dist = length(edgeMidpoint - cameraPos);
     float t = clamp((dist - tessMinDistance) /
                     (tessMaxDistance - tessMinDistance), 0.0, 1.0);
@@ -298,10 +301,10 @@ void main() {
     tcs_out[gl_InvocationID] = tcs_in[gl_InvocationID];
 
     if (gl_InvocationID == 0) {
-        // Use WORLD positions for LOD calculation
-        vec3 p0 = tcs_in[0].worldPosition;
-        vec3 p1 = tcs_in[1].worldPosition;
-        vec3 p2 = tcs_in[2].worldPosition;
+        // Use LOCAL positions for LOD calculation (cameraPos is in local/model space)
+        vec3 p0 = tcs_in[0].position;
+        vec3 p1 = tcs_in[1].position;
+        vec3 p2 = tcs_in[2].position;
 
         gl_TessLevelOuter[0] = calcTessLevel(p1, p2);
         gl_TessLevelOuter[1] = calcTessLevel(p2, p0);
@@ -446,11 +449,13 @@ tessellation max level = 16.0
 
 | Uniform | Type | Default | Description |
 |---------|------|---------|-------------|
-| `cameraPos` | vec3 | viewPoint | Camera position for LOD calculation |
-| `tessMinDistance` | float | 100.0 | Distance for maximum tessellation |
-| `tessMaxDistance` | float | 1000.0 | Distance for minimum tessellation |
+| `cameraPos` | vec3 | viewPoint | Camera position for LOD calculation (in local/model space) |
+| `tessMinDistance` | float | 500.0 | Distance for maximum tessellation (~23 feet / ~7m) |
+| `tessMaxDistance` | float | 5000.0 | Distance for minimum tessellation (~230 feet / ~70m) |
 | `tessMinLevel` | float | 1.0 | Minimum subdivision level |
 | `tessMaxLevel` | float | 16.0 | Maximum subdivision level |
+
+Note: Morrowind uses ~22.1 units per foot. The default distances are chosen to provide smooth deformation within typical player interaction range.
 
 ---
 

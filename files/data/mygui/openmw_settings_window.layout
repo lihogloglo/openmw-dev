@@ -634,22 +634,10 @@
                                 <UserString key="SettingType" value="CheckButton"/>
                             </Widget>
                             <Widget type="AutoSizedTextBox" skin="SandText" align="Left Top">
-                                <Property key="Caption" value="#{OMWEngine:MatchSunlightToSun}  "/>
+                                <Property key="Caption" value="#{OMWEngine:MatchSunlightToSun}"/>
                                 <UserString key="ToolTipType" value="Layout"/>
                                 <UserString key="ToolTipLayout" value="TextToolTip"/>
                                 <UserString key="Caption_Text" value="#{OMWEngine:MatchSunlightToSunTooltip}"/>
-                            </Widget>
-                            <!-- Terrain Tessellation -->
-                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top">
-                                <UserString key="SettingCategory" value="Terrain"/>
-                                <UserString key="SettingName" value="tessellation"/>
-                                <UserString key="SettingType" value="CheckButton"/>
-                            </Widget>
-                            <Widget type="AutoSizedTextBox" skin="SandText" align="Left Top">
-                                <Property key="Caption" value="#{OMWEngine:TerrainTessellation}"/>
-                                <UserString key="ToolTipType" value="Layout"/>
-                                <UserString key="ToolTipLayout" value="TextToolTip"/>
-                                <UserString key="Caption_Text" value="#{OMWEngine:TerrainTessellationTooltip}"/>
                             </Widget>
                         </Widget>
 
@@ -728,6 +716,54 @@
                         <Widget type="AutoSizedButton" skin="MW_Button" position="0 336 0 0" align="Top Left" name="LightsResetButton">
                             <Property key="Caption" value="#{Interface:Reset}"/>
                         </Widget>
+                    </Widget>
+                    <Widget type="TabItem">
+                        <Property key="Caption" value=" #{OMWEngine:Terrain} "/>
+
+                        <!-- Terrain Tessellation Enable -->
+                        <Widget type="HBox" position="0 4 600 24">
+                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top">
+                                <UserString key="SettingCategory" value="Terrain"/>
+                                <UserString key="SettingName" value="tessellation"/>
+                                <UserString key="SettingType" value="CheckButton"/>
+                            </Widget>
+                            <Widget type="AutoSizedTextBox" skin="SandText" align="Left Top">
+                                <Property key="Caption" value="#{OMWEngine:TerrainTessellation}"/>
+                                <UserString key="ToolTipType" value="Layout"/>
+                                <UserString key="ToolTipLayout" value="TextToolTip"/>
+                                <UserString key="Caption_Text" value="#{OMWEngine:TerrainTessellationTooltip}"/>
+                            </Widget>
+                        </Widget>
+
+                        <Widget type="ImageBox" skin="MW_HLine" position="0 28 360 18" align="Top HStretch"/>
+
+                        <!-- Tessellation Distance -->
+                        <Widget type="TextBox" skin="NormalText" position="0 48 500 18" align="Left Top" name="TessellationDistanceText">
+                            <UserString key="ToolTipType" value="Layout"/>
+                            <UserString key="ToolTipLayout" value="TextToolTip"/>
+                            <UserString key="Caption_Text" value="#{OMWEngine:TessellationDistanceTooltip}"/>
+                        </Widget>
+                        <Widget type="ScrollBar" skin="MW_HScroll" position="0 72 352 18" align="HStretch Top">
+                            <Property key="Range" value="9501"/>
+                            <Property key="Page" value="500"/>
+                            <UserString key="SettingType" value="Slider"/>
+                            <UserString key="SettingMin" value="500"/>
+                            <UserString key="SettingMax" value="10000"/>
+                            <UserString key="SettingCategory" value="Terrain"/>
+                            <UserString key="SettingName" value="tessellation max distance"/>
+                            <UserString key="SettingValueType" value="Float"/>
+                            <UserString key="SettingLabelWidget" value="TessellationDistanceText"/>
+                            <UserString key="SettingLabelCaption" value="#{OMWEngine:TessellationDistance} (%s)"/>
+                        </Widget>
+                        <Widget type="TextBox" skin="SandText" position="0 94 352 18" align="Left Top">
+                            <Property key="Caption" value="#{OMWEngine:DistanceLow}"/>
+                            <Property key="TextAlign" value="Left"/>
+                        </Widget>
+                        <Widget type="TextBox" skin="SandText" position="0 94 352 18" align="Right Top">
+                            <Property key="Caption" value="#{OMWEngine:DistanceHigh}"/>
+                            <Property key="TextAlign" value="Right"/>
+                        </Widget>
+
                     </Widget>
                 </Widget>
             </Widget>

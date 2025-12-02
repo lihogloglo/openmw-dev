@@ -9,8 +9,8 @@
 
 // Outputs to tessellation control shader
 out VS_OUT {
-    vec3 position;      // Local chunk position (for transform by ModelView in TES)
-    vec3 worldPosition; // World position (for tessellation LOD and deformation)
+    vec3 position;      // Local chunk position (for ModelView transform in TES and LOD calculation in TCS)
+    vec3 worldPosition; // World position (for deformation UV lookup only - NOT for LOD!)
     vec3 normal;
     vec4 color;
     vec2 texCoord;

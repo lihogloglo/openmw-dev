@@ -149,6 +149,7 @@ MatchSunlightToSunTooltip: |-
 
     This option makes the sun light source's position match the sun's position.
 MaxLights: "Max Lights"
+Terrain: "Terrain"
 TerrainTessellation: "Terrain Tessellation"
 TerrainTessellationTooltip: |-
     Enable GPU tessellation for terrain deformation effects (snow, ash, mud footprints).
@@ -157,6 +158,15 @@ TerrainTessellationTooltip: |-
     subdivided on the GPU for smoother deformation effects.
 
     Disable this if you experience graphical issues or have an older GPU.
+TessellationDistance: "Tessellation Distance"
+TessellationDistanceTooltip: |-
+    Default: 5000
+    Maximum distance from the camera at which terrain tessellation is applied.
+
+    Higher values provide smoother terrain deformation over longer distances but
+    may impact performance. Lower values limit tessellation to terrain closer to the player.
+
+    Distance is measured in game units (~22 units = 1 foot).
 MaxLightsTooltip: "Default: 8\nMaximum number of lights per object.\n\nA low number near default will cause light popping similar to what you would see with legacy lighting."
 MenuHelpDelay: "Menu Help Delay"
 MenuTransparency: "Menu Transparency"

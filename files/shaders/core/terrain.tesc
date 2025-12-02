@@ -11,8 +11,8 @@ layout(vertices = 3) out;  // Triangle patches with 3 control points
 
 // Inputs from vertex shader
 in VS_OUT {
-    vec3 position;      // Local chunk position
-    vec3 worldPosition; // World position for LOD/deformation
+    vec3 position;      // Local chunk position (used for LOD calculation - matches cameraPos space)
+    vec3 worldPosition; // World position for deformation (NOT for LOD - coordinate space mismatch)
     vec3 normal;
     vec4 color;
     vec2 texCoord;
@@ -39,11 +39,13 @@ uniform float tessMaxDistance;    // Distance at which min tessellation applies 
 uniform float tessMinLevel;       // Minimum tessellation level (default: 1)
 uniform float tessMaxLevel;       // Maximum tessellation level (default: 16)
 
-// Calculate tessellation level based on distance using WORLD positions
-float calcTessLevel(vec3 worldPos0, vec3 worldPos1)
+// Calculate tessellation level based on distance using LOCAL positions
+// NOTE: cameraPos is in local/model space (from CullVisitor::getEyePoint()),
+// so we must use local vertex positions, NOT world positions, for LOD calculation
+float calcTessLevel(vec3 localPos0, vec3 localPos1)
 {
     // Use edge midpoint for distance calculation
-    vec3 edgeMidpoint = (worldPos0 + worldPos1) * 0.5;
+    vec3 edgeMidpoint = (localPos0 + localPos1) * 0.5;
     float dist = length(edgeMidpoint - cameraPos);
 
     // Linear interpolation between min and max tessellation based on distance
@@ -66,10 +68,11 @@ void main()
     // Only the first invocation sets tessellation levels
     if (gl_InvocationID == 0)
     {
-        // Use WORLD positions for LOD calculation (cameraPos is in world space)
-        vec3 p0 = tcs_in[0].worldPosition;
-        vec3 p1 = tcs_in[1].worldPosition;
-        vec3 p2 = tcs_in[2].worldPosition;
+        // Use LOCAL positions for LOD calculation (cameraPos is in local/model space)
+        // This is because CullVisitor::getEyePoint() returns the eye position in model space
+        vec3 p0 = tcs_in[0].position;
+        vec3 p1 = tcs_in[1].position;
+        vec3 p2 = tcs_in[2].position;
 
         // Calculate tessellation level for each edge
         // Edge 0: vertices 1-2, Edge 1: vertices 2-0, Edge 2: vertices 0-1
