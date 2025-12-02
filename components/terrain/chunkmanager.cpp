@@ -374,17 +374,8 @@ namespace Terrain
 
         unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
 
-<<<<<<< HEAD
         // Determine if this chunk uses composite map (large/distant chunks)
         // This must be checked BEFORE choosing index buffer type
-=======
-        // Use patch index buffer for tessellation, regular index buffer otherwise
-        if (mTessellationEnabled)
-            geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
-        else
-            geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
-
->>>>>>> 9be566fed3876deb9cfc699d014ce1d42856b771
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
 
         // Use patch index buffer for tessellation, but ONLY for non-composite-map chunks
@@ -414,15 +405,9 @@ namespace Terrain
         chunkStateSet->addUniform(new osg::Uniform("chunkWorldOffset", chunkWorldOffset));
 
         // Add camera position uniform for tessellation LOD calculation
-<<<<<<< HEAD
         // Only needed for non-composite chunks that actually use tessellation shaders
         // Note: This is set at chunk creation time but updated dynamically in TerrainDrawable::cull()
         if (mTessellationEnabled && !useCompositeMap)
-=======
-        // Note: This is set at chunk creation time. For dynamic updates, consider using
-        // a shared uniform or updating via a cull callback
-        if (mTessellationEnabled)
->>>>>>> 9be566fed3876deb9cfc699d014ce1d42856b771
         {
             chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
         }

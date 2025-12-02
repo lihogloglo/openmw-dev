@@ -130,32 +130,31 @@ namespace Terrain
         SnowDetection::loadSnowPatterns();
 
         // Initialize terrain-based parameters from settings
-        mTerrainParams = {
-            {
-                Settings::terrain().mSnowFootprintRadius.get(),
-                Settings::terrain().mSnowDeformationDepth.get(),
-                45.0f,  // interval (approx 2 feet)
-                Settings::terrain().mSnowCameraDepth.get(),
-                Settings::terrain().mSnowBlurSpread.get(),
-                "snow"
-            },
-            {
-                Settings::terrain().mAshFootprintRadius.get(),
-                Settings::terrain().mAshDeformationDepth.get(),
-                45.0f,  // interval
-                Settings::terrain().mAshCameraDepth.get(),
-                Settings::terrain().mAshBlurSpread.get(),
-                "ash"
-            },
-            {
-                Settings::terrain().mMudFootprintRadius.get(),
-                Settings::terrain().mMudDeformationDepth.get(),
-                45.0f,  // interval
-                Settings::terrain().mMudCameraDepth.get(),
-                Settings::terrain().mMudBlurSpread.get(),
-                "mud"
-            }
-        };
+        mTerrainParams.clear();
+        mTerrainParams.push_back(TerrainParams{
+            Settings::terrain().mSnowFootprintRadius.get(),
+            Settings::terrain().mSnowDeformationDepth.get(),
+            45.0f,  // interval (approx 2 feet)
+            Settings::terrain().mSnowCameraDepth.get(),
+            Settings::terrain().mSnowBlurSpread.get(),
+            "snow"
+        });
+        mTerrainParams.push_back(TerrainParams{
+            Settings::terrain().mAshFootprintRadius.get(),
+            Settings::terrain().mAshDeformationDepth.get(),
+            45.0f,  // interval
+            Settings::terrain().mAshCameraDepth.get(),
+            Settings::terrain().mAshBlurSpread.get(),
+            "ash"
+        });
+        mTerrainParams.push_back(TerrainParams{
+            Settings::terrain().mMudFootprintRadius.get(),
+            Settings::terrain().mMudDeformationDepth.get(),
+            45.0f,  // interval
+            Settings::terrain().mMudCameraDepth.get(),
+            Settings::terrain().mMudBlurSpread.get(),
+            "mud"
+        });
 
         // Create shader uniforms
         // Note: Legacy footprint array uniforms removed
