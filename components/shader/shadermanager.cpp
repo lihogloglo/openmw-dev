@@ -630,10 +630,14 @@ namespace Shader
             program->addShader(tese);
             program->addShader(frag);
 
+<<<<<<< HEAD
             // Add linked shaders for ALL stages (includes, etc.)
             addLinkedShaders(vert, program);
             addLinkedShaders(tesc, program);
             addLinkedShaders(tese, program);
+=======
+            addLinkedShaders(vert, program);
+>>>>>>> 9be566fed3876deb9cfc699d014ce1d42856b771
             addLinkedShaders(frag, program);
 
             found = mPrograms.insert(std::make_pair(std::make_pair(vert, frag), program)).first;
