@@ -1,17 +1,24 @@
-#version 400 core
+#version 400 compatibility
 
 // ============================================================================
-// TERRAIN TESSELLATION EVALUATION SHADER
+// TERRAIN TESSELLATION EVALUATION SHADER (Compatibility Profile)
 // ============================================================================
 // Generates new vertices from tessellated patches and applies displacement
 // from the snow/terrain deformation RTT texture.
+// Uses gl_ModelViewMatrix from compatibility profile.
+// Uses custom projectionMatrix uniform for reverse-Z depth buffer support.
 // ============================================================================
 
 layout(triangles, equal_spacing, ccw) in;
 
+// OpenMW uses a custom projection matrix for reverse-Z depth buffer
+// Do NOT use gl_ProjectionMatrix - it doesn't contain the correct values
+uniform mat4 projectionMatrix;
+
 // Inputs from tessellation control shader
 in TCS_OUT {
-    vec3 position;
+    vec3 position;      // Local chunk position
+    vec3 worldPosition; // World position for deformation
     vec3 normal;
     vec4 color;
     vec2 texCoord;
@@ -34,12 +41,6 @@ out TES_OUT {
     float linearDepth;
     float tessLevel;  // Debug: tessellation level
 } tes_out;
-
-// Transform uniforms
-uniform mat4 osg_ModelViewMatrix;
-uniform mat4 osg_ProjectionMatrix;
-uniform mat4 osg_ModelViewProjectionMatrix;
-uniform mat3 osg_NormalMatrix;
 
 // Deformation uniforms
 uniform sampler2D snowDeformationMap;
@@ -73,8 +74,9 @@ vec4 interpolate4(vec4 v0, vec4 v1, vec4 v2)
 
 void main()
 {
-    // Interpolate position, normal, texcoords, etc. using barycentric coordinates
-    vec3 position = interpolate3(tes_in[0].position, tes_in[1].position, tes_in[2].position);
+    // Interpolate LOCAL position (for transform), world position (for deformation)
+    vec3 localPosition = interpolate3(tes_in[0].position, tes_in[1].position, tes_in[2].position);
+    vec3 worldPosition = interpolate3(tes_in[0].worldPosition, tes_in[1].worldPosition, tes_in[2].worldPosition);
     vec3 normal = normalize(interpolate3(tes_in[0].normal, tes_in[1].normal, tes_in[2].normal));
     vec2 texCoord = interpolate2(tes_in[0].texCoord, tes_in[1].texCoord, tes_in[2].texCoord);
     vec4 color = interpolate4(tes_in[0].color, tes_in[1].color, tes_in[2].color);
@@ -83,6 +85,7 @@ void main()
     // Initialize deformation outputs
     float deformationFactor = 0.0;
     float maxDepth = 0.0;
+    float zOffset = 0.0;  // Deformation offset to apply to Z
 
     // Apply terrain deformation if enabled
     if (snowDeformationEnabled)
@@ -95,8 +98,8 @@ void main()
         // Only process if this vertex is deformable (not pure rock)
         if (baseLift > 0.01)
         {
-            // Calculate UVs for the deformation map
-            vec2 deformUV = (position.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
+            // Use WORLD position for deformation UV calculation
+            vec2 deformUV = (worldPosition.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
 
             // Sample the deformation map if within bounds
             if (deformUV.x >= 0.0 && deformUV.x <= 1.0 && deformUV.y >= 0.0 && deformUV.y <= 1.0)
@@ -104,22 +107,24 @@ void main()
                 deformationFactor = texture(snowDeformationMap, deformUV).r;
             }
 
-            // Apply deformation:
-            // - Positive factor = depression (footprint center), terrain goes DOWN
-            // - Negative factor = elevation (rim), terrain goes UP
-            // - Zero = flat snow surface
-            position.z += baseLift * (1.0 - deformationFactor);
-
+            // Calculate deformation offset
+            zOffset = baseLift * (1.0 - deformationFactor);
             maxDepth = baseLift;
         }
     }
 
-    // Store world position before view transformation
-    tes_out.worldPos = position;
+    // Apply deformation to LOCAL position (same offset applies to both)
+    localPosition.z += zOffset;
+    worldPosition.z += zOffset;
 
-    // Transform to clip space
-    vec4 viewPos = osg_ModelViewMatrix * vec4(position, 1.0);
-    gl_Position = osg_ProjectionMatrix * viewPos;
+    // Store world position for fragment shader (POM, etc.)
+    tes_out.worldPos = worldPosition;
+
+    // Transform LOCAL position to clip space
+    // Use gl_ModelViewMatrix for view transform (compatibility profile)
+    // Use custom projectionMatrix uniform for projection (reverse-Z depth buffer support)
+    vec4 viewPos = gl_ModelViewMatrix * vec4(localPosition, 1.0);
+    gl_Position = projectionMatrix * viewPos;
 
     // Calculate depths
     tes_out.euclideanDepth = length(viewPos.xyz);

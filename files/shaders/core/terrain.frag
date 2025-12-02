@@ -1,10 +1,11 @@
-#version 400 core
+#version 400 compatibility
 
 // ============================================================================
-// TERRAIN TESSELLATION FRAGMENT SHADER (Core Profile)
+// TERRAIN TESSELLATION FRAGMENT SHADER (Compatibility Profile)
 // ============================================================================
 // Handles lighting, texturing, and visual effects for tessellated terrain.
 // Receives interpolated data from the tessellation evaluation shader.
+// Uses compatibility profile to access gl_NormalMatrix, etc.
 // ============================================================================
 
 // Inputs from tessellation evaluation shader
@@ -22,9 +23,9 @@ in TES_OUT {
 } fs_in;
 
 // Outputs
-layout(location = 0) out vec4 fragColor;
+out vec4 fragColor;
 #if @writeNormals
-layout(location = 1) out vec4 fragNormal;
+out vec4 fragNormal;
 #endif
 
 // Texture samplers
@@ -50,8 +51,6 @@ uniform float shininess;
 
 // Environment uniforms
 uniform float far;
-uniform mat4 osg_ViewMatrixInverse;
-uniform mat3 osg_NormalMatrix;
 
 // Texture matrices (for tiling)
 uniform mat4 textureMatrix0;
@@ -89,9 +88,9 @@ uniform vec4 fogColor;
 uniform float fogStart;
 uniform float fogEnd;
 
-vec4 applyFog(vec4 color, float distance)
+vec4 applyFog(vec4 color, float dist)
 {
-    float fogFactor = clamp((fogEnd - distance) / (fogEnd - fogStart), 0.0, 1.0);
+    float fogFactor = clamp((fogEnd - dist) / (fogEnd - fogStart), 0.0, 1.0);
     return vec4(mix(fogColor.rgb, color.rgb, fogFactor), color.a);
 }
 
@@ -119,8 +118,9 @@ void main()
 
     if (fs_in.maxDepth > 0.0)
     {
-        // Calculate view vector in world space
-        vec3 viewDir = normalize((osg_ViewMatrixInverse * vec4(fs_in.viewPos, 0.0)).xyz);
+        // Calculate view vector in world space using compatibility profile inverse view matrix
+        mat4 viewMatrixInverse = gl_ModelViewMatrixInverse;
+        vec3 viewDir = normalize((viewMatrixInverse * vec4(fs_in.viewPos, 0.0)).xyz);
 
         // Calculate undeformed snow surface height
         float flatZ = fs_in.worldPos.z + fs_in.deformationFactor * fs_in.maxDepth;
@@ -193,9 +193,9 @@ void main()
     #endif
     // TODO: Proper TBN matrix calculation for terrain
     // For now, assume terrain is mostly flat and use simplified transform
-    viewNormal = normalize(osg_NormalMatrix * vec3(tangentNormal.xy, tangentNormal.z));
+    viewNormal = normalize(gl_NormalMatrix * vec3(tangentNormal.xy, tangentNormal.z));
 #else
-    viewNormal = normalize(osg_NormalMatrix * fs_in.normal);
+    viewNormal = normalize(gl_NormalMatrix * fs_in.normal);
 #endif
 
     // Apply snow deformation normal perturbation
@@ -221,8 +221,8 @@ void main()
             dY *= normalStrength;
 
             vec3 worldPerturb = normalize(vec3(-dX, -dY, 1.0));
-            vec3 viewPerturb = normalize(osg_NormalMatrix * worldPerturb);
-            vec3 viewUp = normalize(osg_NormalMatrix * vec3(0.0, 0.0, 1.0));
+            vec3 viewPerturb = normalize(gl_NormalMatrix * worldPerturb);
+            vec3 viewUp = normalize(gl_NormalMatrix * vec3(0.0, 0.0, 1.0));
             vec3 diff = viewPerturb - viewUp;
 
             viewNormal = normalize(viewNormal + diff);
@@ -245,12 +245,11 @@ void main()
     fragColor = applyFog(fragColor, fs_in.euclideanDepth);
 
     // ========================================================================
-    // DEBUG: TESSELLATION LEVEL VISUALIZATION
+    // DEBUG: TESSELLATION LEVEL VISUALIZATION (ENABLED FOR TESTING)
     // ========================================================================
     // Tint terrain by tessellation level: blue = low (1), red = high (16)
-    // Remove or comment out this block when done debugging
-    float tessNormalized = clamp((fs_in.tessLevel - 1.0) / 15.0, 0.0, 1.0);  // Normalize 1-16 to 0-1
-    vec3 tessDebugColor = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), tessNormalized);  // Blue to Red
+    float tessNormalized = clamp((fs_in.tessLevel - 1.0) / 15.0, 0.0, 1.0);
+    vec3 tessDebugColor = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), tessNormalized);
     fragColor.rgb = mix(fragColor.rgb, tessDebugColor, 0.4);  // 40% tint
 
     // ========================================================================

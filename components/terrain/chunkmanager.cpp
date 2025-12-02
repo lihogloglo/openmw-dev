@@ -73,22 +73,27 @@ namespace Terrain
         // This ensures cache key includes current subdivision level based on player position
         int subdivisionLevel = 0;
 
-        // Per CHUNK_SUBDIVISION_SYSTEM.md, subdivision should only apply to leaf-level terrain chunks
-        // The document specifies chunks of 256 world units, but in OpenMW's terrain system,
-        // the actual minimum chunk size depends on the LOD configuration
-        // For now, we apply subdivision to small chunks (size <= 0.125 cells)
-        // This ensures we only subdivide the finest detail level, not large parent chunks
-        float cellSize = mStorage->getCellWorldSize(mWorldspace);
-        const float MAX_SUBDIVISION_CHUNK_SIZE = 0.125f;  // Maximum chunk size to subdivide (in cell units)
-
-        if (size <= MAX_SUBDIVISION_CHUNK_SIZE && mSubdivisionTracker)
+        // IMPORTANT: Skip CPU subdivision when GPU tessellation is enabled
+        // GPU tessellation provides dynamic subdivision on the GPU, making CPU subdivision redundant
+        // and incompatible (CPU subdivision creates GL_TRIANGLES, tessellation needs GL_PATCHES)
+        if (!mTessellationEnabled)
         {
-            // Use GRID-BASED subdivision (not distance-based circles)
-            // This creates predictable 3x3 and 5x5 rectangular patterns as per requirements
-            osg::Vec2f playerPos2D(mPlayerPosition.x(), mPlayerPosition.y());
+            // Per CHUNK_SUBDIVISION_SYSTEM.md, subdivision should only apply to leaf-level terrain chunks
+            // The document specifies chunks of 256 world units, but in OpenMW's terrain system,
+            // the actual minimum chunk size depends on the LOD configuration
+            // For now, we apply subdivision to small chunks (size <= 0.125 cells)
+            // This ensures we only subdivide the finest detail level, not large parent chunks
+            float cellSize = mStorage->getCellWorldSize(mWorldspace);
+            const float MAX_SUBDIVISION_CHUNK_SIZE = 0.125f;  // Maximum chunk size to subdivide (in cell units)
 
-            subdivisionLevel = mSubdivisionTracker->getSubdivisionLevelFromPlayerGrid(center, playerPos2D, cellSize);
+            if (size <= MAX_SUBDIVISION_CHUNK_SIZE && mSubdivisionTracker)
+            {
+                // Use GRID-BASED subdivision (not distance-based circles)
+                // This creates predictable 3x3 and 5x5 rectangular patterns as per requirements
+                osg::Vec2f playerPos2D(mPlayerPosition.x(), mPlayerPosition.y());
 
+                subdivisionLevel = mSubdivisionTracker->getSubdivisionLevelFromPlayerGrid(center, playerPos2D, cellSize);
+            }
         }
 
         const ChunkKey key{ .mCenter = center, .mLod = lod, .mLodFlags = lodFlags,
@@ -369,13 +374,18 @@ namespace Terrain
 
         unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
 
-        // Use patch index buffer for tessellation, regular index buffer otherwise
-        if (mTessellationEnabled)
+        // Determine if this chunk uses composite map (large/distant chunks)
+        // This must be checked BEFORE choosing index buffer type
+        bool useCompositeMap = chunkSize >= mCompositeMapLevel;
+
+        // Use patch index buffer for tessellation, but ONLY for non-composite-map chunks
+        // Composite map chunks use regular shaders (not tessellation shaders), so they need GL_TRIANGULAR
+        // Rendering GL_PATCHES with non-tessellation shaders causes rendering artifacts
+        if (mTessellationEnabled && !useCompositeMap)
             geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
         else
             geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
 
-        bool useCompositeMap = chunkSize >= mCompositeMapLevel;
         unsigned int numUvSets = useCompositeMap ? 1 : 2;
 
         geometry->setTexCoordArrayList(osg::Geometry::ArrayList(numUvSets, mBufferCache.getUVBuffer(numVerts)));
@@ -395,9 +405,9 @@ namespace Terrain
         chunkStateSet->addUniform(new osg::Uniform("chunkWorldOffset", chunkWorldOffset));
 
         // Add camera position uniform for tessellation LOD calculation
-        // Note: This is set at chunk creation time. For dynamic updates, consider using
-        // a shared uniform or updating via a cull callback
-        if (mTessellationEnabled)
+        // Only needed for non-composite chunks that actually use tessellation shaders
+        // Note: This is set at chunk creation time but updated dynamically in TerrainDrawable::cull()
+        if (mTessellationEnabled && !useCompositeMap)
         {
             chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
         }

@@ -55,10 +55,10 @@ GPU tessellation moves the subdivision work to the graphics hardware:
 
 ```
 files/shaders/core/
-├── terrain.vert   # Vertex shader (GLSL 4.0)
+├── terrain.vert   # Vertex shader (GLSL 4.0 compatibility)
 ├── terrain.tesc   # Tessellation control shader
 ├── terrain.tese   # Tessellation evaluation shader
-└── terrain.frag   # Fragment shader (GLSL 4.0)
+└── terrain.frag   # Fragment shader (GLSL 4.0 compatibility)
 
 components/shader/
 ├── shadermanager.hpp  # Added getTessellationProgram()
@@ -72,6 +72,97 @@ components/terrain/
 ├── chunkmanager.hpp   # Added tessellation enable flag
 └── chunkmanager.cpp   # Integration with chunk creation
 ```
+
+---
+
+## CRITICAL: OpenSceneGraph Tessellation Requirements
+
+### GLSL Profile: Use Compatibility, NOT Core
+
+**OpenMW uses GLSL compatibility profile throughout the codebase.** All shaders use built-in variables like `gl_Vertex`, `gl_Normal`, `gl_ModelViewMatrix`, etc.
+
+**WRONG - Core Profile (will NOT work in OpenMW):**
+```glsl
+#version 400 core
+layout(location = 0) in vec3 osg_Vertex;
+layout(location = 2) in vec3 osg_Normal;
+uniform mat4 osg_ModelViewMatrix;  // NOT provided by OSG without aliasing!
+```
+
+**CORRECT - Compatibility Profile:**
+```glsl
+#version 400 compatibility
+// Use built-in vertex attributes
+void main() {
+    vs_out.position = gl_Vertex.xyz;
+    vs_out.normal = gl_Normal;
+    vs_out.color = gl_Color;
+    vs_out.texCoord = gl_MultiTexCoord0.xy;
+}
+```
+
+### Why Compatibility Profile is Required
+
+1. **OSG Vertex Attribute Aliasing**: OSG can alias `gl_Vertex` → `osg_Vertex`, but this requires calling `setUseVertexAttributeAliasing(true)` on the State. OpenMW does NOT enable this.
+
+2. **Built-in Matrix Uniforms**: In compatibility profile, `gl_ModelViewMatrix`, `gl_NormalMatrix` are available. However, **do NOT use `gl_ProjectionMatrix`** - see below.
+
+3. **Existing Codebase**: All OpenMW shaders (in `files/shaders/compatibility/`) use GLSL 1.20 with `gl_*` built-ins. The tessellation shaders must be consistent.
+
+### CRITICAL: Reverse-Z Depth Buffer - Use projectionMatrix Uniform
+
+**OpenMW uses a reverse-Z depth buffer** for improved depth precision. This requires a custom projection matrix that is NOT stored in `gl_ProjectionMatrix`.
+
+**WRONG - Using gl_ProjectionMatrix (terrain renders over everything):**
+```glsl
+gl_Position = gl_ProjectionMatrix * viewPos;  // BROKEN - wrong depth values!
+```
+
+**CORRECT - Using custom projectionMatrix uniform:**
+```glsl
+uniform mat4 projectionMatrix;  // Custom uniform set by OpenMW
+// ...
+gl_Position = projectionMatrix * viewPos;  // Correct reverse-Z depth
+```
+
+All OpenMW shaders include `lib/core/vertex.glsl` which declares this uniform and provides `modelToClip()` / `viewToClip()` helpers. For tessellation shaders where you can't use `#include`, declare the uniform directly.
+
+### OSG Tessellation Setup (from official examples)
+
+Based on [osgtessellationshaders.cpp](https://github.com/openscenegraph/OpenSceneGraph/blob/master/examples/osgtessellationshaders/osgtessellationshaders.cpp):
+
+```cpp
+// 1. Create geometry with GL_PATCHES primitive
+geometry->addPrimitiveSet(new osg::DrawElementsUInt(
+    osg::PrimitiveSet::PATCHES, indexCount, indices));
+
+// 2. Set patch parameter (vertices per patch)
+state->setAttribute(new osg::PatchParameter(3));  // Triangle patches
+
+// 3. Add shader program with all 4 stages
+program->addShader(vertexShader);
+program->addShader(tessControlShader);
+program->addShader(tessEvalShader);
+program->addShader(fragmentShader);
+
+// 4. Bind custom attributes
+program->addBindAttribLocation("terrainWeights", 6);
+```
+
+### OSG Default Vertex Attribute Locations
+
+When using `setUseVertexAttributeAliasing(true)` (NOT used in OpenMW), OSG maps:
+
+| Slot | Alias Name | Legacy Built-in |
+|------|------------|-----------------|
+| 0 | osg_Vertex | gl_Vertex |
+| 2 | osg_Normal | gl_Normal |
+| 3 | osg_Color | gl_Color |
+| 8+ | osg_MultiTexCoord0+ | gl_MultiTexCoord0+ |
+
+**Since OpenMW doesn't use aliasing, we use the built-ins directly.**
+
+---
 
 ## Implementation Details
 
@@ -89,7 +180,7 @@ osg::ref_ptr<osg::Program> ShaderManager::getTessellationProgram(
 - Loads all four shader stages from `core/` directory
 - Files: `{templateName}.vert`, `{templateName}.tesc`, `{templateName}.tese`, `{templateName}.frag`
 - Returns nullptr if any shader fails to load
-- Caches programs like regular shader programs
+- **Must call `addLinkedShaders()` for ALL four stages** (not just vert/frag)
 
 ### 2. Buffer Cache Extensions
 
@@ -122,7 +213,7 @@ std::vector<osg::ref_ptr<osg::StateSet>> createTessellationPasses(
 
 - Creates state sets with tessellation shaders
 - Sets `osg::PatchParameter(3)` for triangle patches
-- Binds vertex attributes for core profile
+- Binds custom vertex attribute (`terrainWeights` at location 6)
 - Sets tessellation-specific uniforms
 - Returns empty vector on failure (triggers fallback)
 
@@ -142,43 +233,49 @@ bool getTessellationEnabled() const;
 - Adds `cameraPos` uniform for tessellation LOD calculation
 - Automatic fallback to regular shaders on failure
 
+---
+
 ## Shader Details
 
 ### Vertex Shader (terrain.vert)
 
-Minimal processing - passes data to tessellation stage:
+**Uses compatibility profile with built-in vertex attributes:**
 
 ```glsl
-#version 400 core
-
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec4 aColor;
-layout(location = 3) in vec2 aTexCoord0;
-layout(location = 6) in vec4 aTerrainWeights;
+#version 400 compatibility
 
 out VS_OUT {
-    vec3 position;
+    vec3 position;       // Local chunk position
+    vec3 worldPosition;  // World position (for LOD + deformation)
     vec3 normal;
     vec4 color;
     vec2 texCoord;
     vec4 terrainWeights;
 } vs_out;
 
+attribute vec4 terrainWeights;  // Custom attribute at location 6
 uniform vec3 chunkWorldOffset;
 
 void main() {
-    vs_out.position = aPosition + chunkWorldOffset;
-    // ... pass through other attributes
+    vs_out.position = gl_Vertex.xyz;  // LOCAL position
+    vs_out.worldPosition = gl_Vertex.xyz + chunkWorldOffset;  // WORLD position
+    vs_out.normal = gl_Normal;
+    vs_out.color = gl_Color;
+    vs_out.texCoord = gl_MultiTexCoord0.xy;
+    vs_out.terrainWeights = terrainWeights;
 }
 ```
+
+**Key Design Decision**: Pass BOTH local and world positions:
+- `position`: Used for transformation via `gl_ModelViewMatrix` in TES
+- `worldPosition`: Used for tessellation LOD calculation (since cameraPos is world-space)
 
 ### Tessellation Control Shader (terrain.tesc)
 
 Calculates tessellation level based on camera distance:
 
 ```glsl
-#version 400 core
+#version 400 compatibility
 
 layout(vertices = 3) out;  // Triangle patches
 
@@ -188,10 +285,10 @@ uniform float tessMaxDistance;  // 1000.0
 uniform float tessMinLevel;     // 1.0
 uniform float tessMaxLevel;     // 16.0
 
-float calcTessLevel(vec3 pos0, vec3 pos1) {
-    vec3 edgeMidpoint = (pos0 + pos1) * 0.5;
-    float distance = length(edgeMidpoint - cameraPos);
-    float t = clamp((distance - tessMinDistance) /
+float calcTessLevel(vec3 worldPos0, vec3 worldPos1) {
+    vec3 edgeMidpoint = (worldPos0 + worldPos1) * 0.5;
+    float dist = length(edgeMidpoint - cameraPos);
+    float t = clamp((dist - tessMinDistance) /
                     (tessMaxDistance - tessMinDistance), 0.0, 1.0);
     return mix(tessMaxLevel, tessMinLevel, t);
 }
@@ -201,7 +298,11 @@ void main() {
     tcs_out[gl_InvocationID] = tcs_in[gl_InvocationID];
 
     if (gl_InvocationID == 0) {
-        // Set tessellation levels per edge
+        // Use WORLD positions for LOD calculation
+        vec3 p0 = tcs_in[0].worldPosition;
+        vec3 p1 = tcs_in[1].worldPosition;
+        vec3 p2 = tcs_in[2].worldPosition;
+
         gl_TessLevelOuter[0] = calcTessLevel(p1, p2);
         gl_TessLevelOuter[1] = calcTessLevel(p2, p0);
         gl_TessLevelOuter[2] = calcTessLevel(p0, p1);
@@ -215,7 +316,7 @@ void main() {
 Generates new vertices and applies displacement:
 
 ```glsl
-#version 400 core
+#version 400 compatibility
 
 layout(triangles, equal_spacing, ccw) in;
 
@@ -225,29 +326,90 @@ uniform float snowRTTScale;
 uniform bool snowDeformationEnabled;
 
 void main() {
-    // Interpolate using barycentric coordinates
-    vec3 position = gl_TessCoord.x * p0 + gl_TessCoord.y * p1 + gl_TessCoord.z * p2;
+    // Interpolate BOTH local and world positions
+    vec3 localPosition = interpolate3(tes_in[0].position, ...);
+    vec3 worldPosition = interpolate3(tes_in[0].worldPosition, ...);
 
-    // Apply displacement from deformation map
+    // Apply displacement using WORLD position for UV calculation
     if (snowDeformationEnabled && baseLift > 0.01) {
-        vec2 deformUV = (position.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
+        vec2 deformUV = (worldPosition.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
         float deformationFactor = texture(snowDeformationMap, deformUV).r;
-        position.z += baseLift * (1.0 - deformationFactor);
+        float zOffset = baseLift * (1.0 - deformationFactor);
+
+        localPosition.z += zOffset;
+        worldPosition.z += zOffset;
     }
 
-    gl_Position = osg_ModelViewProjectionMatrix * vec4(position, 1.0);
+    // Transform LOCAL position using compatibility profile matrices
+    vec4 viewPos = gl_ModelViewMatrix * vec4(localPosition, 1.0);
+    gl_Position = gl_ProjectionMatrix * viewPos;
 }
 ```
 
 ### Fragment Shader (terrain.frag)
 
-Handles lighting and visual effects:
+Handles lighting and visual effects using compatibility profile:
 
-- Parallax Occlusion Mapping (POM) for footprint depth
-- Normal perturbation from displacement gradients
-- Darkening for compressed snow areas
-- Multi-layer terrain texturing
-- Fog and depth output
+```glsl
+#version 400 compatibility
+
+// Use gl_NormalMatrix, gl_ModelViewMatrixInverse (built-in)
+viewNormal = normalize(gl_NormalMatrix * fs_in.normal);
+mat4 viewMatrixInverse = gl_ModelViewMatrixInverse;
+```
+
+---
+
+## Known Issues and Solutions
+
+### Issue: Conflict with CPU Subdivision System
+
+**Symptom**: Terrain disappears in areas where `TerrainSubdivider` is active (chunks near the player).
+
+**Root Cause**: When tessellation is enabled, the chunkmanager uses `getPatchIndexBuffer()` which creates `GL_PATCHES` primitives. However, the CPU subdivision system (`TerrainSubdivider`) creates new geometry with `GL_TRIANGLES` primitives that doesn't go through the tessellation shader path.
+
+**Solutions**:
+
+1. **Disable CPU subdivision when tessellation is enabled**: The two systems should be mutually exclusive.
+
+2. **Modify TerrainSubdivider to use GL_PATCHES**: Update the subdivision output to also use patch primitives and apply the tessellation shader.
+
+3. **Use tessellation only for distant chunks**: Keep CPU subdivision for near chunks where you need maximum control.
+
+### Issue: Terrain Disappears Completely
+
+**Root Cause (SOLVED)**: Shaders were using `#version 400 core` with `osg_Vertex`, `osg_ModelViewMatrix`, etc. OpenMW doesn't enable vertex attribute aliasing, so these uniforms/attributes weren't available.
+
+**Solution**: Changed all tessellation shaders to `#version 400 compatibility` and use built-in `gl_Vertex`, `gl_Normal`, `gl_ModelViewMatrix`, etc.
+
+### Issue: Terrain Renders Over Everything (SOLVED)
+
+**Symptom**: Terrain appears to render on top of all other objects, or distant terrain looks corrupted.
+
+**Root Cause**: Composite map chunks (large/distant terrain) were using `GL_PATCHES` primitive mode but non-tessellation shaders. Rendering `GL_PATCHES` without tessellation shaders causes undefined behavior - some drivers draw nothing, others draw garbage.
+
+**Solution**: Only use `GL_PATCHES` for non-composite-map chunks that actually use tessellation shaders. Composite map chunks use regular `GL_TRIANGLES` with standard shaders:
+
+```cpp
+// In ChunkManager::createChunk()
+bool useCompositeMap = chunkSize >= mCompositeMapLevel;
+
+if (mTessellationEnabled && !useCompositeMap)
+    geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
+else
+    geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
+```
+
+### Issue: OpenGL "invalid operation" Errors
+
+**Possible Causes**:
+
+1. **Shader compilation failure**: Check log for shader errors
+2. **Missing uniforms**: Ensure all uniforms declared in shaders are set
+3. **Primitive type mismatch**: Ensure geometry uses `GL_PATCHES`, not `GL_TRIANGLES`
+4. **PatchParameter not set**: Must call `stateset->setAttribute(new osg::PatchParameter(3))`
+
+---
 
 ## Usage
 
@@ -258,7 +420,7 @@ Handles lighting and visual effects:
 chunkManager->setTessellationEnabled(true);
 ```
 
-### Configuration Settings (Suggested)
+### Configuration Settings
 
 ```ini
 [Terrain]
@@ -266,10 +428,10 @@ chunkManager->setTessellationEnabled(true);
 tessellation = true
 
 ; Tessellation LOD parameters
-tessellation min distance = 100
-tessellation max distance = 1000
-tessellation min level = 1
-tessellation max level = 16
+tessellation min distance = 50.0
+tessellation max distance = 500.0
+tessellation min level = 1.0
+tessellation max level = 16.0
 ```
 
 ### Runtime Requirements
@@ -277,6 +439,8 @@ tessellation max level = 16
 - OpenGL 4.0+ capable GPU
 - Driver support for tessellation shaders
 - Graceful fallback to CPU subdivision if unavailable
+
+---
 
 ## Tessellation Parameters
 
@@ -287,6 +451,8 @@ tessellation max level = 16
 | `tessMaxDistance` | float | 1000.0 | Distance for minimum tessellation |
 | `tessMinLevel` | float | 1.0 | Minimum subdivision level |
 | `tessMaxLevel` | float | 16.0 | Maximum subdivision level |
+
+---
 
 ## Comparison: CPU Subdivision vs GPU Tessellation
 
@@ -299,6 +465,8 @@ tessellation max level = 16
 | **Compatibility** | All GPUs | OpenGL 4.0+ only |
 | **Implementation** | TerrainSubdivider class | Tessellation shaders |
 
+---
+
 ## Implementation Status
 
 ### ✓ Dynamic Camera Updates (IMPLEMENTED)
@@ -308,7 +476,6 @@ The `cameraPos` uniform is now dynamically updated each frame in `TerrainDrawabl
 ```cpp
 // In terraindrawable.cpp
 void TerrainDrawable::cull(osgUtil::CullVisitor* cv) {
-    // ...
     if (stateset) {
         osg::Uniform* cameraPosUniform = stateset->getUniform("cameraPos");
         if (cameraPosUniform) {
@@ -316,22 +483,35 @@ void TerrainDrawable::cull(osgUtil::CullVisitor* cv) {
             cameraPosUniform->set(eyePoint);
         }
     }
-    // ...
 }
 ```
 
 ### ✓ Settings Integration (IMPLEMENTED)
 
-Tessellation can be toggled in the Options menu and configured via settings:
+Tessellation can be toggled and configured via settings.
 
-```ini
-[Terrain]
-tessellation = true
-tessellation min distance = 50.0
-tessellation max distance = 500.0
-tessellation min level = 1.0
-tessellation max level = 16.0
+### ✓ Compatibility Profile Shaders (IMPLEMENTED)
+
+All tessellation shaders now use `#version 400 compatibility` with built-in vertex attributes and matrices.
+
+### ✓ CPU Subdivision Conflict (FIXED)
+
+CPU subdivision (`TerrainSubdivider`) is now automatically disabled when tessellation is enabled. This is done in `ChunkManager::getChunk()`:
+
+```cpp
+// Skip CPU subdivision when GPU tessellation is enabled
+if (!mTessellationEnabled)
+{
+    // ... CPU subdivision logic ...
+}
 ```
+
+The two systems are mutually exclusive because:
+- CPU subdivision creates geometry with `GL_TRIANGLES` primitive sets
+- GPU tessellation requires `GL_PATCHES` primitive sets
+- GPU tessellation achieves the same goal (more vertices for smooth deformation) but more efficiently
+
+---
 
 ## Future Improvements
 
@@ -341,40 +521,39 @@ Consider screen-space error metrics instead of pure distance:
 
 ```glsl
 float calcTessLevel(vec3 pos0, vec3 pos1) {
-    // Project edge to screen space
     vec4 clip0 = mvp * vec4(pos0, 1.0);
     vec4 clip1 = mvp * vec4(pos1, 1.0);
     vec2 screen0 = clip0.xy / clip0.w * screenSize;
     vec2 screen1 = clip1.xy / clip1.w * screenSize;
     float screenLength = length(screen1 - screen0);
-
-    // Target pixels per edge segment
     return clamp(screenLength / targetPixels, minLevel, maxLevel);
 }
 ```
 
-### 3. Displacement Map Improvements
+### 2. Displacement Map Improvements
 
 - Use higher resolution deformation maps
 - Implement displacement map mipmapping
 - Add edge displacement for chunk boundary continuity
 
-### 4. Performance Optimization
+### 3. Performance Optimization
 
 - Profile tessellation overhead
 - Consider geometry shader for wireframe debugging
 - Implement tessellation LOD culling (skip tessellation for distant chunks)
 
+---
+
 ## Debugging
 
-### Wireframe Mode
+### Tessellation Level Visualization
 
-To visualize tessellation levels, add to fragment shader:
+Uncomment in `terrain.frag`:
 
 ```glsl
-// Debug: color by tessellation level
-vec3 debugColor = vec3(gl_TessLevelInner[0] / 16.0, 0.0, 1.0 - gl_TessLevelInner[0] / 16.0);
-fragColor.rgb = mix(fragColor.rgb, debugColor, 0.5);
+float tessNormalized = clamp((fs_in.tessLevel - 1.0) / 15.0, 0.0, 1.0);
+vec3 tessDebugColor = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), tessNormalized);
+fragColor.rgb = mix(fragColor.rgb, tessDebugColor, 0.4);
 ```
 
 ### Common Issues
@@ -383,9 +562,14 @@ fragColor.rgb = mix(fragColor.rgb, debugColor, 0.5);
 2. **No tessellation visible**: Verify GL_PATCHES primitive mode is set
 3. **Cracks at boundaries**: Ensure matching tessellation levels at edges
 4. **Performance issues**: Lower `tessMaxLevel` or increase `tessMinDistance`
+5. **Terrain disappears**: Check GLSL profile (must be compatibility, not core)
+
+---
 
 ## References
 
 - [OpenGL Tessellation Wiki](https://www.khronos.org/opengl/wiki/Tessellation)
-- [OpenSceneGraph osg::PatchParameter](http://www.openscenegraph.org/documentation/OpenSceneGraphReferenceDocs/a00607.html)
+- [OSG Tessellation Example](https://github.com/openscenegraph/OpenSceneGraph/blob/master/examples/osgtessellationshaders/osgtessellationshaders.cpp)
+- [OSG Vertex Attribute Aliasing Discussion](https://osg-users.openscenegraph.narkive.com/8nXnCbaY/using-modern-shaders-with-osg-setting-vertex-attribute-layout)
+- [OSG State.cpp - Vertex Attribute Aliases](https://github.com/openscenegraph/OpenSceneGraph/blob/master/src/osg/State.cpp)
 - [GPU Gems 2: Terrain Rendering](https://developer.nvidia.com/gpugems/gpugems2/part-i-geometric-complexity/chapter-2-terrain-rendering-using-gpu-based-geometry)

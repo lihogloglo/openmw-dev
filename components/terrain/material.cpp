@@ -455,11 +455,12 @@ namespace Terrain
                 return {}; // Return empty to signal failure
             }
 
-            // Bind vertex attributes for tessellation
-            // OSG uses these default locations: Vertex=0, Normal=2, Color=3, TexCoord0=8
-            // We only need to bind custom attributes (terrain weights at location 6)
-            program->addBindAttribLocation("aTerrainWeights", 6);
+            // Bind custom terrain weights attribute to location 6
+            // In compatibility profile, gl_Vertex/gl_Normal/gl_Color/gl_MultiTexCoord0
+            // are built-in and don't need explicit binding
+            program->addBindAttribLocation("terrainWeights", 6);
 
+            // Now add program to stateset (this triggers shader compilation/linking)
             stateset->setAttributeAndModes(program);
             stateset->addUniform(UniformCollection::value().mColorMode);
 
@@ -470,23 +471,45 @@ namespace Terrain
             stateset->addUniform(new osg::Uniform("tessMinLevel", Settings::terrain().mTessellationMinLevel.get()));
             stateset->addUniform(new osg::Uniform("tessMaxLevel", Settings::terrain().mTessellationMaxLevel.get()));
 
-            // Snow deformation map uniform (texture unit 7)
-            // The actual texture binding is done by SnowDeformationUpdater::setDefaults()
-            // but we need to declare the sampler uniform here for the tessellation shader
+            // Snow deformation uniforms are inherited from parent stateset
+            // (set by SnowDeformationUpdater::setDefaults on the terrain root)
+            // We only need to declare the sampler uniform for the tessellation shader
+            // DO NOT override snowDeformationEnabled here - it would block the inherited true value!
             stateset->addUniform(new osg::Uniform("snowDeformationMap", 7));
-
-            // Default values for snow deformation uniforms
-            // These will be overridden by SnowDeformationUpdater if snow deformation is active
-            stateset->addUniform(new osg::Uniform("snowRTTWorldOrigin", osg::Vec3f(0.0f, 0.0f, 0.0f)));
-            stateset->addUniform(new osg::Uniform("snowRTTScale", 2048.0f));
-            stateset->addUniform(new osg::Uniform("snowDeformationEnabled", false));
-            stateset->addUniform(new osg::Uniform("snowDeformationDepth", 50.0f));
-            stateset->addUniform(new osg::Uniform("ashDeformationDepth", 20.0f));
-            stateset->addUniform(new osg::Uniform("mudDeformationDepth", 10.0f));
 
             // Linear depth factor (used for fog calculations in TES)
             // This should match what OpenMW uses for linear depth
             stateset->addUniform(new osg::Uniform("linearFac", 1.0f));
+
+            // Lighting uniforms (placeholders - should be overridden by lighting system)
+            // These are required by the fragment shader
+            stateset->addUniform(new osg::Uniform("sunDirection", osg::Vec3f(0.0f, 0.0f, -1.0f)));
+            stateset->addUniform(new osg::Uniform("sunColor", osg::Vec3f(1.0f, 1.0f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("ambientLight", osg::Vec3f(0.3f, 0.3f, 0.3f)));
+
+            // Material uniforms (defaults)
+            stateset->addUniform(new osg::Uniform("diffuseColor", osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("ambientColor", osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("emissionColor", osg::Vec4f(0.0f, 0.0f, 0.0f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("specularColor", osg::Vec4f(0.0f, 0.0f, 0.0f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("shininess", 0.0f));
+
+            // Fog uniforms (defaults)
+            stateset->addUniform(new osg::Uniform("fogColor", osg::Vec4f(0.7f, 0.7f, 0.8f, 1.0f)));
+            stateset->addUniform(new osg::Uniform("fogStart", 0.0f));
+            stateset->addUniform(new osg::Uniform("fogEnd", 100000.0f));
+            stateset->addUniform(new osg::Uniform("far", 100000.0f));
+
+            // Texture matrix uniforms for core profile
+            // Get the actual texture matrices if set, otherwise use identity
+            osg::Matrixf texMatrix0 = osg::Matrixf::identity();
+            osg::Matrixf texMatrix1 = osg::Matrixf::identity();
+            if (layerTileSize != 1.f)
+                texMatrix0 = LayerTexMat::value(layerTileSize)->getMatrix();
+            if (!blendmaps.empty() && !esm4terrain)
+                texMatrix1 = BlendmapTexMat::value(blendmapScale)->getMatrix();
+            stateset->addUniform(new osg::Uniform("textureMatrix0", texMatrix0));
+            stateset->addUniform(new osg::Uniform("textureMatrix1", texMatrix1));
 
             passes.push_back(stateset);
         }
