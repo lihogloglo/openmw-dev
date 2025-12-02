@@ -11,7 +11,8 @@
       "Bash(if exist RTT_VIEWPORT_FIX.md del RTT_VIEWPORT_FIX.md)",
       "Bash(if exist NEXT_CHALLENGE.md del NEXT_CHALLENGE.md)",
       "Bash(git checkout:*)",
-      "Bash(d:)"
+      "Bash(d:)",
+      "Bash(glxinfo:*)"
     ],
     "deny": [],
     "ask": []

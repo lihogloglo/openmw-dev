@@ -27,6 +27,9 @@ out TCS_OUT {
     vec4 terrainWeights;
 } tcs_out[];
 
+// Patch output for tessellation level (shared by all vertices in patch)
+patch out float tessLevelDebug;
+
 // Uniforms for LOD calculation
 uniform vec3 cameraPos;           // Camera position in world space
 uniform float tessMinDistance;    // Distance at which max tessellation applies (default: 100)
@@ -72,5 +75,8 @@ void main()
 
         // Inner tessellation level is the average of outer levels
         gl_TessLevelInner[0] = (gl_TessLevelOuter[0] + gl_TessLevelOuter[1] + gl_TessLevelOuter[2]) / 3.0;
+
+        // Pass tessellation level for debug visualization
+        tessLevelDebug = gl_TessLevelInner[0];
     }
 }

@@ -456,10 +456,8 @@ namespace Terrain
             }
 
             // Bind vertex attributes for tessellation
-            program->addBindAttribLocation("aPosition", 0);
-            program->addBindAttribLocation("aNormal", 1);
-            program->addBindAttribLocation("aColor", 2);
-            program->addBindAttribLocation("aTexCoord0", 3);
+            // OSG uses these default locations: Vertex=0, Normal=2, Color=3, TexCoord0=8
+            // We only need to bind custom attributes (terrain weights at location 6)
             program->addBindAttribLocation("aTerrainWeights", 6);
 
             stateset->setAttributeAndModes(program);
