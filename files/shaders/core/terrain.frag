@@ -18,6 +18,7 @@ in TES_OUT {
     vec3 viewPos;
     float euclideanDepth;
     float linearDepth;
+    float tessLevel;  // Debug: tessellation level
 } fs_in;
 
 // Outputs
@@ -242,6 +243,15 @@ void main()
     // ========================================================================
 
     fragColor = applyFog(fragColor, fs_in.euclideanDepth);
+
+    // ========================================================================
+    // DEBUG: TESSELLATION LEVEL VISUALIZATION
+    // ========================================================================
+    // Tint terrain by tessellation level: blue = low (1), red = high (16)
+    // Remove or comment out this block when done debugging
+    float tessNormalized = clamp((fs_in.tessLevel - 1.0) / 15.0, 0.0, 1.0);  // Normalize 1-16 to 0-1
+    vec3 tessDebugColor = mix(vec3(0.0, 0.0, 1.0), vec3(1.0, 0.0, 0.0), tessNormalized);  // Blue to Red
+    fragColor.rgb = mix(fragColor.rgb, tessDebugColor, 0.4);  // 40% tint
 
     // ========================================================================
     // NORMAL OUTPUT (for deferred rendering)

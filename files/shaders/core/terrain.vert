@@ -7,12 +7,13 @@
 // The actual displacement happens in the tessellation evaluation shader.
 // ============================================================================
 
-// Vertex inputs
-layout(location = 0) in vec3 aPosition;
-layout(location = 1) in vec3 aNormal;
-layout(location = 2) in vec4 aColor;
-layout(location = 3) in vec2 aTexCoord0;
-layout(location = 6) in vec4 aTerrainWeights;  // x=snow, y=ash, z=mud, w=rock
+// Vertex inputs - using OSG's default attribute binding locations
+// OSG binds: Vertex=0, Normal=2, Color=3, TexCoord0=8
+layout(location = 0) in vec3 osg_Vertex;
+layout(location = 2) in vec3 osg_Normal;
+layout(location = 3) in vec4 osg_Color;
+layout(location = 8) in vec2 osg_MultiTexCoord0;
+layout(location = 6) in vec4 aTerrainWeights;  // x=snow, y=ash, z=mud, w=rock (custom attribute)
 
 // Outputs to tessellation control shader
 out VS_OUT {
@@ -30,9 +31,9 @@ void main()
 {
     // Pass through vertex data to tessellation control shader
     // Convert to world space for tessellation calculations
-    vs_out.position = aPosition + chunkWorldOffset;
-    vs_out.normal = aNormal;
-    vs_out.color = aColor;
-    vs_out.texCoord = aTexCoord0;
+    vs_out.position = osg_Vertex + chunkWorldOffset;
+    vs_out.normal = osg_Normal;
+    vs_out.color = osg_Color;
+    vs_out.texCoord = osg_MultiTexCoord0;
     vs_out.terrainWeights = aTerrainWeights;
 }

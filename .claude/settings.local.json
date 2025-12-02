@@ -14,7 +14,8 @@
       "Bash(d:)",
       "Bash(copy:*)",
       "Bash(cmd /c copy:*)",
-      "Bash(cmd /c:*)"
+      "Bash(cmd /c:*)",
+      "Bash(glxinfo:*)"
     ],
     "deny": [],
     "ask": []
