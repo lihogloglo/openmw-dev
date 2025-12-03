@@ -123,21 +123,19 @@ namespace Terrain
         osg::ref_ptr<osg::Uniform> mCurrentTimeUniform;            // float
         osg::ref_ptr<osg::Uniform> mDecayTimeUniform;              // float
 
-        // Footprint parameters
-        float mFootprintRadius;
-        float mFootprintInterval;
+        // Deformation parameters
         float mDeformationDepth;
-        osg::Vec3f mLastFootprintPos;
-        float mTimeSinceLastFootprint;
+
+        // Particle emission tracking
+        osg::Vec3f mLastParticlePos;
+        float mParticleInterval;
 
         // Decay parameters
         float mDecayTime;  // Time for trails to fully fade (default 180s)
 
         // Terrain-specific parameters
         struct TerrainParams {
-            float radius;
             float depth;
-            float interval;
             float cameraDepth;   // How much of body is captured (smaller = feet only)
             float blurSpread;    // Blur multiplier for edge smoothness
             std::string pattern;

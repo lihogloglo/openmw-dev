@@ -25,9 +25,6 @@ in TCS_OUT {
     vec4 terrainWeights;
 } tes_in[];
 
-// Patch input for tessellation level debug
-patch in float tessLevelDebug;
-
 // Outputs to fragment shader
 out TES_OUT {
     vec2 texCoord;
@@ -39,7 +36,6 @@ out TES_OUT {
     vec3 viewPos;
     float euclideanDepth;
     float linearDepth;
-    float tessLevel;  // Debug: tessellation level
 } tes_out;
 
 // Deformation uniforms
@@ -137,5 +133,4 @@ void main()
     tes_out.color = color;
     tes_out.deformationFactor = deformationFactor;
     tes_out.maxDepth = maxDepth;
-    tes_out.tessLevel = tessLevelDebug;  // Debug: pass tessellation level to fragment
 }

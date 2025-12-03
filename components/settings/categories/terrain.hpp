@@ -41,10 +41,6 @@ namespace Settings
 
         // Snow deformation settings
         SettingValue<bool> mSnowDeformationEnabled{ mIndex, "Terrain", "snow deformation enabled" };
-        SettingValue<int> mSnowMaxFootprints{ mIndex, "Terrain", "snow max footprints",
-            makeClampSanitizerInt(1, 500) };
-        SettingValue<float> mSnowFootprintRadius{ mIndex, "Terrain", "snow footprint radius",
-            makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mSnowDeformationDepth{ mIndex, "Terrain", "snow deformation depth",
             makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mSnowDecayTime{ mIndex, "Terrain", "snow decay time",
@@ -58,8 +54,6 @@ namespace Settings
 
         // Ash deformation settings
         SettingValue<bool> mAshDeformationEnabled{ mIndex, "Terrain", "ash deformation enabled" };
-        SettingValue<float> mAshFootprintRadius{ mIndex, "Terrain", "ash footprint radius",
-            makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mAshDeformationDepth{ mIndex, "Terrain", "ash deformation depth",
             makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mAshDecayTime{ mIndex, "Terrain", "ash decay time",
@@ -71,8 +65,6 @@ namespace Settings
 
         // Mud deformation settings
         SettingValue<bool> mMudDeformationEnabled{ mIndex, "Terrain", "mud deformation enabled" };
-        SettingValue<float> mMudFootprintRadius{ mIndex, "Terrain", "mud footprint radius",
-            makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mMudDeformationDepth{ mIndex, "Terrain", "mud deformation depth",
             makeMaxStrictSanitizerFloat(1.0f) };
         SettingValue<float> mMudDecayTime{ mIndex, "Terrain", "mud decay time",

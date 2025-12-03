@@ -107,11 +107,9 @@ namespace Terrain
         , mWorldspace(ESM::RefId())
         , mEnabled(Settings::terrain().mSnowDeformationEnabled.get())
         , mActive(false)
-        , mFootprintRadius(Settings::terrain().mSnowFootprintRadius.get())
-        , mFootprintInterval(2.0f)
         , mDeformationDepth(Settings::terrain().mSnowDeformationDepth.get())
-        , mLastFootprintPos(0.0f, 0.0f, 0.0f)
-        , mTimeSinceLastFootprint(999.0f)
+        , mLastParticlePos(0.0f, 0.0f, 0.0f)
+        , mParticleInterval(45.0f)  // Interval for particle emission
         , mDecayTime(Settings::terrain().mSnowDecayTime.get())
         , mCurrentTerrainType("snow")
         , mCurrentCameraDepth(Settings::terrain().mSnowCameraDepth.get())
@@ -132,25 +130,19 @@ namespace Terrain
         // Initialize terrain-based parameters from settings
         mTerrainParams.clear();
         mTerrainParams.push_back(TerrainParams{
-            Settings::terrain().mSnowFootprintRadius.get(),
             Settings::terrain().mSnowDeformationDepth.get(),
-            45.0f,  // interval (approx 2 feet)
             Settings::terrain().mSnowCameraDepth.get(),
             Settings::terrain().mSnowBlurSpread.get(),
             "snow"
         });
         mTerrainParams.push_back(TerrainParams{
-            Settings::terrain().mAshFootprintRadius.get(),
             Settings::terrain().mAshDeformationDepth.get(),
-            45.0f,  // interval
             Settings::terrain().mAshCameraDepth.get(),
             Settings::terrain().mAshBlurSpread.get(),
             "ash"
         });
         mTerrainParams.push_back(TerrainParams{
-            Settings::terrain().mMudFootprintRadius.get(),
             Settings::terrain().mMudDeformationDepth.get(),
-            45.0f,  // interval
             Settings::terrain().mMudCameraDepth.get(),
             Settings::terrain().mMudBlurSpread.get(),
             "mud"
@@ -193,18 +185,16 @@ namespace Terrain
         // Update terrain-specific parameters
         updateTerrainParameters(playerPos);
 
-        // Check if player has moved enough for a new footprint
-        mTimeSinceLastFootprint += dt;
+        // Check if player has moved enough for particle emission
+        float distanceMoved = (playerPos - mLastParticlePos).length();
 
-        float distanceMoved = (playerPos - mLastFootprintPos).length();
-
-        // Only emit particles when actually moving (distance check only, no time-based emission)
+        // Only emit particles when actually moving (distance check only)
         // Minimum movement threshold to avoid particles when standing still
         const float minMovementForParticles = 5.0f; // ~3 inches of movement
 
-        if (distanceMoved > mFootprintInterval)
+        if (distanceMoved > mParticleInterval)
         {
-            // Only emit particles if we're actually moving, not for mud, and occasionally
+            // Only emit particles if we're actually moving and not for mud
             bool shouldEmitParticles = (distanceMoved > minMovementForParticles)
                                        && (mCurrentTerrainType != "mud");
 
@@ -214,8 +204,7 @@ namespace Terrain
                 emitParticles(playerPos);
             }
 
-            mLastFootprintPos = playerPos;
-            mTimeSinceLastFootprint = 0.0f;
+            mLastParticlePos = playerPos;
         }
 
         // Update current time uniform
@@ -296,9 +285,7 @@ namespace Terrain
         {
             if (terrainType.find(params.pattern) != std::string::npos)
             {
-                mFootprintRadius = params.radius;
                 mDeformationDepth = params.depth;
-                mFootprintInterval = params.interval;
                 mCurrentCameraDepth = params.cameraDepth;
                 mCurrentBlurSpread = params.blurSpread;
 
