@@ -379,6 +379,9 @@ namespace Terrain
         dss->setAttributeAndModes(dProgram, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
         dss->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
         dss->setMode(GL_TEXTURE_2D, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
+        // CRITICAL: Disable backface culling when viewing from below
+        // Actor meshes may be single-sided, so we need to render both front and back faces
+        dss->setMode(GL_CULL_FACE, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
 
         // 2. Create Simulation (pass resolution for texture sizing)
         mSimulation = new SnowSimulation(mSceneManager, mObjectMaskMap, resolution);
@@ -449,9 +452,20 @@ namespace Terrain
                 -halfSize, halfSize,
                 nearPlane, farPlane);
 
-            // View Matrix: Top-Down looking at player
-            // Eye position is at farPlane distance above ground
-            osg::Vec3f eye = mRTTCenter + osg::Vec3f(0, 0, farPlane);
+            // View Matrix: Bottom-Up looking at player
+            // Eye position is BELOW the ground, looking UP
+            // This ensures only feet (objects near ground) are captured,
+            // while flying creatures are outside the near/far range
+            //
+            // Coordinate mapping (Z-up world, camera looking +Z):
+            // - World X -> Camera X (right in texture)
+            // - World Y -> Camera Y (up in texture)
+            // - World Z -> Camera depth (near to far)
+            //
+            // Using up = (0, 1, 0) keeps Y pointing up in the rendered image,
+            // matching the terrain shader's UV calculation:
+            //   deformUV = (worldPos.xy - origin.xy) / scale + 0.5
+            osg::Vec3f eye = mRTTCenter - osg::Vec3f(0, 0, farPlane);
             osg::Vec3f center = mRTTCenter;
             osg::Vec3f up = osg::Vec3f(0, 1, 0);
 
