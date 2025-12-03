@@ -16,6 +16,7 @@ varying float vMaxDepth;            // From vertex shader
 uniform sampler2D snowDeformationMap;
 uniform vec3 snowRTTWorldOrigin;
 uniform float snowRTTScale;
+uniform int deformationDebugMode; // 0=off, 1=UV coords, 2=deform value, 3=world offset
 
 uniform sampler2D diffuseMap;
 
@@ -266,4 +267,179 @@ void main()
 #endif
 
     applyShadowDebugOverlay();
+
+    // ========================================================================
+    // DEBUG VISUALIZATION FOR DEFORMATION SYSTEM
+    // ========================================================================
+    // Mode 1: Terrain UV coords - verify shader's UV calculation
+    // Mode 2: Raw deformation map sample - see what's in the texture
+    // Mode 3: World position debug - verify passWorldPos is correct
+    // Mode 4: Cardinal direction test - RED=East, GREEN=North, CYAN=West, MAGENTA=South
+    // Mode 5: Deformation map with crosshair at center
+    // ========================================================================
+    if (deformationDebugMode > 0)
+    {
+        vec2 deformUV = (passWorldPos.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
+        bool inBounds = (deformUV.x >= 0.0 && deformUV.x <= 1.0 && deformUV.y >= 0.0 && deformUV.y <= 1.0);
+
+        if (deformationDebugMode == 1)
+        {
+            // Mode 1: Show calculated UV coordinates
+            // Expected: Orange (0.5, 0.5) at player position
+            // Red increases East (+X world), Green increases North (+Y world)
+            if (inBounds)
+                gl_FragData[0].rgb = vec3(deformUV.x, deformUV.y, 0.0);
+            else
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+        }
+        else if (deformationDebugMode == 2)
+        {
+            // Mode 2: Show raw deformation map value
+            if (inBounds)
+            {
+                float deformValue = texture2D(snowDeformationMap, deformUV).r;
+                gl_FragData[0].rgb = vec3(deformValue);
+            }
+            else
+            {
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+            }
+        }
+        else if (deformationDebugMode == 3)
+        {
+            // Mode 3: Show passWorldPos relative to origin
+            // This tests if chunkWorldOffset is correct
+            vec2 relPos = passWorldPos.xy - snowRTTWorldOrigin.xy;
+            // Normalize to visible range (divide by expected range ~1800 units)
+            gl_FragData[0].rgb = vec3(
+                relPos.x / 1800.0 + 0.5,
+                relPos.y / 1800.0 + 0.5,
+                0.0
+            );
+        }
+        else if (deformationDebugMode == 4)
+        {
+            // Mode 4: Cardinal direction color test
+            // Stand at origin, look around:
+            // - EAST  (+X from player): Should be RED
+            // - NORTH (+Y from player): Should be GREEN
+            // - WEST  (-X from player): Should be CYAN
+            // - SOUTH (-Y from player): Should be MAGENTA
+            vec2 relPos = passWorldPos.xy - snowRTTWorldOrigin.xy;
+            float dist = length(relPos);
+
+            if (dist < 100.0)
+            {
+                // Player position marker - WHITE
+                gl_FragData[0].rgb = vec3(1.0, 1.0, 1.0);
+            }
+            else
+            {
+                // Determine dominant direction
+                float absX = abs(relPos.x);
+                float absY = abs(relPos.y);
+
+                if (absX > absY)
+                {
+                    // East-West axis dominant
+                    if (relPos.x > 0.0)
+                        gl_FragData[0].rgb = vec3(1.0, 0.0, 0.0); // EAST = RED
+                    else
+                        gl_FragData[0].rgb = vec3(0.0, 1.0, 1.0); // WEST = CYAN
+                }
+                else
+                {
+                    // North-South axis dominant
+                    if (relPos.y > 0.0)
+                        gl_FragData[0].rgb = vec3(0.0, 1.0, 0.0); // NORTH = GREEN
+                    else
+                        gl_FragData[0].rgb = vec3(1.0, 0.0, 1.0); // SOUTH = MAGENTA
+                }
+            }
+        }
+        else if (deformationDebugMode == 5)
+        {
+            // Mode 5: Show deformation map with crosshair overlay
+            // Crosshair shows where UV (0.5, 0.5) is - should be at player feet
+            if (inBounds)
+            {
+                float deformValue = texture2D(snowDeformationMap, deformUV).r;
+                vec3 baseColor = vec3(deformValue);
+
+                // Draw crosshair at center (UV 0.5, 0.5)
+                float crossSize = 0.02;
+                float lineWidth = 0.005;
+                bool onVertical = (abs(deformUV.x - 0.5) < lineWidth) && (abs(deformUV.y - 0.5) < crossSize);
+                bool onHorizontal = (abs(deformUV.y - 0.5) < lineWidth) && (abs(deformUV.x - 0.5) < crossSize);
+
+                if (onVertical || onHorizontal)
+                    gl_FragData[0].rgb = vec3(1.0, 1.0, 0.0); // Yellow crosshair
+                else
+                    gl_FragData[0].rgb = baseColor;
+            }
+            else
+            {
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+            }
+        }
+        else if (deformationDebugMode == 6)
+        {
+            // Mode 6: Sample deformation map at FIXED UV positions to see what's actually in it
+            // This bypasses the world-to-UV transform to test the texture directly
+            // Uses screen position to sweep through the texture
+            vec2 screenUV = gl_FragCoord.xy / screenRes;
+            float deformValue = texture2D(snowDeformationMap, screenUV).r;
+            gl_FragData[0].rgb = vec3(deformValue);
+        }
+        else if (deformationDebugMode == 7)
+        {
+            // Mode 7: Show ALL channels of deformation map (RGBA)
+            if (inBounds)
+            {
+                vec4 deformSample = texture2D(snowDeformationMap, deformUV);
+                gl_FragData[0].rgb = deformSample.rgb;
+            }
+            else
+            {
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+            }
+        }
+        else if (deformationDebugMode == 8)
+        {
+            // Mode 8: Show raw passWorldPos.xy as colors (mod 1000 for visibility)
+            // This shows the actual world coordinates the shader is receiving
+            float wx = mod(passWorldPos.x, 1000.0) / 1000.0;
+            float wy = mod(passWorldPos.y, 1000.0) / 1000.0;
+            gl_FragData[0].rgb = vec3(wx, wy, 0.0);
+        }
+        else if (deformationDebugMode == 9)
+        {
+            // Mode 9: Show snowRTTWorldOrigin.xy (player pos) as colors
+            float ox = mod(snowRTTWorldOrigin.x, 1000.0) / 1000.0;
+            float oy = mod(snowRTTWorldOrigin.y, 1000.0) / 1000.0;
+            gl_FragData[0].rgb = vec3(ox, oy, 0.0);
+        }
+        else if (deformationDebugMode == 10)
+        {
+            // Mode 10: Simple quadrant test with gradient
+            // Shows the sign and magnitude of relPos.x and relPos.y
+            vec2 relPos = passWorldPos.xy - snowRTTWorldOrigin.xy;
+
+            // Normalize to 0-1 range (assuming max distance ~2000 units)
+            float normX = clamp(relPos.x / 2000.0 + 0.5, 0.0, 1.0);
+            float normY = clamp(relPos.y / 2000.0 + 0.5, 0.0, 1.0);
+
+            // R = X position (0=west, 0.5=center, 1=east if X is east)
+            // G = Y position (0=south, 0.5=center, 1=north if Y is north)
+            gl_FragData[0].rgb = vec3(normX, normY, 0.0);
+        }
+        else if (deformationDebugMode == 11)
+        {
+            // Mode 11: Show chunkWorldOffset itself
+            // This verifies the uniform is being passed correctly
+            float cx = mod(chunkWorldOffset.x, 1000.0) / 1000.0;
+            float cy = mod(chunkWorldOffset.y, 1000.0) / 1000.0;
+            gl_FragData[0].rgb = vec3(cx, cy, 0.0);
+        }
+    }
 }

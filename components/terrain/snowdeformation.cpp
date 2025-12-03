@@ -365,7 +365,12 @@ namespace Terrain
         // Cull Mask: Actor(3) | Player(4) | Object(10)
         mDepthCamera->setCullMask((1 << 3) | (1 << 4) | (1 << 10));
 
-        // Override Shader for Depth Camera (Output White)
+        // Override Shader for Depth Camera
+        // Outputs white (1.0) for any rendered geometry
+        // The UV position in the texture corresponds to world XY position:
+        //   - Texture U (0-1) = World X mapped from (origin - halfSize) to (origin + halfSize)
+        //   - Texture V (0-1) = World Y mapped from (origin - halfSize) to (origin + halfSize)
+        // With bottom-up camera (looking +Z), we render the underside of objects
         osg::StateSet* dss = mDepthCamera->getOrCreateStateSet();
         osg::Program* dProgram = new osg::Program;
         dProgram->addShader(new osg::Shader(osg::Shader::VERTEX,
@@ -446,30 +451,21 @@ namespace Terrain
             float nearPlane = 1.0f;
             float farPlane = nearPlane + mCurrentCameraDepth;
 
-            // Ortho Projection centered on player
-            mDepthCamera->setProjectionMatrixAsOrtho(
-                -halfSize, halfSize,
-                -halfSize, halfSize,
-                nearPlane, farPlane);
-
-            // View Matrix: Bottom-Up looking at player
-            // Eye position is BELOW the ground, looking UP
+            // BOTTOM-UP camera looking at player from below
+            // Eye is below the center, looking up (+Z direction)
             // This ensures only feet (objects near ground) are captured,
             // while flying creatures are outside the near/far range
-            //
-            // Coordinate mapping (Z-up world, camera looking +Z):
-            // - World X -> Camera X (right in texture)
-            // - World Y -> Camera Y (up in texture)
-            // - World Z -> Camera depth (near to far)
-            //
-            // Using up = (0, 1, 0) keeps Y pointing up in the rendered image,
-            // matching the terrain shader's UV calculation:
-            //   deformUV = (worldPos.xy - origin.xy) / scale + 0.5
             osg::Vec3f eye = mRTTCenter - osg::Vec3f(0, 0, farPlane);
             osg::Vec3f center = mRTTCenter;
-            osg::Vec3f up = osg::Vec3f(0, 1, 0);
+            osg::Vec3f upVec = osg::Vec3f(0, 1, 0);
 
-            mDepthCamera->setViewMatrixAsLookAt(eye, center, up);
+            mDepthCamera->setViewMatrixAsLookAt(eye, center, upVec);
+
+            // Standard ortho projection - let's test and see what debug modes reveal
+            mDepthCamera->setProjectionMatrixAsOrtho(
+                -halfSize, halfSize,   // left, right (X)
+                -halfSize, halfSize,   // bottom, top (Y)
+                nearPlane, farPlane);
         }
 
         // DEBUG: Dump Object Mask

@@ -3,6 +3,7 @@
 #include "world.hpp"
 
 #include <components/debug/debuglog.hpp>
+#include <components/settings/values.hpp>
 
 namespace Terrain
 {
@@ -39,6 +40,11 @@ namespace Terrain
         // Create and add the enabled uniform (defaults to true for testing)
         osg::ref_ptr<osg::Uniform> enabledUniform = new osg::Uniform("snowDeformationEnabled", true);
         stateset->addUniform(enabledUniform);
+
+        // Debug mode uniform (0=off, 1=UV coords, 2=deform value, 3=world offset)
+        int debugMode = Settings::terrain().mDeformationDebugMode.get();
+        osg::ref_ptr<osg::Uniform> debugModeUniform = new osg::Uniform("deformationDebugMode", debugMode);
+        stateset->addUniform(debugModeUniform);
     }
 
     void SnowDeformationUpdater::apply(osg::StateSet* stateset, osg::NodeVisitor* nv)

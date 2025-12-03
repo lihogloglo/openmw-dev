@@ -78,6 +78,10 @@ namespace Settings
         SettingValue<int> mDeformationMapResolution{ mIndex, "Terrain", "deformation map resolution",
             makeClampSanitizerInt(512, 4096) };
 
+        // Debug mode for deformation system (0=off, 1=UV, 2=deform value, 3=world offset)
+        SettingValue<int> mDeformationDebugMode{ mIndex, "Terrain", "deformation debug mode",
+            makeClampSanitizerInt(0, 3) };
+
         // GPU Tessellation settings
         SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };
         SettingValue<float> mTessellationMinDistance{ mIndex, "Terrain", "tessellation min distance",
