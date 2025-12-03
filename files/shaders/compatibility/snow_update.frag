@@ -11,11 +11,9 @@ void main()
     vec2 uv = gl_TexCoord[0].xy;
 
     // 1. Calculate UV for reading from the previous frame (with sliding window offset)
-    // When player moves +X (east), old footprints are now to the west (-X) relative to player.
-    // The camera has moved east, so to read where footprints WERE, we need to sample
-    // at a LOWER U value (west). Since offset = delta/size with positive delta for +X movement,
-    // we need to SUBTRACT the offset to get the correct previous position.
-    vec2 oldUV = uv - offset;
+    // The offset represents how much the player moved this frame (delta / RTTSize).
+    // To find where old footprints are in the new texture space, we ADD the offset.
+    vec2 oldUV = uv + offset;
 
     // 2. Sample Previous Frame (with bounds check)
     float previousValue = 0.0;

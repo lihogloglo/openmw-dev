@@ -2,151 +2,194 @@
 
 ## Problem Summary
 
-The RTT (Render-to-Texture) camera system for terrain deformation has a **coordinate mapping issue**. The deformations appear offset from the character and the UV debug visualization shows axes are rotated ~45 degrees.
+The RTT (Render-to-Texture) camera system for terrain deformation has a **coordinate mapping issue**. Deformations appear **in the wrong location** relative to where the character walks.
 
-## Current Behavior (Debug Mode 1)
+## Current Symptom (Latest Testing)
 
-When debug mode 1 is enabled (`deformation debug mode = 1` in settings.cfg):
-- **Expected**: Red increases going East (+X), Green increases going North (+Y)
-- **Actual**: Red increases going South-East, Green increases going North-West
+**Footprints appear in the WRONG DIRECTION from where the character walked.**
+- When walking in any direction, the deformation appears reversed/offset
+- This happens regardless of camera orientation (top-down or bottom-up)
 
-This 45-degree rotation persists regardless of camera orientation (top-down or bottom-up).
+## Working Reference Commit
+
+**Commit `19eeb462d7f563375c7de265219dc0da550799b0`** had working deformation (though camera was "upside down").
+
+Key settings in that commit:
+```cpp
+// snowdeformation.cpp - TOP-DOWN camera
+osg::Vec3f eye = mRTTCenter + osg::Vec3f(0, 0, farPlane);  // ABOVE player
+osg::Vec3f center = mRTTCenter;
+osg::Vec3f up = osg::Vec3f(0, 1, 0);
+```
+
+```glsl
+// snow_update.frag - PLUS offset
+vec2 oldUV = uv + offset;
+```
+
+## Current Configuration
+
+```cpp
+// snowdeformation.cpp - BOTTOM-UP camera (for flying creature filtering)
+osg::Vec3f eye = mRTTCenter - osg::Vec3f(0, 0, farPlane);  // BELOW player
+osg::Vec3f center = mRTTCenter;
+osg::Vec3f upVec = osg::Vec3f(0, 1, 0);
+
+// Standard ortho projection
+mDepthCamera->setProjectionMatrixAsOrtho(
+    -halfSize, halfSize,   // left, right (X)
+    -halfSize, halfSize,   // bottom, top (Y)
+    nearPlane, farPlane);
+```
+
+```glsl
+// snow_update.frag - currently PLUS offset (reverted)
+vec2 oldUV = uv + offset;
+```
 
 ## System Architecture
 
-### Components
-
-1. **Depth Camera** (`snowdeformation.cpp`)
-   - Renders actors to `mObjectMaskMap` texture
-   - Currently configured as bottom-up (eye below ground, looking +Z)
-   - Uses orthographic projection centered on player
-
-2. **Snow Simulation** (`snowsimulation.cpp`)
-   - Update pass: Combines object mask with previous frame, applies scrolling offset
-   - Blur passes: Smooths the deformation
-   - Copy pass: Copies result for next frame
-
-3. **Terrain Shader** (`terrain.vert`, `terrain.frag`)
-   - Samples deformation map using UV calculated from world position:
-     ```glsl
-     vec2 deformUV = (worldPos.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
-     ```
-
-### Coordinate Flow
-
+### Pipeline Flow
 ```
-World Position (X, Y, Z)
-    ↓
-Depth Camera (renders to Object Mask)
-    ↓
-Snow Update Shader (combines with previous frame)
-    ↓
-Blur Passes
-    ↓
-Terrain Shader (samples using world-to-UV transform)
+1. Depth Camera renders actors to Object Mask texture
+   - Bottom-up orthographic view centered on player
+   - Outputs white (1.0) where actors exist
+
+2. Snow Update Shader (snow_update.frag)
+   - Reads previous frame with scrolling offset
+   - Combines with current object mask
+   - Writes to accumulation buffer
+
+3. Blur Passes (horizontal then vertical)
+   - Smooths the deformation edges
+
+4. Terrain Shader samples result
+   - Calculates UV: deformUV = (worldPos.xy - origin.xy) / scale + 0.5
+   - Displaces vertices based on deformation value
 ```
 
-## Key Files
+### Key Files
+| File | Purpose |
+|------|---------|
+| `components/terrain/snowdeformation.cpp` | Depth camera setup, RTT initialization |
+| `components/terrain/snowsimulation.cpp` | Ping-pong buffers, update/blur passes |
+| `files/shaders/compatibility/snow_update.frag` | Accumulation with scrolling |
+| `files/shaders/compatibility/terrain.vert` | UV calculation, vertex displacement |
+| `files/shaders/compatibility/terrain.frag` | Debug visualization, normal perturbation |
+| `components/settings/categories/terrain.hpp` | Debug mode setting (0-11 range) |
 
-- `components/terrain/snowdeformation.cpp` - Depth camera setup, RTT initialization
-- `components/terrain/snowsimulation.cpp` - Ping-pong buffers, update/blur passes
-- `files/shaders/compatibility/snow_update.frag` - Accumulation shader
-- `files/shaders/compatibility/terrain.vert` - Terrain vertex displacement
-- `files/shaders/compatibility/terrain.frag` - Debug visualization, normal perturbation
-
-## Debug System Added
-
-A debug visualization system was added to help diagnose the issue:
+## Debug System
 
 ### Settings
 ```ini
 [Terrain]
-deformation debug mode = 1
+deformation debug mode = 2
 ```
+
+**IMPORTANT**: You must rebuild after changing the setting - it's read at initialization.
 
 ### Debug Modes
-- `0` = Off (normal rendering)
-- `1` = Show UV coordinates: R=U (should be East), G=V (should be North), Blue=out-of-bounds
-- `2` = Show deformation value as grayscale (white=object, black=none)
-- `3` = Show world offset from RTT origin
+| Mode | What it shows |
+|------|---------------|
+| 0 | Off (normal rendering) |
+| 1 | UV coordinates: R=U, G=V (orange at player) |
+| 2 | Deformation map value (white=footprint, black=none) |
+| 3 | World position relative to origin |
+| 4 | Cardinal directions: RED=East, GREEN=North, CYAN=West, MAGENTA=South |
+| 5 | Deformation map + yellow crosshair at UV center |
+| 6 | Raw texture sweep (bypasses UV calculation) |
+| 7 | Full RGBA of deformation map |
+| 8 | Raw passWorldPos.xy as colors |
+| 9 | snowRTTWorldOrigin.xy (player pos) as colors |
+| 10 | Gradient: R=X position, G=Y position |
+| 11 | chunkWorldOffset uniform as colors |
 
-## What Was Tried
+## Camera Flip Analysis
 
-### 1. Bottom-Up Camera with up=(0,1,0)
+When switching from top-down to bottom-up camera:
+
+**Top-down (looking -Z with up=+Y):**
+- Right vector = cross(-Z, +Y) = **+X**
+- World +X → Texture +U (right side)
+
+**Bottom-up (looking +Z with up=+Y):**
+- Right vector = cross(+Z, +Y) = **-X**
+- World +X → Texture **-U** (left side, FLIPPED!)
+
+This means the X axis is mirrored when using bottom-up camera with standard projection.
+
+## Attempted Fixes (None Worked)
+
+### 1. Flip ortho projection X
 ```cpp
-osg::Vec3f eye = mRTTCenter - osg::Vec3f(0, 0, farPlane);
-osg::Vec3f center = mRTTCenter;
-osg::Vec3f upVec = osg::Vec3f(0, 1, 0);
+mDepthCamera->setProjectionMatrixAsOrtho(
+    halfSize, -halfSize,   // left, right SWAPPED
+    -halfSize, halfSize,
+    nearPlane, farPlane);
 ```
-**Result**: Axes rotated 45 degrees (Red=SE, Green=NW)
+**Result**: Still wrong
 
-### 2. Bottom-Up Camera with up=(0,-1,0) and flipped ortho Y
-```cpp
-osg::Vec3f upVec = osg::Vec3f(0, -1, 0);
-mDepthCamera->setProjectionMatrixAsOrtho(-halfSize, halfSize, halfSize, -halfSize, near, far);
+### 2. Change offset direction in snow_update.frag
+```glsl
+vec2 oldUV = uv - offset;  // Changed from + to -
 ```
-**Result**: Same 45-degree rotation
+**Result**: Still wrong (footprints in front instead of behind)
 
-### 3. Top-Down Camera with up=(0,1,0)
-```cpp
-osg::Vec3f eye = mRTTCenter + osg::Vec3f(0, 0, farPlane);
-osg::Vec3f upVec = osg::Vec3f(0, 1, 0);
+### 3. Revert offset to original
+```glsl
+vec2 oldUV = uv + offset;  // Back to original
 ```
-**Result**: Same 45-degree rotation
-
-## Key Insight
-
-The fact that **both top-down and bottom-up cameras show the same 45-degree rotation** suggests the issue is NOT in the camera orientation, but somewhere else in the pipeline:
-
-1. **Possible issue in terrain shader's world position** (`passWorldPos`)
-   - The `chunkWorldOffset` uniform might not be correct
-   - The vertex position might already be in a rotated space
-
-2. **Possible issue in how world position is passed**
-   - Check `terrain.vert` line: `passWorldPos = vertex.xyz + chunkWorldOffset;`
-
-3. **Possible OpenMW-specific coordinate system**
-   - OpenMW might use a different convention than expected
-   - The "world" coordinates in shaders might already be transformed
-
-## Next Steps to Investigate
-
-1. **Verify `passWorldPos` is correct**:
-   - Add debug mode to output `passWorldPos.xy` directly as colors
-   - Compare with actual world coordinates from game
-
-2. **Check `chunkWorldOffset` uniform**:
-   - Log the values being passed
-   - Verify they match expected chunk positions
-
-3. **Test with a simple quad at known world position**:
-   - Place a debug object at (1000, 0, 0) and verify UV shows more red
-   - Place at (0, 1000, 0) and verify UV shows more green
-
-4. **Check if OpenMW uses rotated world coordinates**:
-   - Some engines rotate world axes (e.g., Y-up vs Z-up conversions)
-   - Check if there's a 45-degree rotation in the base coordinate system
+**Result**: Still wrong
 
 ## OpenMW Coordinate System
 
 - **Z is up** (confirmed)
-- **22.1 units = 1 foot** (confirmed)
-- X and Y form the ground plane
-- Need to verify: Which direction is North? Which is East?
+- **+Y is North** (confirmed from localmap.cpp: `return osg::Vec2f(0, 1)` for default north)
+- **+X is East** (implied)
+- **22.1 units ≈ 1 foot**
 
-## Files Modified During Debug Session
+## Hypotheses to Test
 
-1. `components/settings/categories/terrain.hpp` - Added `mDeformationDebugMode`
-2. `files/settings-default.cfg` - Added `deformation debug mode` setting
-3. `components/terrain/snowdeformationupdater.cpp` - Pass debug mode to shader
-4. `files/shaders/compatibility/terrain.frag` - Added debug visualization
-5. `files/shaders/core/terrain.frag` - Added debug visualization
-6. `components/terrain/snowdeformation.cpp` - Various camera orientation attempts
-7. `files/shaders/compatibility/snow_update.frag` - Changed offset from `+` to `-`
+### 1. The UV calculation in terrain shader doesn't match camera rendering
+The terrain shader calculates:
+```glsl
+vec2 deformUV = (worldPos.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
+```
+
+If the camera renders with X flipped, we might need:
+```glsl
+vec2 deformUV;
+deformUV.x = 0.5 - (worldPos.x - snowRTTWorldOrigin.x) / snowRTTScale;  // FLIP X
+deformUV.y = (worldPos.y - snowRTTWorldOrigin.y) / snowRTTScale + 0.5;
+```
+
+### 2. The simulation offset needs both X and Y flipped for bottom-up
+With bottom-up camera, both the rendering AND the scrolling coordinate systems change.
+
+### 3. Something else is transforming coordinates
+There might be a model matrix or other transform applied to terrain chunks that we're not accounting for.
+
+## Next Steps
+
+1. **Use debug mode 6** - This bypasses UV calculation entirely and shows raw texture. Walk around and see where footprints appear in the raw texture.
+
+2. **Compare object mask dump** - The code dumps `object_mask_dump.png` every 600 frames. Check if the actor appears in the correct position in that texture.
+
+3. **Try flipping UV.x in terrain shader** - Add a test where we sample at `(1.0 - deformUV.x, deformUV.y)` to see if that fixes alignment.
+
+4. **Log actual values** - Add C++ logging to print `mRTTCenter`, `playerPos`, and the offset being sent to the shader.
+
+## Files Modified
+
+1. `components/settings/categories/terrain.hpp` - Debug mode range extended to 0-11
+2. `files/shaders/compatibility/terrain.frag` - Extended debug modes (1-11)
+3. `files/shaders/core/terrain.frag` - Extended debug modes
+4. `components/terrain/snowdeformation.cpp` - Camera configuration
+5. `files/shaders/compatibility/snow_update.frag` - Offset direction (currently `+`)
 
 ## Current State
 
-- Bottom-up camera is in place (for flying creature filtering)
-- Debug visualization is working (mode 1, 2, 3)
-- Coordinate mapping issue remains unsolved
-- The issue appears to be upstream of the camera (in world coordinate handling)
+- Bottom-up camera is configured (for flying creature filtering)
+- Debug modes 1-11 available (rebuild required after changing setting)
+- **Coordinate mapping issue remains UNSOLVED**
+- Footprints appear in wrong location relative to character movement

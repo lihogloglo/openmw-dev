@@ -41,10 +41,8 @@ namespace Terrain
         osg::ref_ptr<osg::Uniform> enabledUniform = new osg::Uniform("snowDeformationEnabled", true);
         stateset->addUniform(enabledUniform);
 
-        // Debug mode uniform (0=off, 1=UV coords, 2=deform value, 3=world offset)
-        int debugMode = Settings::terrain().mDeformationDebugMode.get();
-        osg::ref_ptr<osg::Uniform> debugModeUniform = new osg::Uniform("deformationDebugMode", debugMode);
-        stateset->addUniform(debugModeUniform);
+        // Debug mode uniform - use the manager's uniform so it updates dynamically
+        stateset->addUniform(manager->getDebugModeUniform());
     }
 
     void SnowDeformationUpdater::apply(osg::StateSet* stateset, osg::NodeVisitor* nv)

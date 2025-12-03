@@ -210,6 +210,10 @@ namespace Terrain
         // Update current time uniform
         mCurrentTimeUniform->set(mCurrentTime);
 
+        // Update debug mode from settings (allows runtime changes)
+        if (mDebugModeUniform)
+            mDebugModeUniform->set(Settings::terrain().mDeformationDebugMode.get());
+
         // Update RTT
         if (mRootNode)
         {
@@ -409,9 +413,12 @@ namespace Terrain
         // 3. Create Uniforms for Terrain
         mDeformationMapUniform = new osg::Uniform(osg::Uniform::SAMPLER_2D, "snowDeformationMap");
         mDeformationMapUniform->set(7); // Texture unit 7
-        
+
         mRTTWorldOriginUniform = new osg::Uniform("snowRTTWorldOrigin", osg::Vec3f(0,0,0));
         mRTTScaleUniform = new osg::Uniform("snowRTTScale", mRTTSize);
+
+        // Debug mode uniform - reads from settings and updates every frame
+        mDebugModeUniform = new osg::Uniform("deformationDebugMode", Settings::terrain().mDeformationDebugMode.get());
 
         // 4. Create Debug Overlay
         mDebugOverlay = new DebugOverlay(1920, 1080); // Assuming 1080p for now
