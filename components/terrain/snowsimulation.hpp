@@ -21,7 +21,7 @@ namespace Terrain
     class SnowSimulation : public osg::Group
     {
     public:
-        SnowSimulation(Resource::SceneManager* sceneManager, osg::Texture2D* objectMask);
+        SnowSimulation(Resource::SceneManager* sceneManager, osg::Texture2D* objectMask, int resolution = 2048);
 
         /// Update the simulation (scrolling, decay, swapping buffers)
         void update(float dt, const osg::Vec3f& centerPos);
@@ -52,6 +52,7 @@ namespace Terrain
         void createCopyPass();
 
         Resource::SceneManager* mSceneManager;
+        int mResolution; // Texture resolution (1024, 2048, or 4096)
 
         // Simulation State
         float mSize; // World units (e.g., 50m)

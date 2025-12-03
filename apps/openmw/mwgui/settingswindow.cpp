@@ -284,6 +284,7 @@ namespace MWGui
         getWidget(mScriptView, "ScriptView");
         getWidget(mScriptAdapter, "ScriptAdapter");
         getWidget(mScriptDisabled, "ScriptDisabled");
+        getWidget(mDeformationMapResolution, "DeformationMapResolution");
 
 #ifndef WIN32
         // hide gamma controls since it currently does not work under Linux
@@ -322,6 +323,9 @@ namespace MWGui
         mLightsResetButton->eventMouseButtonClick
             += MyGUI::newDelegate(this, &SettingsWindow::onLightsResetButtonClicked);
         mMaxLights->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onMaxLightsChanged);
+
+        mDeformationMapResolution->eventComboChangePosition
+            += MyGUI::newDelegate(this, &SettingsWindow::onDeformationMapResolutionChanged);
 
         mWindowModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onWindowModeChanged);
         mVSyncModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onVSyncModeChanged);
@@ -374,6 +378,14 @@ namespace MWGui
             mWaterTextureSize->setIndexSelected(1);
         if (waterTextureSize >= 2048)
             mWaterTextureSize->setIndexSelected(2);
+
+        int deformationMapResolution = Settings::terrain().mDeformationMapResolution;
+        if (deformationMapResolution <= 1024)
+            mDeformationMapResolution->setIndexSelected(0);
+        else if (deformationMapResolution <= 2048)
+            mDeformationMapResolution->setIndexSelected(1);
+        else
+            mDeformationMapResolution->setIndexSelected(2);
 
         const int waterReflectionDetail = Settings::water().mReflectionDetail;
         mWaterReflectionDetail->setIndexSelected(waterReflectionDetail);
@@ -632,6 +644,23 @@ namespace MWGui
         Settings::shaders().mMaxLights.set(8 * (pos + 1));
         apply();
         configureWidgets(mMainWidget, false);
+    }
+
+    void SettingsWindow::onDeformationMapResolutionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        int resolution = 2048; // default
+        if (pos == 0)
+            resolution = 1024;
+        else if (pos == 1)
+            resolution = 2048;
+        else if (pos == 2)
+            resolution = 4096;
+        Settings::terrain().mDeformationMapResolution.set(resolution);
+
+        MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
+
+        apply();
     }
 
     void SettingsWindow::onLightsResetButtonClicked(MyGUI::Widget* /*sender*/)

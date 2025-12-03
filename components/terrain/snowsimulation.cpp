@@ -69,8 +69,9 @@ namespace Terrain
     // Static counter for traverse logging
     static int sTraverseCount = 0;
 
-    SnowSimulation::SnowSimulation(Resource::SceneManager* sceneManager, osg::Texture2D* objectMask)
+    SnowSimulation::SnowSimulation(Resource::SceneManager* sceneManager, osg::Texture2D* objectMask, int resolution)
         : mSceneManager(sceneManager)
+        , mResolution(resolution)
         , mSize(3625.0f) // 50 meters coverage
         , mCenter(0.0f, 0.0f, 0.0f)
         , mPreviousCenter(0.0f, 0.0f, 0.0f)
@@ -153,7 +154,7 @@ namespace Terrain
         for (int i = 0; i < 2; ++i)
         {
             mAccumulationMap[i] = new osg::Texture2D;
-            mAccumulationMap[i]->setTextureSize(2048, 2048);
+            mAccumulationMap[i]->setTextureSize(mResolution, mResolution);
             mAccumulationMap[i]->setInternalFormat(GL_RGBA);  // Match ObjectMaskMap
             mAccumulationMap[i]->setSourceFormat(GL_RGBA);
             mAccumulationMap[i]->setSourceType(GL_UNSIGNED_BYTE);  // Match ObjectMaskMap
@@ -168,9 +169,9 @@ namespace Terrain
         }
 
         // Initialize Blur Textures with Black Images
-        auto initBlurTex = [](osg::ref_ptr<osg::Texture2D>& tex) {
+        auto initBlurTex = [this](osg::ref_ptr<osg::Texture2D>& tex) {
             tex = new osg::Texture2D;
-            tex->setTextureSize(2048, 2048);
+            tex->setTextureSize(mResolution, mResolution);
             tex->setInternalFormat(GL_RGBA16F_ARB);
             tex->setSourceFormat(GL_RGBA);
             tex->setSourceType(GL_FLOAT);
@@ -178,9 +179,9 @@ namespace Terrain
             tex->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
             tex->setWrap(osg::Texture2D::WRAP_S, osg::Texture2D::CLAMP_TO_EDGE);
             tex->setWrap(osg::Texture2D::WRAP_T, osg::Texture2D::CLAMP_TO_EDGE);
-            
+
             osg::ref_ptr<osg::Image> clearImage = new osg::Image;
-            clearImage->allocateImage(2048, 2048, 1, GL_RGBA, GL_FLOAT);
+            clearImage->allocateImage(mResolution, mResolution, 1, GL_RGBA, GL_FLOAT);
             memset(clearImage->data(), 0, clearImage->getTotalSizeInBytes());
             tex->setImage(clearImage);
         };
@@ -203,7 +204,7 @@ namespace Terrain
         mUpdateCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
         mUpdateCamera->setProjectionMatrixAsOrtho2D(0, 1, 0, 1);
         mUpdateCamera->setViewMatrix(osg::Matrix::identity());
-        mUpdateCamera->setViewport(0, 0, 2048, 2048);
+        mUpdateCamera->setViewport(0, 0, mResolution, mResolution);
         mUpdateCamera->setCullingActive(false); // CRITICAL: Disable culling
         mUpdateCamera->setNodeMask(1 << 17); // Mask_RenderToTexture - CRITICAL for OpenMW!
         mUpdateCamera->setImplicitBufferAttachmentMask(0, 0); // Don't create implicit buffers
@@ -295,7 +296,7 @@ namespace Terrain
         mBlurHCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
         mBlurHCamera->setProjectionMatrixAsOrtho2D(0, 1, 0, 1);
         mBlurHCamera->setViewMatrix(osg::Matrix::identity());
-        mBlurHCamera->setViewport(0, 0, 2048, 2048);
+        mBlurHCamera->setViewport(0, 0, mResolution, mResolution);
         mBlurHCamera->setCullingActive(false); // CRITICAL: Disable culling
         mBlurHCamera->setNodeMask(1 << 17); // Mask_RenderToTexture
         mBlurHCamera->setImplicitBufferAttachmentMask(0, 0);
@@ -346,7 +347,7 @@ namespace Terrain
         mBlurVCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
         mBlurVCamera->setProjectionMatrixAsOrtho2D(0, 1, 0, 1);
         mBlurVCamera->setViewMatrix(osg::Matrix::identity());
-        mBlurVCamera->setViewport(0, 0, 2048, 2048);
+        mBlurVCamera->setViewport(0, 0, mResolution, mResolution);
         mBlurVCamera->setCullingActive(false); // CRITICAL: Disable culling
         mBlurVCamera->setNodeMask(1 << 17); // Mask_RenderToTexture
         mBlurVCamera->setImplicitBufferAttachmentMask(0, 0);
@@ -407,7 +408,7 @@ namespace Terrain
         mCopyCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
         mCopyCamera->setProjectionMatrixAsOrtho2D(0, 1, 0, 1);
         mCopyCamera->setViewMatrix(osg::Matrix::identity());
-        mCopyCamera->setViewport(0, 0, 2048, 2048);
+        mCopyCamera->setViewport(0, 0, mResolution, mResolution);
         mCopyCamera->setCullingActive(false);
         mCopyCamera->setNodeMask(1 << 17); // Mask_RenderToTexture
         mCopyCamera->setImplicitBufferAttachmentMask(0, 0);

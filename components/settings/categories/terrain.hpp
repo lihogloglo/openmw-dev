@@ -82,6 +82,10 @@ namespace Settings
         SettingValue<float> mMudBlurSpread{ mIndex, "Terrain", "mud blur spread",
             makeMaxStrictSanitizerFloat(0.1f) };
 
+        // Deformation map resolution (1024 = Low, 2048 = Medium, 4096 = High)
+        SettingValue<int> mDeformationMapResolution{ mIndex, "Terrain", "deformation map resolution",
+            makeClampSanitizerInt(512, 4096) };
+
         // GPU Tessellation settings
         SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };
         SettingValue<float> mTessellationMinDistance{ mIndex, "Terrain", "tessellation min distance",

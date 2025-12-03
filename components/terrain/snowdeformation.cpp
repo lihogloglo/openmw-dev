@@ -338,9 +338,13 @@ namespace Terrain
 
     void SnowDeformationManager::initRTT()
     {
+        // Get resolution from settings (1024, 2048, or 4096)
+        const int resolution = Settings::terrain().mDeformationMapResolution;
+        Log(Debug::Info) << "Initializing deformation RTT with resolution: " << resolution << "x" << resolution;
+
         // 1. Create Object Mask Map & Camera (Pass 0: Render Actors)
         mObjectMaskMap = new osg::Texture2D;
-        mObjectMaskMap->setTextureSize(2048, 2048);
+        mObjectMaskMap->setTextureSize(resolution, resolution);
         mObjectMaskMap->setInternalFormat(GL_RGBA); // Use RGBA for safety
         mObjectMaskMap->setSourceFormat(GL_RGBA);
         mObjectMaskMap->setSourceType(GL_UNSIGNED_BYTE);
@@ -352,7 +356,7 @@ namespace Terrain
 
         // Create Depth Texture for FBO completeness
         osg::Texture2D* depthTex = new osg::Texture2D;
-        depthTex->setTextureSize(2048, 2048);
+        depthTex->setTextureSize(resolution, resolution);
         depthTex->setInternalFormat(GL_DEPTH_COMPONENT24);
         depthTex->setSourceFormat(GL_DEPTH_COMPONENT);
         depthTex->setSourceType(GL_FLOAT);
@@ -361,13 +365,13 @@ namespace Terrain
 
         mDepthCamera = new osg::Camera;
         // Clear to BLACK (0.0) - No object
-        mDepthCamera->setClearColor(osg::Vec4(0.0f, 0.0f, 0.0f, 0.0f)); 
+        mDepthCamera->setClearColor(osg::Vec4(0.0f, 0.0f, 0.0f, 0.0f));
         mDepthCamera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         mDepthCamera->setRenderOrder(osg::Camera::PRE_RENDER, 0); // Run FIRST
         mDepthCamera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
         mDepthCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF); // Absolute Frame
         mDepthCamera->setCullingActive(false); // CRITICAL: Don't cull this camera (it has no children)
-        mDepthCamera->setViewport(0, 0, 2048, 2048);
+        mDepthCamera->setViewport(0, 0, resolution, resolution);
         mDepthCamera->attach(osg::Camera::COLOR_BUFFER, mObjectMaskMap);
         mDepthCamera->attach(osg::Camera::DEPTH_BUFFER, depthTex); // Attach Depth Buffer
 
@@ -389,8 +393,8 @@ namespace Terrain
         dss->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
         dss->setMode(GL_TEXTURE_2D, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
 
-        // 2. Create Simulation
-        mSimulation = new SnowSimulation(mSceneManager, mObjectMaskMap);
+        // 2. Create Simulation (pass resolution for texture sizing)
+        mSimulation = new SnowSimulation(mSceneManager, mObjectMaskMap, resolution);
 
         // Add cameras to scene graph
         if (mRootNode)
