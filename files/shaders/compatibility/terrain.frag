@@ -441,5 +441,40 @@ void main()
             float cy = mod(chunkWorldOffset.y, 1000.0) / 1000.0;
             gl_FragData[0].rgb = vec3(cx, cy, 0.0);
         }
+        else if (deformationDebugMode == 12)
+        {
+            // Mode 12: Show depth from object mask (G channel)
+            // Visualizes the RTT camera's depth capture:
+            //   Black = no object
+            //   Dark green = object deep below ground (shouldn't happen)
+            //   Bright green = object at ground level (feet)
+            //   Yellow tint = R channel showing object presence
+            if (inBounds)
+            {
+                vec4 maskSample = texture2D(snowDeformationMap, deformUV);
+                // Show R (presence) and G (depth) channels
+                gl_FragData[0].rgb = vec3(maskSample.r * 0.3, maskSample.g, 0.0);
+            }
+            else
+            {
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+            }
+        }
+        else if (deformationDebugMode == 13)
+        {
+            // Mode 13: Show raw object mask (before accumulation/blur)
+            // This samples directly from the depth camera output
+            // Useful to see what the camera is capturing THIS frame
+            if (inBounds)
+            {
+                vec4 maskSample = texture2D(snowDeformationMap, deformUV);
+                // R = object present, G = depth, show as color
+                gl_FragData[0].rgb = maskSample.rgb;
+            }
+            else
+            {
+                gl_FragData[0].rgb = vec3(0.0, 0.0, 1.0);
+            }
+        }
     }
 }

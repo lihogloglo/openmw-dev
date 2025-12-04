@@ -78,9 +78,11 @@ namespace Settings
         SettingValue<int> mDeformationMapResolution{ mIndex, "Terrain", "deformation map resolution",
             makeClampSanitizerInt(512, 4096) };
 
-        // Debug mode for deformation system (0=off, 1-11 various debug views)
+        // Debug mode for deformation system (0=off, 1-13 various debug views)
+        // Mode 12: Depth visualization (G channel from object mask)
+        // Mode 13: Raw object mask RGB
         SettingValue<int> mDeformationDebugMode{ mIndex, "Terrain", "deformation debug mode",
-            makeClampSanitizerInt(0, 11) };
+            makeClampSanitizerInt(0, 13) };
 
         // GPU Tessellation settings
         SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };

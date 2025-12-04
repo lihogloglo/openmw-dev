@@ -171,6 +171,21 @@ namespace Terrain
 
         mCurrentTime += dt;
 
+        // ALWAYS update debug mode from settings (allows runtime changes even when not on deformable terrain)
+        if (mDebugModeUniform)
+        {
+            int debugMode = Settings::terrain().mDeformationDebugMode.get();
+            mDebugModeUniform->set(debugMode);
+
+            // Log debug mode changes
+            static int lastLoggedMode = -1;
+            if (debugMode != lastLoggedMode)
+            {
+                Log(Debug::Info) << "[RTT Debug] Debug mode changed to: " << debugMode;
+                lastLoggedMode = debugMode;
+            }
+        }
+
         // Check if we should be active
         bool shouldActivate = shouldBeActive(playerPos);
 
@@ -209,10 +224,6 @@ namespace Terrain
 
         // Update current time uniform
         mCurrentTimeUniform->set(mCurrentTime);
-
-        // Update debug mode from settings (allows runtime changes)
-        if (mDebugModeUniform)
-            mDebugModeUniform->set(Settings::terrain().mDeformationDebugMode.get());
 
         // Update RTT
         if (mRootNode)
@@ -370,20 +381,36 @@ namespace Terrain
         mDepthCamera->setCullMask((1 << 3) | (1 << 4) | (1 << 10));
 
         // Override Shader for Depth Camera
-        // Outputs white (1.0) for any rendered geometry
+        // Outputs depth-based value for rendered geometry:
+        //   R channel: 1.0 (binary mask - object present)
+        //   G channel: normalized depth (0=near plane, 1=far plane) - for debugging
+        //   B channel: 0.0
         // The UV position in the texture corresponds to world XY position:
         //   - Texture U (0-1) = World X mapped from (origin - halfSize) to (origin + halfSize)
         //   - Texture V (0-1) = World Y mapped from (origin - halfSize) to (origin + halfSize)
         // With bottom-up camera (looking +Z), we render the underside of objects
+        // Depth interpretation (with bottom-up camera, near=1, far=1+cameraDepth):
+        //   - Objects AT player Z (ground level) are at far plane → depth ≈ 1.0
+        //   - Objects BELOW player Z are closer to camera → depth < 1.0
+        //   - Objects ABOVE player Z are beyond far plane → clipped (not rendered)
         osg::StateSet* dss = mDepthCamera->getOrCreateStateSet();
         osg::Program* dProgram = new osg::Program;
         dProgram->addShader(new osg::Shader(osg::Shader::VERTEX,
+            "#version 120\n"
+            "varying float vDepth;\n"
             "void main() {\n"
             "  gl_Position = ftransform();\n"
+            "  // gl_Position.z/w is NDC depth [-1,1], convert to [0,1]\n"
+            "  vDepth = gl_Position.z / gl_Position.w * 0.5 + 0.5;\n"
             "}\n"));
         dProgram->addShader(new osg::Shader(osg::Shader::FRAGMENT,
+            "#version 120\n"
+            "varying float vDepth;\n"
             "void main() {\n"
-            "  gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+            "  // R = binary mask (object present)\n"
+            "  // G = depth (0=near/below ground, 1=far/at ground level)\n"
+            "  // With bottom-up camera: low depth = deep underground, high depth = at surface\n"
+            "  gl_FragColor = vec4(1.0, vDepth, 0.0, 1.0);\n"
             "}\n"));
         dss->setAttributeAndModes(dProgram, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
         dss->setMode(GL_LIGHTING, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
@@ -479,11 +506,20 @@ namespace Terrain
                 nearPlane, farPlane);
         }
 
-        // DEBUG: Dump Object Mask
+        // DEBUG: Log camera parameters and dump Object Mask
         static int dumpCounter = 0;
-        if (dumpCounter++ % 600 == 0) // Dump every 600 frames (approx 10s)
+        if (dumpCounter++ % 600 == 0) // Every 600 frames (approx 10s)
         {
-             debugDumpTexture("object_mask_dump.png", mObjectMaskMap.get());
+            float nearPlane = 1.0f;
+            float farPlane = nearPlane + mCurrentCameraDepth;
+            Log(Debug::Info) << "[RTT Debug] Camera depth range:"
+                << " near=" << nearPlane << ", far=" << farPlane
+                << ", cameraDepth=" << mCurrentCameraDepth
+                << ", playerZ=" << playerPos.z()
+                << ", eyeZ=" << (playerPos.z() - farPlane)
+                << " | Captures objects from Z=" << (playerPos.z() - mCurrentCameraDepth)
+                << " to Z=" << playerPos.z();
+            debugDumpTexture("object_mask_dump.png", mObjectMaskMap.get());
         }
 
         // Update Simulation
