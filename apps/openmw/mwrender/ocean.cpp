@@ -408,12 +408,17 @@ namespace MWRender
         unsigned int contextID = state->getContextID();
 
         // For the first frame, run initialization compute shaders
+        // Also regenerate spectrum when parameters change at runtime
         static bool sInitialized = false;
-        if (!sInitialized)
+        if (!sInitialized || mNeedsSpectrumRegeneration)
         {
-            std::cout << "Ocean::dispatchCompute: Running initialization shaders" << std::endl;
+            if (!sInitialized)
+                std::cout << "Ocean::dispatchCompute: Running initialization shaders" << std::endl;
+            else
+                std::cout << "Ocean::dispatchCompute: Regenerating spectrum (parameters changed)" << std::endl;
             initializeComputeShaders(state, ext, contextID);
             sInitialized = true;
+            mNeedsSpectrumRegeneration = false;
         }
 
         // Every frame: run the simulation compute shaders

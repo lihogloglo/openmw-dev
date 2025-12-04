@@ -8,7 +8,9 @@
       "Bash(Select-String -Pattern \"gridSize|snapX|snapY\" -Context 2)",
       "Bash(python3:*)",
       "Bash(git ls-tree:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(grep:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []
