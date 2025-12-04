@@ -8,30 +8,12 @@
     #extension GL_EXT_gpu_shader4: require
 #endif
 
+// Include fragment.h.glsl which provides:
+// - sampleReflectionMap(vec2 uv)
+// - sampleRefractionMap(vec2 uv) (if @waterRefraction)
+// - sampleRefractionDepthMap(vec2 uv) (if @waterRefraction)
+// These link to lib/core/fragment.glsl which defines the uniforms and implementations
 #include "lib/core/fragment.h.glsl"
-
-// Provide reflection/refraction sampling implementations for version 330
-uniform sampler2D reflectionMap;
-
-vec4 sampleReflectionMap(vec2 uv)
-{
-    return texture2D(reflectionMap, uv);
-}
-
-#if @waterRefraction
-uniform sampler2D refractionMap;
-uniform sampler2D refractionDepthMap;
-
-vec4 sampleRefractionMap(vec2 uv)
-{
-    return texture2D(refractionMap, uv);
-}
-
-float sampleRefractionDepthMap(vec2 uv)
-{
-    return texture2D(refractionDepthMap, uv).x;
-}
-#endif
 
 // Ocean water fragment shader - FFT-based water rendering
 // Based on GodotOceanWaves
@@ -44,6 +26,13 @@ const float DEPTH_FADE = 0.15;
 // Default: waterColor = vec3(0.15, 0.25, 0.35), foamColor = vec3(1.0, 1.0, 1.0)
 uniform vec3 waterColor;
 uniform vec3 foamColor;
+
+// Sunlight scattering constants (from original water shader)
+#if @sunlightScattering
+const float SCATTER_AMOUNT = 0.3;                  // amount of sunlight scattering
+const vec3 SCATTER_COLOUR = vec3(0.0, 1.0, 0.95);  // colour of sunlight scattering (cyan-ish)
+const vec3 SUN_EXT = vec3(0.45, 0.55, 0.68);       // sunlight extinction
+#endif
 
 // Reflection/refraction distortion
 const float REFL_BUMP = 0.20;  // reflection distortion amount (increased to hide reflection map seams)
@@ -109,7 +98,7 @@ float smith_masking_shadowing(float cos_theta, float alpha) {
     return a < 1.6 ? (1.0 - 1.259*a + 0.396*a_sq) / (3.535*a + 2.181*a_sq) : 0.0;
 }
 
-// Fresnel-Schlick approximation (modified for water)
+// Fresnel-Schlick approximation (modified for water) - kept for PBR specular
 float fresnel_schlick(float cos_theta, float roughness) {
     return mix(
         pow(1.0 - cos_theta, 5.0 * exp(-2.69 * roughness)) / (1.0 + 22.7 * pow(roughness, 1.5)),
@@ -117,6 +106,12 @@ float fresnel_schlick(float cos_theta, float roughness) {
         REFLECTANCE
     );
 }
+
+// Specular constants (from original water shader)
+const float SPEC_HARDNESS = 256.0;    // specular highlights hardness
+const float SPEC_BUMPINESS = 5.0;     // surface bumpiness boost for specular
+const float SPEC_BRIGHTNESS = 1.5;    // boosts the brightness of the specular highlights
+const float SPEC_MAGIC = 1.55;        // from the original blender shader
 
 // ============================================================================
 // Bicubic Texture Filtering for Sharp Wave Details
@@ -369,12 +364,14 @@ void main(void)
     const float BASE_ROUGHNESS = 0.4;
     float roughness = BASE_ROUGHNESS;
 
-    // Calculate Fresnel
-    // Godot line 92: fresnel = mix(pow(1.0 - dot(VIEW, NORMAL), ...), 1.0, REFLECTANCE);
-    // In Godot, VIEW points toward camera, so dot(VIEW, NORMAL) is positive when looking at surface
-    // Our viewDir points away from camera, so we need to negate it
+    // Calculate Fresnel using physically accurate IOR-based calculation (like original water shader)
+    // This properly handles air-to-water and water-to-air transitions
+    float ior = (cameraPos.z > 0.0) ? (1.333 / 1.0) : (1.0 / 1.333);
+    float fresnel = clamp(fresnel_dielectric(viewDir, normal, ior), 0.0, 1.0);
+
+    // Also calculate dot_nv for PBR lighting calculations
     float dot_nv = max(dot(normal, -viewDir), 2e-5);
-    float fresnel = fresnel_schlick(dot_nv, roughness);
+    float fresnelPBR = fresnel_schlick(dot_nv, roughness);
 
     // Update roughness based on foam and fresnel (foam is matte, reflections are smooth)
     roughness = (1.0 - fresnel) * foamFactor + BASE_ROUGHNESS;
@@ -389,21 +386,27 @@ void main(void)
     vec3 halfway = normalize(sunWorldDir - viewDir);
     float dot_nh = max(dot(normal, halfway), 0.0);
 
-    // --- SPECULAR (Cook-Torrance BRDF) ---
-    // NOTE: Godot has a bug - they swap parameters to smith_masking_shadowing, passing (roughness, cos_theta)
-    // We use the correct order: (cos_theta, roughness) per the function signature
+    // --- SPECULAR (Cook-Torrance BRDF for subsurface/diffuse, Phong for sun specular) ---
     float light_mask = smith_masking_shadowing(dot_nv, roughness);
     float view_mask = smith_masking_shadowing(dot_nl, roughness);
     float microfacet_distribution = ggx_distribution(dot_nh, roughness);
     float geometric_attenuation = 1.0 / (1.0 + light_mask + view_mask);
 
-    // ATTENUATION in Godot = shadow * sunVisibility (light availability)
-    // This is the total light that reaches the surface
+    // ATTENUATION = shadow * sunVisibility (light availability)
     float attenuation = shadow * sunVisibility;
 
-    // Specular calculation matching Godot's formula (line 119)
-    // SPECULAR_LIGHT += fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * ATTENUATION;
-    float specularIntensity = fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * attenuation;
+    // PBR specular for subsurface calculations (using fresnelPBR)
+    float specularPBR = fresnelPBR * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * attenuation;
+
+    // Classic Phong specular for sun highlights (like original water shader)
+    // This gives sharper, more visually pleasing sun reflections
+    // Note: Our normal is (X, Y-up, Z) but specular formula expects (X, Y, Z-up)
+    // So we use normal.xz for horizontal perturbation and normal.y for vertical
+    vec3 specNormal = normalize(vec3(normal.x * SPEC_BUMPINESS, normal.z * SPEC_BUMPINESS, normal.y));
+    vec3 viewReflectDir = reflect(viewDir, specNormal);
+    float phongTerm = max(dot(viewReflectDir, sunWorldDir), 0.0);
+    float specular = pow(atan(phongTerm * SPEC_MAGIC), SPEC_HARDNESS) * SPEC_BRIGHTNESS;
+    specular = clamp(specular, 0.0, 1.0) * shadow * sunVisibility;
 
     // --- DIFFUSE (with Subsurface Scattering) ---
     // Blue-green color for SSS to match Godot's brighter wave crests
@@ -438,14 +441,15 @@ void main(void)
         foamFactor
     );
 
-    // Diffuse light contribution (note: sun color will be applied in final combination)
-    vec3 diffuseLight = diffuse_color * (1.0 - fresnel) * attenuation;
+    // Diffuse light contribution (using fresnelPBR for energy conservation)
+    vec3 diffuseLight = diffuse_color * (1.0 - fresnelPBR) * attenuation * sunSpec.rgb;
 
     // ========================================================================
     // SCREEN-SPACE REFLECTIONS & REFRACTIONS (like original water shader)
     // ========================================================================
 
-    vec2 screenCoordsOffset = normal.xy * REFL_BUMP;
+    // Note: Our normal is (X, Y-up, Z) so use xz for horizontal screen distortion
+    vec2 screenCoordsOffset = normal.xz * REFL_BUMP;
 
 #if @waterRefraction
     // Calculate water depth for proper refraction and shore blending
@@ -466,10 +470,24 @@ void main(void)
     // Sample refraction with normal distortion (opposite direction from reflection)
     vec3 refraction = sampleRefractionMap(screenCoords - screenCoordsOffset).rgb;
 
-    // Apply underwater fog: blend refraction with water color based on depth
-    // This makes deep water appear more blue/opaque
-    if (cameraPos.z >= 0.0) // Above water
+    // DEBUG: Output red to confirm shader runs up to this point
+    // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); return;
+
+    // DEBUG: Output refraction to see if it's valid before absorption
+    // gl_FragData[0] = vec4(refraction, 1.0); return;
+
+    // DEBUG: Check what cameraPos.z contains
+    // gl_FragData[0] = vec4(cameraPos.z > 0.0 ? 1.0 : 0.0, 0.0, 0.0, 1.0); return;
+
+    // DEBUG: Check waterDepthDistorted
+    // gl_FragData[0] = vec4(vec3(waterDepthDistorted / 1000.0), 1.0); return;
+
+    // Apply depth-based absorption (underwater fog effect)
+    // This makes deep water appear more opaque with the water color
+    if (cameraPos.z > 0.0) // Above water
     {
+        // Use the same absorption formula as the original water shader
+        // This creates a smooth falloff from clear shallow water to opaque deep water
         float depthCorrection = sqrt(1.0 + 4.0 * DEPTH_FADE * DEPTH_FADE);
         float factor = DEPTH_FADE * DEPTH_FADE / (-0.5 * depthCorrection + 0.5 - waterDepthDistorted / VISIBILITY) + 0.5 * depthCorrection + 0.5;
         refraction = mix(refraction, waterColorModulated, clamp(factor, 0.0, 1.0));
@@ -479,6 +497,31 @@ void main(void)
         refraction = clamp(refraction * 1.5, 0.0, 1.0);
     }
 
+    // DEBUG: Output refraction AFTER absorption to see if it's still valid
+    // gl_FragData[0] = vec4(refraction, 1.0); return;
+
+#if @sunlightScattering
+    // Sunlight scattering effect - adds vibrant cyan-ish glow when looking toward sun through water
+    // Uses a simplified normal for scattering (less bumpy than surface normal)
+    vec3 scatterNormal = normalize(vec3(-gradient.x * 0.5, 1.0, -gradient.y * 0.5));
+    float sunHeight = sunWorldDir.z;
+
+    // Scatter color changes based on sun height (more orange near horizon)
+    vec3 scatterColour = mix(SCATTER_COLOUR * vec3(1.0, 0.4, 0.0), SCATTER_COLOUR, max(1.0 - exp(-sunHeight * SUN_EXT), 0.0));
+
+    // Lambert-like term for scatter intensity
+    float scatterLambert = max(dot(sunWorldDir, scatterNormal) * 0.7 + 0.3, 0.0);
+
+    // Backscatter when looking toward sun through water
+    float scatterReflectAngle = max(dot(reflect(sunWorldDir, scatterNormal), viewDir) * 2.0 - 1.2, 0.0);
+
+    // Combine scatter factors with sun visibility
+    float lightScatter = scatterLambert * scatterReflectAngle * SCATTER_AMOUNT * sunFade * sunVisibility * max(1.0 - exp(-sunHeight), 0.0);
+
+    // Apply scattering to refraction
+    refraction = mix(refraction, scatterColour, lightScatter);
+#endif
+
     // Blend refraction and reflection based on Fresnel
     vec3 refrReflColor = mix(refraction, reflection, fresnel);
 #else
@@ -486,96 +529,30 @@ void main(void)
     vec3 refrReflColor = mix(waterColorModulated, reflection, (1.0 + fresnel) * 0.5);
 #endif
 
-    // --- AMBIENT ---
-    // Base ambient from OpenMW's lighting system
-    vec3 ambientLight = gl_LightModel.ambient.xyz * sunFade;
+    // --- FINAL COLOR COMPOSITION ---
+    // Start with reflection/refraction blend (like original water shader line 216)
+    gl_FragData[0].rgb = refrReflColor;
+    gl_FragData[0].a = 1.0;
 
-    // Add minimum ambient to prevent pure black at night
-    // Increased to 0.35 for brighter, more visible ocean matching Godot
-    const float MIN_AMBIENT_STRENGTH = 0.35;
-    ambientLight = max(ambientLight, vec3(MIN_AMBIENT_STRENGTH));
+    // Add sun specular highlights (like original water shader line 225)
+    gl_FragData[0].rgb += specular * sunSpec.rgb;
 
-    // --- FINAL COLOR ---
-    // Match Godot's rendering approach:
-    // - Water surface = albedo × (ambient + diffuse × LIGHT_COLOR) + specular × LIGHT_COLOR + reflections
-    // - Foam is more opaque, reduces reflection contribution
+    // DEBUG: Skip fog for now
+    // gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth, far);
 
-    // Base lighting from PBR (ambient + diffuse + specular)
-    // This is the "opaque surface" component
-    vec3 lighting = albedo * (ambientLight + diffuseLight * sunColor) + specularIntensity * sunColor;
+    // Apply fog (same as original water shader)
+    // Note: Use position.xyz for fog calculation to match original water shader
+// #if @radialFog
+//     float radialDepth = distance(position.xyz, cameraPos);
+// #else
+//     float radialDepth = 0.0;
+// #endif
+//
+//     gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth, far);
 
-    // Reflections/refractions provide the "transparent water" look
-    // Reduce reflection intensity to avoid 100% mirror effect
-    // Foam makes water more opaque (less reflective)
-    float reflectionStrength = (1.0 - foamFactor * 0.5);
-
-    // Distance-based reflection fade to hide reflection map seams/artifacts at horizon
-    // Fade out reflections starting at 500m, completely gone by 1500m
-    const float REFL_FADE_START = 500.0; // meters
-    const float REFL_FADE_END = 1500.0;   // meters
-    float reflectionDistanceFade = 1.0 - smoothstep(REFL_FADE_START, REFL_FADE_END, distToCamera_meters);
-    reflectionStrength *= reflectionDistanceFade;
-
-    // Combine: lighting + reflections (additive, not mix)
-    // This gives proper water appearance: lit surface with reflections on top
-    // Increased from 0.35 to 0.45 for more visible sky reflections (brighter ocean)
-    vec3 finalColor = lighting + refrReflColor * reflectionStrength * 0.45;
-
-    // Reduce alpha where there's foam (foam is more opaque)
-    float alpha = mix(0.85, 0.95, foamFactor);
-
-    // TEMPORARY DEBUG: Uncomment to test basic rendering
-    //gl_FragData[0] = vec4(albedo, 1.0); applyShadowDebugOverlay(); return;
-    //gl_FragData[0] = vec4(vec3(foam), 1.0); applyShadowDebugOverlay(); return; // Visualize foam
-    //gl_FragData[0] = vec4(waterColor, 1.0); applyShadowDebugOverlay(); return; // Test water color
-    //gl_FragData[0] = vec4(waterColorModulated, 1.0); applyShadowDebugOverlay(); return; // Test modulated water color
-    //gl_FragData[0] = vec4(reflection, 1.0); applyShadowDebugOverlay(); return; // Visualize raw reflection
-    //gl_FragData[0] = vec4(refrReflColor, 1.0); applyShadowDebugOverlay(); return; // Visualize combined refr/refl
-    //gl_FragData[0] = vec4(lighting, 1.0); applyShadowDebugOverlay(); return; // Visualize PBR lighting only
-    //gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); applyShadowDebugOverlay(); return; // Visualize normals (should move with water)
-
-    gl_FragData[0] = vec4(finalColor, alpha);
-
-    // DEBUG: Uncomment one of these lines to visualize different components
-    // gl_FragData[0] = vec4(1.0, 0.0, 0.0, 1.0); // Solid Red (Geometry Check)
-    // gl_FragData[0] = vec4(normal * 0.5 + 0.5, 1.0); // Normals
-    // gl_FragData[0] = vec4(WATER_COLOR, 1.0); // Solid water color test
-    // gl_FragData[0] = vec4(albedo, 1.0); // Albedo (water + foam mix)
-    // gl_FragData[0] = vec4(vec3(shadow), 1.0); // Shadow value
-    // gl_FragData[0] = vec4(sunColor, 1.0); // Sun color
-    // gl_FragData[0] = vec4(gl_LightModel.ambient.xyz, 1.0); // Ambient light
-    // gl_FragData[0] = vec4(ambient, 1.0); // Ambient term only
-    // gl_FragData[0] = vec4(diffuse, 1.0); // Diffuse term only
-    // gl_FragData[0] = vec4(specular, 1.0); // Specular term only
-    // gl_FragData[0] = vec4(vec3(fresnel), 1.0); // Fresnel value
-    // gl_FragData[0] = vec4(sunWorldDir * 0.5 + 0.5, 1.0); // Sun direction (RGB = XYZ)
-
-    // DEBUG: Visualize distance to camera (gray gradient, darker = closer)
-    // float distToCamera = length(worldPos.xy - cameraPosition.xy);
-    // gl_FragData[0] = vec4(vec3(distToCamera / 50000.0), 1.0); return;
-
-    // DEBUG: Visualize worldPos (should change as you move)
-    // gl_FragData[0] = vec4(fract(worldPos.xyz * 0.0001), 1.0); return;
-
-    // DEBUG: Visualize displacement magnitude from all cascades
-    // vec3 totalDisp = vec3(0.0);
-    // for (int i = 0; i < numCascades && i < 4; ++i) {
-    //     vec2 uv = worldPos.xy * mapScales[i].x;
-    //     vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
-    //     totalDisp += disp * mapScales[i].z;
-    // }
-    // float dispMag = length(totalDisp);
-    // gl_FragData[0] = vec4(vec3(dispMag * 0.01), 1.0); return; // Scale for visibility
-    
-    // Full rendering (currently disabled for testing)
-    // gl_FragData[0] = colorWithFog;
-    
-    // DEBUG: Visualize Spectrum (Cascade 0)
-    // vec4 spectrum = texture(spectrumMap, vec3(worldPos.xy * mapScales[0].x, 0.0));
-    // gl_FragData[0] = vec4(spectrum.xyz, 1.0); // Show raw S, D, Amp
-    
-    // gl_FragData[0] = vec4(vec3(shadow), 1.0); // Shadow
-    // gl_FragData[0] = vec4(vec3(linearDepth / 5000.0), 1.0); // Depth
+#if !@disableNormals
+    gl_FragData[1].rgb = normalize(gl_NormalMatrix * normal) * 0.5 + 0.5;
+#endif
 
     applyShadowDebugOverlay();
 }

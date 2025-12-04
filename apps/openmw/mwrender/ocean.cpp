@@ -1,11 +1,14 @@
 #include "ocean.hpp"
-#include "ocean.hpp"
 
 #include <components/resource/resourcesystem.hpp>
 #include <components/resource/scenemanager.hpp>
 #include <components/shader/shadermanager.hpp>
 #include <components/sceneutil/color.hpp>
 #include <components/sceneutil/depth.hpp>
+#include <components/sceneutil/statesetupdater.hpp>
+#include <components/sceneutil/rtt.hpp>
+#include <components/settings/values.hpp>
+#include <components/stereo/stereomanager.hpp>
 
 #include "renderbin.hpp"
 
@@ -26,6 +29,7 @@
 #include <osg/Depth>
 #include <osg/StateSet>
 #include <osg/BlendFunc>
+#include <osg/Uniform>
 
 #include <osgUtil/CullVisitor>
 
@@ -99,9 +103,44 @@ namespace MWRender
         Ocean* mOcean;
     };
 
-#include <iostream>
+    // StateSetUpdater to bind reflection/refraction textures dynamically each frame
+    class OceanStateSetUpdater : public SceneUtil::StateSetUpdater
+    {
+    public:
+        OceanStateSetUpdater(Ocean* ocean, bool useRefraction)
+            : mOcean(ocean)
+            , mUseRefraction(useRefraction) {}
 
-    // ... (existing code)
+        void setDefaults(osg::StateSet* stateset) override
+        {
+            // When used as CullCallback, StateSetUpdater operates on an EMPTY StateSet
+            // So we need to set up all uniforms here, not just in initGeometry
+
+            // Set uniform locations for reflection/refraction samplers
+            // These tell the shader which texture unit to sample from
+            stateset->addUniform(new osg::Uniform("reflectionMap", 3));
+            if (mUseRefraction)
+            {
+                stateset->addUniform(new osg::Uniform("refractionMap", 4));
+                stateset->addUniform(new osg::Uniform("refractionDepthMap", 5));
+            }
+        }
+
+        void apply(osg::StateSet* stateset, osg::NodeVisitor* nv) override
+        {
+            osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(nv);
+            if (mOcean)
+            {
+                mOcean->updateStateSet(stateset, cv);
+            }
+        }
+
+    private:
+        Ocean* mOcean;
+        bool mUseRefraction;
+    };
+
+#include <iostream>
 
     Ocean::Ocean(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : mParent(parent)
@@ -121,6 +160,8 @@ namespace MWRender
         , mSpread(0.2f)
         , mFoamAmount(5.0f)
         , mNeedsSpectrumRegeneration(false)
+        , mReflection(nullptr)
+        , mRefraction(nullptr)
     {
         std::cout << "Ocean::Ocean constructor called" << std::endl;
         mRootNode = new osg::PositionAttitudeTransform;
@@ -493,27 +534,51 @@ namespace MWRender
             }
 
             // Per-cascade parameters matching Godot's diversity
-            // Godot uses varied wind speeds and fetch lengths to create complex, sharp-crested waves
-            // Godot cascades: 0=88m/10m/s/150km, 1=57m/5m/s/150km, 2=16m/20m/s/550km
+            // Each cascade represents a different wave scale with unique physical parameters
+            // This creates realistic ocean with big swells + medium waves + small wavelets
+            //
+            // Godot reference (main.tscn):
+            //   Cascade 0 (88m): wind=10m/s, fetch=150km, dir=20° - Big rolling swells
+            //   Cascade 1 (57m): wind=5m/s,  fetch=150km, dir=15° - Medium waves
+            //   Cascade 2 (16m): wind=20m/s, fetch=550km, dir=20° - Small choppy wavelets
+            //
+            // Runtime parameters (mWindSpeed, mFetchLength, etc.) act as multipliers
+            // to allow global tweaking while preserving cascade diversity
 
             // Cascade tile sizes in METERS (compute shaders work in meters)
-            // Matching Godot's pattern: large->medium->small for varied wave scales
             float tileSizesMeters[NUM_CASCADES] = { 88.0f, 57.0f, 16.0f, 16.0f };
 
-            // Use runtime configurable parameters for all cascades
-            // Wind direction converted from degrees to radians
-            float windDirectionRad = mWindDirection * 3.14159265359f / 180.0f;
+            // Per-cascade base parameters (Godot defaults)
+            // These define the relative character of each cascade
+            float baseWindSpeeds[NUM_CASCADES] = { 10.0f, 5.0f, 20.0f, 20.0f };      // m/s
+            float baseFetchLengths[NUM_CASCADES] = { 150.0f, 150.0f, 550.0f, 550.0f }; // km (stored as km, converted to m below)
+            float baseWindDirs[NUM_CASCADES] = { 20.0f, 15.0f, 20.0f, 20.0f };        // degrees
+            float baseSpreads[NUM_CASCADES] = { 0.2f, 0.4f, 0.4f, 0.4f };             // Godot values
 
-            // Common parameters (now runtime configurable)
+            // Calculate scaling factors from runtime parameters vs defaults
+            // Default runtime values: windSpeed=20, fetchLength=550000 (550km in meters)
+            float windScale = mWindSpeed / 20.0f;
+            float fetchScale = mFetchLength / 550000.0f;
+
+            // Common parameters
             float depth = 20.0f; // meters (shallow water enhances wave steepness)
-
             const float G = 9.81f;
 
             for (int cascade = 0; cascade < NUM_CASCADES; ++cascade)
             {
-                // Calculate JONSWAP parameters using runtime wind speed and fetch length
-                float alpha = 0.076f * std::pow(mWindSpeed*mWindSpeed / (mFetchLength*G), 0.22f);
-                float omega_p = 22.0f * std::pow(G*G / (mWindSpeed*mFetchLength), 1.0f/3.0f);
+                // Apply runtime scaling to base cascade parameters
+                float cascadeWindSpeed = baseWindSpeeds[cascade] * windScale;
+                float cascadeFetchLength = baseFetchLengths[cascade] * 1000.0f * fetchScale; // Convert km to m, then scale
+                float cascadeWindDir = baseWindDirs[cascade] + mWindDirection; // Add runtime direction offset
+                float cascadeWindDirRad = cascadeWindDir * 3.14159265359f / 180.0f;
+                float cascadeSpread = baseSpreads[cascade] * (mSpread / 0.2f); // Scale relative to default spread
+
+                // Clamp spread to valid range
+                cascadeSpread = std::min(1.0f, std::max(0.0f, cascadeSpread));
+
+                // Calculate JONSWAP parameters for this cascade
+                float alpha = 0.076f * std::pow(cascadeWindSpeed * cascadeWindSpeed / (cascadeFetchLength * G), 0.22f);
+                float omega_p = 22.0f * std::pow(G * G / (cascadeWindSpeed * cascadeFetchLength), 1.0f / 3.0f);
 
                 if (pcp)
                 {
@@ -532,10 +597,10 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, omega_p);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_speed"));
-                    if (loc >= 0) ext->glUniform1f(loc, mWindSpeed);
+                    if (loc >= 0) ext->glUniform1f(loc, cascadeWindSpeed);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("wind_direction"));
-                    if (loc >= 0) ext->glUniform1f(loc, windDirectionRad);
+                    if (loc >= 0) ext->glUniform1f(loc, cascadeWindDirRad);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("depth"));
                     if (loc >= 0) ext->glUniform1f(loc, depth);
@@ -547,7 +612,7 @@ namespace MWRender
                     if (loc >= 0) ext->glUniform1f(loc, mDetail);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("spread"));
-                    if (loc >= 0) ext->glUniform1f(loc, mSpread);
+                    if (loc >= 0) ext->glUniform1f(loc, cascadeSpread);
 
                     loc = pcp->getUniformLocation(osg::Uniform::getNameID("seed"));
                     if (loc >= 0) ext->glUniform2i(loc, cascade * 13 + 42, cascade * 17 + 99); // Different seed per cascade
@@ -990,32 +1055,49 @@ namespace MWRender
         // Set up state set with our ocean shaders
         osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
 
-        // Load ocean shaders using the shader manager
+        // Load ocean shaders using the shader manager with proper defines
         Shader::ShaderManager& shaderManager = mResourceSystem->getSceneManager()->getShaderManager();
         Shader::ShaderManager::DefineMap defines;
 
+        // Check if refraction is enabled (same setting as original water shader)
+        bool useRefraction = Settings::water().mRefraction;
+        defines["waterRefraction"] = useRefraction ? "1" : "0";
+        defines["sunlightScattering"] = Settings::water().mSunlightScattering ? "1" : "0";
+        defines["radialFog"] = Settings::fog().mRadialFog ? "1" : "0";
+        defines["exponentialFog"] = Settings::fog().mExponentialFog ? "1" : "0";
+        defines["skyBlending"] = Settings::fog().mSkyBlending ? "1" : "0";
+
+        Stereo::shaderStereoDefines(defines);
+
         // Get the ocean program (vert + frag)
-        osg::ref_ptr<osg::Program> program = new osg::Program;
-
-        auto vert = shaderManager.getShader("ocean.vert", defines, osg::Shader::VERTEX);
-        auto frag = shaderManager.getShader("ocean.frag", defines, osg::Shader::FRAGMENT);
-
-        if (vert) program->addShader(vert);
-        if (frag) program->addShader(frag);
+        osg::ref_ptr<osg::Program> program = shaderManager.getProgram("ocean", defines);
 
         stateset->setAttributeAndModes(program, osg::StateAttribute::ON);
 
-        // Bind textures
+        // Bind FFT textures (texture units 0, 1, 2)
         stateset->setTextureAttributeAndModes(0, mDisplacementMap, osg::StateAttribute::ON);
         stateset->setTextureAttributeAndModes(1, mNormalMap, osg::StateAttribute::ON);
+        stateset->setTextureAttributeAndModes(2, mSpectrum, osg::StateAttribute::ON);
+
+        // Set uniforms for FFT textures
+        stateset->addUniform(new osg::Uniform("displacementMap", 0));
+        stateset->addUniform(new osg::Uniform("normalMap", 1));
+        stateset->addUniform(new osg::Uniform("spectrumMap", 2));
+
+        // Reflection/refraction texture uniforms (texture units 3, 4, 5)
+        // These will be bound dynamically via StateSetUpdater
+        stateset->addUniform(new osg::Uniform("reflectionMap", 3));
+        if (useRefraction)
+        {
+            stateset->addUniform(new osg::Uniform("refractionMap", 4));
+            stateset->addUniform(new osg::Uniform("refractionDepthMap", 5));
+        }
 
         // Set uniforms
         mNodePositionUniform = new osg::Uniform("nodePosition", osg::Vec3f(0,0,0));
         stateset->addUniform(mNodePositionUniform);
         mCameraPositionUniform = new osg::Uniform("cameraPosition", osg::Vec3f(0,0,0));
         stateset->addUniform(mCameraPositionUniform);
-        stateset->addUniform(new osg::Uniform("displacementMap", 0));
-        stateset->addUniform(new osg::Uniform("normalMap", 1));
 
         // Debug visualization uniform (0 = off, 1 = on)
         mDebugVisualizeCascadesUniform = new osg::Uniform("debugVisualizeCascades", 0);
@@ -1025,11 +1107,6 @@ namespace MWRender
         mDebugVisualizeLODUniform = new osg::Uniform("debugVisualizeLOD", 0);
         stateset->addUniform(mDebugVisualizeLODUniform);
 
-        
-        // DEBUG: Bind Spectrum for visualization
-        // DEBUG: Bind Spectrum for visualization
-        stateset->setTextureAttributeAndModes(2, mSpectrum, osg::StateAttribute::ON);
-        stateset->addUniform(new osg::Uniform("spectrumMap", 2));
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)
@@ -1044,21 +1121,21 @@ namespace MWRender
         // We need to convert to MW UNITS (×72.53) for vertex shader
         //
         // Matching Godot's approach from main.tscn:
-        //   Cascade 0 (88m):  displacement_scale = 1.0,  normal_scale = 1.0
-        //   Cascade 1 (57m):  displacement_scale = 0.75, normal_scale = 1.0
-        //   Cascade 2 (16m):  displacement_scale = 0.0,  normal_scale = 1.0 (normals only!)
-        //   Cascade 3 (16m):  displacement_scale = 0.0,  normal_scale = 1.0 (duplicate for foam)
+        //   Cascade 0 (88m):  displacement_scale = 1.0,  normal_scale = 1.0  - Big swells
+        //   Cascade 1 (57m):  displacement_scale = 0.75, normal_scale = 1.0  - Medium waves
+        //   Cascade 2 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 - Wavelets (normals only!)
+        //   Cascade 3 (16m):  displacement_scale = 0.0,  normal_scale = 0.25 - Extra detail layer
         //
         // Key insight: Small tile cascades (16m) contribute ONLY normals/foam, not displacement
         // This creates fine surface detail without adding small bumps to geometry
-        // INCREASED from 0.25 to 1.0 for more micro-detail on water surface
+        // Normal scale of 0.25 for wavelets prevents them from looking too harsh
         float displacementScales[NUM_CASCADES] = {
             1.0f * METERS_TO_MW_UNITS,   // Cascade 0 (88m): broad waves
             0.75f * METERS_TO_MW_UNITS,  // Cascade 1 (57m): medium waves
             0.0f,                         // Cascade 2 (16m): normals/foam only
             0.0f                          // Cascade 3 (16m): normals/foam only
         };
-        float normalScales[NUM_CASCADES] = { 1.0f, 1.0f, 1.0f, 1.0f };
+        float normalScales[NUM_CASCADES] = { 1.0f, 1.0f, 0.25f, 0.25f };
 
         for (int i = 0; i < NUM_CASCADES; ++i)
         {
@@ -1103,6 +1180,9 @@ namespace MWRender
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
         geode->addDrawable(mWaterGeom);
 
+        // Attach StateSetUpdater to bind reflection/refraction textures dynamically
+        geode->addCullCallback(new OceanStateSetUpdater(this, useRefraction));
+
         mRootNode->addChild(geode);
     }
 
@@ -1116,6 +1196,62 @@ namespace MWRender
     {
         if (mDebugVisualizeLODUniform)
             mDebugVisualizeLODUniform->set(enabled ? 1 : 0);
+    }
+
+    void Ocean::updateStateSet(osg::StateSet* stateset, osgUtil::CullVisitor* cv)
+    {
+        static int frameCount = 0;
+        frameCount++;
+        bool shouldLog = (frameCount % 120 == 1); // Log every 2 seconds at 60fps
+
+        // Bind reflection texture (texture unit 3)
+        if (mReflection)
+        {
+            osg::Texture* reflTex = mReflection->getColorTexture(cv);
+            if (reflTex)
+            {
+                stateset->setTextureAttributeAndModes(3, reflTex, osg::StateAttribute::ON);
+                if (shouldLog)
+                    std::cout << "Ocean: Bound reflection texture to unit 3 (ptr=" << reflTex << ")" << std::endl;
+            }
+            else if (shouldLog)
+            {
+                std::cout << "Ocean: WARNING - Reflection texture is NULL!" << std::endl;
+            }
+        }
+        else if (shouldLog)
+        {
+            std::cout << "Ocean: WARNING - mReflection is NULL!" << std::endl;
+        }
+
+        // Bind refraction textures (texture units 4 and 5)
+        if (mRefraction)
+        {
+            osg::Texture* refrTex = mRefraction->getColorTexture(cv);
+            osg::Texture* refrDepthTex = mRefraction->getDepthTexture(cv);
+            if (refrTex)
+            {
+                stateset->setTextureAttributeAndModes(4, refrTex, osg::StateAttribute::ON);
+                if (shouldLog)
+                    std::cout << "Ocean: Bound refraction texture to unit 4 (ptr=" << refrTex << ")" << std::endl;
+            }
+            if (refrDepthTex)
+            {
+                stateset->setTextureAttributeAndModes(5, refrDepthTex, osg::StateAttribute::ON);
+                if (shouldLog)
+                    std::cout << "Ocean: Bound refraction depth to unit 5 (ptr=" << refrDepthTex << ")" << std::endl;
+            }
+        }
+        else if (shouldLog)
+        {
+            std::cout << "Ocean: WARNING - mRefraction is NULL!" << std::endl;
+        }
+
+        // Update node position uniform
+        if (mNodePositionUniform)
+        {
+            mNodePositionUniform->set(osg::Vec3f(0, 0, mHeight));
+        }
     }
 
     // Runtime parameter setters

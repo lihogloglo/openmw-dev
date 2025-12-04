@@ -6,6 +6,7 @@
 #include <osg/Vec3f>
 #include <osg/ref_ptr>
 #include <osg/Texture2DArray>
+#include <osg/Texture2D>
 #include <osg/Program>
 #include <osg/Uniform>
 #include <osg/BufferObject>
@@ -19,9 +20,19 @@ namespace osg
     class PositionAttitudeTransform;
 }
 
+namespace osgUtil
+{
+    class CullVisitor;
+}
+
 namespace Resource
 {
     class ResourceSystem;
+}
+
+namespace SceneUtil
+{
+    class RTTNode;
 }
 
 namespace MWRender
@@ -30,6 +41,14 @@ namespace MWRender
     {
     public:
         Ocean(osg::Group* parent, Resource::ResourceSystem* resourceSystem);
+
+        // Set reflection/refraction resources (called by WaterManager)
+        // Uses SceneUtil::RTTNode base class so we don't depend on water.cpp's local classes
+        void setReflection(SceneUtil::RTTNode* reflection) { mReflection = reflection; }
+        void setRefraction(SceneUtil::RTTNode* refraction) { mRefraction = refraction; }
+
+        // Called by StateSetUpdater to bind textures dynamically
+        void updateStateSet(osg::StateSet* stateset, osgUtil::CullVisitor* cv);
         ~Ocean() override;
 
         void setEnabled(bool enabled) override;
@@ -123,6 +142,10 @@ namespace MWRender
         float mSpread;          // 0-1
         float mFoamAmount;      // 0-10
         bool mNeedsSpectrumRegeneration;
+
+        // Reflection/Refraction (provided by WaterManager)
+        SceneUtil::RTTNode* mReflection;
+        SceneUtil::RTTNode* mRefraction;
     };
 }
 

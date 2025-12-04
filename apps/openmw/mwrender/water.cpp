@@ -39,6 +39,7 @@
 
 #include "../mwworld/cellstore.hpp"
 
+#include "ocean.hpp"
 #include "renderbin.hpp"
 #include "ripples.hpp"
 #include "ripplesimulation.hpp"
@@ -566,6 +567,13 @@ namespace MWRender
             showWorld(mShowWorld);
 
             createShaderWaterStateSet(mWaterNode);
+
+            // Pass reflection/refraction to Ocean for rendering
+            if (mOcean)
+            {
+                mOcean->setReflection(mReflection.get());
+                mOcean->setRefraction(mRefraction.get());
+            }
         }
         else
             createSimpleWaterStateSet(mWaterGeom, Fallback::Map::getFloat("Water_World_Alpha"));
