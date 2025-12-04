@@ -23,9 +23,126 @@ namespace
     template <typename IndexArrayType>
     osg::ref_ptr<IndexArrayType> createPatchIndexBuffer(unsigned int flags, unsigned int verts)
     {
-        // For tessellation, use GL_PATCHES with 3 vertices per patch (triangle patches)
-        osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(GL_PATCHES, 0, 3));
-        return createIndexBufferImpl<IndexArrayType>(indices, flags, verts);
+        // For quad tessellation, use GL_PATCHES with 4 vertices per patch
+        // Create quad patches directly from the terrain grid
+        osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(GL_PATCHES, 0, 4));
+
+        // LOD level n means every 2^n-th vertex is kept, but we currently handle LOD elsewhere.
+        size_t lodLevel = 0;
+
+        size_t lodDeltas[4];
+        for (int i = 0; i < 4; ++i)
+            lodDeltas[i] = (flags >> (4 * i)) & (0xf);
+
+        bool anyDeltas = (lodDeltas[Terrain::North] || lodDeltas[Terrain::South] || lodDeltas[Terrain::West]
+            || lodDeltas[Terrain::East]);
+
+        size_t increment = static_cast<size_t>(1) << lodLevel;
+        assert(increment < verts);
+        indices->reserve((verts - 1) * (verts - 1) * 4 / increment);
+
+        size_t rowStart = 0, colStart = 0, rowEnd = verts - 1, colEnd = verts - 1;
+        // If any edge needs stitching we'll skip edges (same as triangle version)
+        if (anyDeltas)
+        {
+            colStart += increment;
+            colEnd -= increment;
+            rowEnd -= increment;
+            rowStart += increment;
+        }
+
+        // Generate quad patches
+        // Each quad is defined by 4 vertices in order: bottom-left, bottom-right, top-right, top-left
+        for (size_t row = rowStart; row < rowEnd; row += increment)
+        {
+            for (size_t col = colStart; col < colEnd; col += increment)
+            {
+                // Quad vertices ordered for CCW winding when viewed from above:
+                // 0: bottom-left  (col, row)
+                // 1: bottom-right (col+1, row)
+                // 2: top-right    (col+1, row+1)
+                // 3: top-left     (col, row+1)
+                indices->push_back(verts * col + row);                           // 0: bottom-left
+                indices->push_back(verts * (col + increment) + row);             // 1: bottom-right
+                indices->push_back(verts * (col + increment) + row + increment); // 2: top-right
+                indices->push_back(verts * col + row + increment);               // 3: top-left
+            }
+        }
+
+        // Handle LOD edge stitching for quad patches
+        // For edges that need different LOD, we still need to generate quads
+        // but with adjusted vertex positions to match the neighboring chunk
+        if (anyDeltas)
+        {
+            // South edge (row = 0)
+            size_t row = 0;
+            size_t outerStep = static_cast<size_t>(1) << (lodDeltas[Terrain::South] + lodLevel);
+            for (size_t col = 0; col < verts - 1; col += outerStep)
+            {
+                // Generate transition quads along the south edge
+                // These need to connect outer edge vertices to inner grid
+                for (size_t i = 0; i < outerStep && col + i < verts - 1; i += increment)
+                {
+                    if (col + i == 0 || col + i + increment > verts - 1)
+                        continue;
+                    // Create a quad that bridges the LOD boundary
+                    indices->push_back(verts * (col + i) + row);                 // bottom-left (on edge)
+                    indices->push_back(verts * (col + i + increment) + row);     // bottom-right (on edge)
+                    indices->push_back(verts * (col + i + increment) + row + increment); // top-right (inner)
+                    indices->push_back(verts * (col + i) + row + increment);     // top-left (inner)
+                }
+            }
+
+            // North edge (row = verts - 1)
+            row = verts - 1 - increment;
+            outerStep = static_cast<size_t>(1) << (lodDeltas[Terrain::North] + lodLevel);
+            for (size_t col = 0; col < verts - 1; col += outerStep)
+            {
+                for (size_t i = 0; i < outerStep && col + i < verts - 1; i += increment)
+                {
+                    if (col + i == 0 || col + i + increment > verts - 1)
+                        continue;
+                    indices->push_back(verts * (col + i) + row);
+                    indices->push_back(verts * (col + i + increment) + row);
+                    indices->push_back(verts * (col + i + increment) + row + increment);
+                    indices->push_back(verts * (col + i) + row + increment);
+                }
+            }
+
+            // West edge (col = 0)
+            size_t col = 0;
+            outerStep = static_cast<size_t>(1) << (lodDeltas[Terrain::West] + lodLevel);
+            for (row = 0; row < verts - 1; row += outerStep)
+            {
+                for (size_t i = 0; i < outerStep && row + i < verts - 1; i += increment)
+                {
+                    if (row + i == 0 || row + i + increment > verts - 1)
+                        continue;
+                    indices->push_back(verts * col + row + i);
+                    indices->push_back(verts * (col + increment) + row + i);
+                    indices->push_back(verts * (col + increment) + row + i + increment);
+                    indices->push_back(verts * col + row + i + increment);
+                }
+            }
+
+            // East edge (col = verts - 1)
+            col = verts - 1 - increment;
+            outerStep = static_cast<size_t>(1) << (lodDeltas[Terrain::East] + lodLevel);
+            for (row = 0; row < verts - 1; row += outerStep)
+            {
+                for (size_t i = 0; i < outerStep && row + i < verts - 1; i += increment)
+                {
+                    if (row + i == 0 || row + i + increment > verts - 1)
+                        continue;
+                    indices->push_back(verts * col + row + i);
+                    indices->push_back(verts * (col + increment) + row + i);
+                    indices->push_back(verts * (col + increment) + row + i + increment);
+                    indices->push_back(verts * col + row + i + increment);
+                }
+            }
+        }
+
+        return indices;
     }
 
     template <typename IndexArrayType>

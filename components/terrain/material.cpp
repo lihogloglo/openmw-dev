@@ -373,8 +373,8 @@ namespace Terrain
 
             osg::ref_ptr<osg::StateSet> stateset(new osg::StateSet);
 
-            // Set up tessellation patch parameters (3 vertices per patch = triangles)
-            osg::ref_ptr<osg::PatchParameter> patchParam = new osg::PatchParameter(3);
+            // Set up tessellation patch parameters (4 vertices per patch = quads)
+            osg::ref_ptr<osg::PatchParameter> patchParam = new osg::PatchParameter(4);
             stateset->setAttribute(patchParam);
 
             if (!blendmaps.empty())

@@ -3,13 +3,13 @@
 // ============================================================================
 // TERRAIN TESSELLATION EVALUATION SHADER (Compatibility Profile)
 // ============================================================================
-// Generates new vertices from tessellated patches and applies displacement
+// Generates new vertices from tessellated quad patches and applies displacement
 // from the snow/terrain deformation RTT texture.
 // Uses gl_ModelViewMatrix from compatibility profile.
 // Uses custom projectionMatrix uniform for reverse-Z depth buffer support.
 // ============================================================================
 
-layout(triangles, equal_spacing, ccw) in;
+layout(quads, equal_spacing, ccw) in;
 
 // OpenMW uses a custom projection matrix for reverse-Z depth buffer
 // Do NOT use gl_ProjectionMatrix - it doesn't contain the correct values
@@ -52,31 +52,40 @@ uniform float mudDeformationDepth;
 // Depth calculation
 uniform float linearFac;  // For linear depth calculation
 
-// Interpolate using barycentric coordinates
-vec3 interpolate3(vec3 v0, vec3 v1, vec3 v2)
+// Bilinear interpolation for quads using gl_TessCoord.xy
+// Quad vertices are ordered: 0=bottom-left, 1=bottom-right, 2=top-right, 3=top-left
+vec3 interpolate3(vec3 v0, vec3 v1, vec3 v2, vec3 v3)
 {
-    return gl_TessCoord.x * v0 + gl_TessCoord.y * v1 + gl_TessCoord.z * v2;
+    // gl_TessCoord.x is the horizontal parameter (0 to 1, left to right)
+    // gl_TessCoord.y is the vertical parameter (0 to 1, bottom to top)
+    vec3 bottom = mix(v0, v1, gl_TessCoord.x);  // interpolate along bottom edge
+    vec3 top = mix(v3, v2, gl_TessCoord.x);     // interpolate along top edge
+    return mix(bottom, top, gl_TessCoord.y);    // interpolate between bottom and top
 }
 
-vec2 interpolate2(vec2 v0, vec2 v1, vec2 v2)
+vec2 interpolate2(vec2 v0, vec2 v1, vec2 v2, vec2 v3)
 {
-    return gl_TessCoord.x * v0 + gl_TessCoord.y * v1 + gl_TessCoord.z * v2;
+    vec2 bottom = mix(v0, v1, gl_TessCoord.x);
+    vec2 top = mix(v3, v2, gl_TessCoord.x);
+    return mix(bottom, top, gl_TessCoord.y);
 }
 
-vec4 interpolate4(vec4 v0, vec4 v1, vec4 v2)
+vec4 interpolate4(vec4 v0, vec4 v1, vec4 v2, vec4 v3)
 {
-    return gl_TessCoord.x * v0 + gl_TessCoord.y * v1 + gl_TessCoord.z * v2;
+    vec4 bottom = mix(v0, v1, gl_TessCoord.x);
+    vec4 top = mix(v3, v2, gl_TessCoord.x);
+    return mix(bottom, top, gl_TessCoord.y);
 }
 
 void main()
 {
     // Interpolate LOCAL position (for transform), world position (for deformation)
-    vec3 localPosition = interpolate3(tes_in[0].position, tes_in[1].position, tes_in[2].position);
-    vec3 worldPosition = interpolate3(tes_in[0].worldPosition, tes_in[1].worldPosition, tes_in[2].worldPosition);
-    vec3 normal = normalize(interpolate3(tes_in[0].normal, tes_in[1].normal, tes_in[2].normal));
-    vec2 texCoord = interpolate2(tes_in[0].texCoord, tes_in[1].texCoord, tes_in[2].texCoord);
-    vec4 color = interpolate4(tes_in[0].color, tes_in[1].color, tes_in[2].color);
-    vec4 terrainWeights = interpolate4(tes_in[0].terrainWeights, tes_in[1].terrainWeights, tes_in[2].terrainWeights);
+    vec3 localPosition = interpolate3(tes_in[0].position, tes_in[1].position, tes_in[2].position, tes_in[3].position);
+    vec3 worldPosition = interpolate3(tes_in[0].worldPosition, tes_in[1].worldPosition, tes_in[2].worldPosition, tes_in[3].worldPosition);
+    vec3 normal = normalize(interpolate3(tes_in[0].normal, tes_in[1].normal, tes_in[2].normal, tes_in[3].normal));
+    vec2 texCoord = interpolate2(tes_in[0].texCoord, tes_in[1].texCoord, tes_in[2].texCoord, tes_in[3].texCoord);
+    vec4 color = interpolate4(tes_in[0].color, tes_in[1].color, tes_in[2].color, tes_in[3].color);
+    vec4 terrainWeights = interpolate4(tes_in[0].terrainWeights, tes_in[1].terrainWeights, tes_in[2].terrainWeights, tes_in[3].terrainWeights);
 
     // Initialize deformation outputs
     float deformationFactor = 0.0;

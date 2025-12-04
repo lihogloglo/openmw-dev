@@ -4,10 +4,10 @@
 // TERRAIN TESSELLATION CONTROL SHADER (Compatibility Profile)
 // ============================================================================
 // Controls the tessellation level based on distance from camera.
-// Outputs patch control points to the tessellation evaluation shader.
+// Outputs quad patch control points to the tessellation evaluation shader.
 // ============================================================================
 
-layout(vertices = 3) out;  // Triangle patches with 3 control points
+layout(vertices = 4) out;  // Quad patches with 4 control points
 
 // Inputs from vertex shader
 in VS_OUT {
@@ -67,17 +67,21 @@ void main()
     {
         // Use LOCAL positions for LOD calculation (cameraPos is in local/model space)
         // This is because CullVisitor::getEyePoint() returns the eye position in model space
-        vec3 p0 = tcs_in[0].position;
-        vec3 p1 = tcs_in[1].position;
-        vec3 p2 = tcs_in[2].position;
+        // Quad vertices are ordered: 0=bottom-left, 1=bottom-right, 2=top-right, 3=top-left
+        vec3 p0 = tcs_in[0].position;  // bottom-left
+        vec3 p1 = tcs_in[1].position;  // bottom-right
+        vec3 p2 = tcs_in[2].position;  // top-right
+        vec3 p3 = tcs_in[3].position;  // top-left
 
         // Calculate tessellation level for each edge
-        // Edge 0: vertices 1-2, Edge 1: vertices 2-0, Edge 2: vertices 0-1
-        gl_TessLevelOuter[0] = calcTessLevel(p1, p2);
-        gl_TessLevelOuter[1] = calcTessLevel(p2, p0);
-        gl_TessLevelOuter[2] = calcTessLevel(p0, p1);
+        // For quads: outer[0]=left, outer[1]=bottom, outer[2]=right, outer[3]=top
+        gl_TessLevelOuter[0] = calcTessLevel(p0, p3);  // left edge (0-3)
+        gl_TessLevelOuter[1] = calcTessLevel(p0, p1);  // bottom edge (0-1)
+        gl_TessLevelOuter[2] = calcTessLevel(p1, p2);  // right edge (1-2)
+        gl_TessLevelOuter[3] = calcTessLevel(p3, p2);  // top edge (3-2)
 
-        // Inner tessellation level is the average of outer levels
-        gl_TessLevelInner[0] = (gl_TessLevelOuter[0] + gl_TessLevelOuter[1] + gl_TessLevelOuter[2]) / 3.0;
+        // Inner tessellation levels for horizontal and vertical subdivision
+        gl_TessLevelInner[0] = (gl_TessLevelOuter[1] + gl_TessLevelOuter[3]) * 0.5;  // horizontal
+        gl_TessLevelInner[1] = (gl_TessLevelOuter[0] + gl_TessLevelOuter[2]) * 0.5;  // vertical
     }
 }
