@@ -94,6 +94,11 @@ namespace Settings
             makeClampSanitizerFloat(1.0f, 64.0f) };
         SettingValue<float> mTessellationMaxLevel{ mIndex, "Terrain", "tessellation max level",
             makeClampSanitizerFloat(1.0f, 64.0f) };
+
+        // Heightmap displacement settings (uses normal map alpha channel)
+        SettingValue<bool> mHeightmapDisplacement{ mIndex, "Terrain", "heightmap displacement" };
+        SettingValue<float> mHeightmapDisplacementStrength{ mIndex, "Terrain", "heightmap displacement strength",
+            makeClampSanitizerFloat(0.0f, 200.0f) };
     };
 }
 

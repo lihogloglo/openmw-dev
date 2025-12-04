@@ -60,6 +60,16 @@ uniform float snowDeformationDepth;
 uniform float ashDeformationDepth;
 uniform float mudDeformationDepth;
 
+// Heightmap displacement uniforms
+#if @normalMap
+uniform sampler2D normalMap;
+#endif
+uniform bool heightmapDisplacementEnabled;
+uniform float heightmapDisplacementStrength;
+
+// Texture matrix for tiling the normal/height map
+uniform mat4 textureMatrix0;
+
 // Depth calculation
 uniform float linearFac;  // For linear depth calculation
 
@@ -129,7 +139,27 @@ void main()
         }
     }
 
-    // Apply deformation to LOCAL position (same offset applies to both)
+    // Apply heightmap displacement from normal map alpha channel
+#if @normalMap
+    if (heightmapDisplacementEnabled)
+    {
+        // Apply texture matrix to get tiled UV coordinates (same as fragment shader)
+        vec2 tiledTexCoord = (textureMatrix0 * vec4(texCoord, 0.0, 1.0)).xy;
+
+        // Sample height from normal map alpha channel
+        float height = texture(normalMap, tiledTexCoord).a;
+
+        // Displace along the normal direction
+        // Height of 0.5 is neutral (no displacement), 0 is down, 1 is up
+        float displacement = (height - 0.5) * heightmapDisplacementStrength;
+
+        // Apply displacement along the vertex normal
+        localPosition += normal * displacement;
+        worldPosition += normal * displacement;
+    }
+#endif
+
+    // Apply snow/ash/mud deformation to LOCAL position (same offset applies to both)
     localPosition.z += zOffset;
     worldPosition.z += zOffset;
 

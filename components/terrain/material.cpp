@@ -476,6 +476,10 @@ namespace Terrain
             // DO NOT override snowDeformationEnabled here - it would block the inherited true value!
             stateset->addUniform(new osg::Uniform("snowDeformationMap", 7));
 
+            // Heightmap displacement uniforms (uses normal map alpha channel for height data)
+            stateset->addUniform(new osg::Uniform("heightmapDisplacementEnabled", Settings::terrain().mHeightmapDisplacement.get()));
+            stateset->addUniform(new osg::Uniform("heightmapDisplacementStrength", Settings::terrain().mHeightmapDisplacementStrength.get()));
+
             // Linear depth factor (used for fog calculations in TES)
             // This should match what OpenMW uses for linear depth
             stateset->addUniform(new osg::Uniform("linearFac", 1.0f));

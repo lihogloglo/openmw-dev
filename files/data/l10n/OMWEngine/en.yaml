@@ -167,6 +167,24 @@ TessellationDistanceTooltip: |-
     may impact performance. Lower values limit tessellation to terrain closer to the player.
 
     Distance is measured in game units (~22 units = 1 foot).
+HeightmapDisplacement: "Heightmap Displacement"
+HeightmapDisplacementTooltip: |-
+    Enable vertex displacement based on terrain texture height data.
+
+    When enabled, terrain vertices are displaced according to the height information
+    stored in the normal map's alpha channel. This creates true 3D detail for rocks,
+    bumps, and other surface features instead of just visual parallax effects.
+
+    Requires tessellation to be enabled and terrain textures with height data.
+HeightmapDisplacementStrength: "Displacement Strength"
+HeightmapDisplacementStrengthTooltip: |-
+    Default: 30
+    Controls how much the terrain is displaced based on height data.
+
+    Higher values create more pronounced surface detail (rocks, bumps).
+    Lower values create subtle surface variation.
+
+    Recommended: 10-50 for subtle detail, 50-100 for pronounced detail.
 MaxLightsTooltip: "Default: 8\nMaximum number of lights per object.\n\nA low number near default will cause light popping similar to what you would see with legacy lighting."
 MenuHelpDelay: "Menu Help Delay"
 MenuTransparency: "Menu Transparency"
