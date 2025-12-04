@@ -485,12 +485,25 @@ namespace Terrain
             float nearPlane = 1.0f;
             float farPlane = nearPlane + mCurrentCameraDepth;
 
-            // BOTTOM-UP camera looking at player from below
-            // Eye is below the center, looking up (+Z direction)
-            // This ensures only feet (objects near ground) are captured,
-            // while flying creatures are outside the near/far range
-            osg::Vec3f eye = mRTTCenter - osg::Vec3f(0, 0, farPlane);
-            osg::Vec3f center = mRTTCenter;
+            // Get terrain height at player XY position - this is the GROUND level
+            // We use ground level (not player Z) so jumping doesn't create deformation
+            float groundZ = mTerrainStorage->getHeightAt(playerPos, mWorldspace);
+
+            // BOTTOM-UP camera anchored to GROUND level, looking up
+            // The camera captures from groundZ UP to groundZ + cameraDepth
+            // This way:
+            // - Standing player: body from ground up to cameraDepth is captured
+            // - Jumping player: body is ABOVE the capture range, so clipped (no deformation)
+            // - Flying creatures: always above capture range, so clipped
+            //
+            // Camera setup:
+            // - Look-at center is at ground + cameraDepth (top of capture range)
+            // - Eye is farPlane units below that (underground)
+            // - Near plane clips 1 unit from eye, far plane clips at farPlane from eye
+            // - Result: captures Z range [groundZ, groundZ + cameraDepth]
+            osg::Vec3f groundCenter = osg::Vec3f(playerPos.x(), playerPos.y(), groundZ);
+            osg::Vec3f center = groundCenter + osg::Vec3f(0, 0, mCurrentCameraDepth);
+            osg::Vec3f eye = center - osg::Vec3f(0, 0, farPlane);
             osg::Vec3f upVec = osg::Vec3f(0, 1, 0);
 
             mDepthCamera->setViewMatrixAsLookAt(eye, center, upVec);
@@ -512,13 +525,15 @@ namespace Terrain
         {
             float nearPlane = 1.0f;
             float farPlane = nearPlane + mCurrentCameraDepth;
+            float groundZ = mTerrainStorage->getHeightAt(playerPos, mWorldspace);
             Log(Debug::Info) << "[RTT Debug] Camera depth range:"
                 << " near=" << nearPlane << ", far=" << farPlane
                 << ", cameraDepth=" << mCurrentCameraDepth
+                << ", groundZ=" << groundZ
                 << ", playerZ=" << playerPos.z()
-                << ", eyeZ=" << (playerPos.z() - farPlane)
-                << " | Captures objects from Z=" << (playerPos.z() - mCurrentCameraDepth)
-                << " to Z=" << playerPos.z();
+                << ", heightAboveGround=" << (playerPos.z() - groundZ)
+                << " | Captures objects from Z=" << groundZ
+                << " to Z=" << (groundZ + mCurrentCameraDepth);
             debugDumpTexture("object_mask_dump.png", mObjectMaskMap.get());
         }
 
