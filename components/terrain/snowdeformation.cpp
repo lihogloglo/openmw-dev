@@ -468,10 +468,14 @@ namespace Terrain
 
             mDepthCamera->setViewMatrixAsLookAt(eye, center, upVec);
 
-            // Standard ortho projection - let's test and see what debug modes reveal
+            // Ortho projection with X-axis flipped to compensate for bottom-up camera
+            // Bottom-up camera (looking +Z with up=+Y) has right vector = -X
+            // This causes World +X to render on the LEFT side of texture (mirrored)
+            // By swapping left/right in the projection, we un-mirror the X axis
+            // so World +X → Texture +U (matching terrain shader's UV calculation)
             mDepthCamera->setProjectionMatrixAsOrtho(
-                -halfSize, halfSize,   // left, right (X)
-                -halfSize, halfSize,   // bottom, top (Y)
+                halfSize, -halfSize,   // left, right SWAPPED (mirrors X back to correct)
+                -halfSize, halfSize,   // bottom, top (Y unchanged)
                 nearPlane, farPlane);
         }
 
