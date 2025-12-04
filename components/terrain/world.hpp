@@ -103,21 +103,14 @@ namespace Terrain
 
         virtual void setViewDistance(float distance) {}
 
-        // Set player position for snow deformation subdivision
+        // Set player position for terrain weight calculations
         virtual void setPlayerPosition(const osg::Vec3f& pos) {}
-
-        // Update subdivision tracker (call each frame with delta time)
-        virtual void updateSubdivisionTracker(float dt) {}
 
         // Update snow deformation system (call each frame)
         virtual void updateSnowDeformation(float dt, const osg::Vec3f& playerPos) {}
 
         // Get snow deformation manager (for accessing deformation texture)
         virtual SnowDeformationManager* getSnowDeformationManager() { return nullptr; }
-
-        // Enable/disable GPU tessellation for terrain (requires GL 4.0+)
-        virtual void setTessellationEnabled(bool enabled) {}
-        virtual bool getTessellationEnabled() const { return false; }
 
         ESM::RefId getWorldspace() { return mWorldspace; }
 

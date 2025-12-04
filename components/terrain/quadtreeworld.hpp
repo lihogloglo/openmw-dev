@@ -43,21 +43,14 @@ namespace Terrain
 
         void setViewDistance(float distance) override;
 
-        // Set player position for snow deformation subdivision
+        // Set player position for terrain weight calculations
         void setPlayerPosition(const osg::Vec3f& pos) override;
-
-        // Update subdivision tracker (call each frame)
-        void updateSubdivisionTracker(float dt) override;
 
         // Update snow deformation system
         void updateSnowDeformation(float dt, const osg::Vec3f& playerPos) override;
 
         // Get snow deformation manager
         SnowDeformationManager* getSnowDeformationManager() override;
-
-        // Enable/disable GPU tessellation for terrain
-        void setTessellationEnabled(bool enabled) override;
-        bool getTessellationEnabled() const override;
 
         void cacheCell(View* view, int x, int y) override {}
         /// @note Not thread safe.

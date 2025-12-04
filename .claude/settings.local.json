@@ -17,7 +17,8 @@
       "Bash(cmd /c:*)",
       "Bash(glxinfo:*)",
       "Bash(git rebase:*)",
-      "Bash(git stash:*)"
+      "Bash(git stash:*)",
+      "Bash(del \"d:\\Gamedev\\OpenMW\\openmw-dev-master\\components\\terrain\\terrainsubdivider.cpp\" \"d:\\Gamedev\\OpenMW\\openmw-dev-master\\components\\terrain\\terrainsubdivider.hpp\")"
     ],
     "deny": [],
     "ask": []

@@ -616,26 +616,13 @@ namespace Terrain
 
     void QuadTreeWorld::setPlayerPosition(const osg::Vec3f& pos)
     {
-        // Pass player position to all chunk managers for subdivision calculations
+        // Pass player position to all chunk managers for weight calculations
         for (ChunkManager* cm : mChunkManagers)
         {
             // Cast to Terrain::ChunkManager to access setPlayerPosition
             if (Terrain::ChunkManager* tcm = dynamic_cast<Terrain::ChunkManager*>(cm))
             {
                 tcm->setPlayerPosition(pos);
-            }
-        }
-    }
-
-    void QuadTreeWorld::updateSubdivisionTracker(float dt)
-    {
-        // Update subdivision tracker in all chunk managers
-        for (ChunkManager* cm : mChunkManagers)
-        {
-            // Cast to Terrain::ChunkManager to access updateSubdivisionTracker
-            if (Terrain::ChunkManager* tcm = dynamic_cast<Terrain::ChunkManager*>(cm))
-            {
-                tcm->updateSubdivisionTracker(dt);
             }
         }
     }
@@ -651,24 +638,6 @@ namespace Terrain
     SnowDeformationManager* QuadTreeWorld::getSnowDeformationManager()
     {
         return mSnowDeformationManager.get();
-    }
-
-    void QuadTreeWorld::setTessellationEnabled(bool enabled)
-    {
-        // Enable/disable tessellation in the terrain chunk manager
-        if (mChunkManager)
-        {
-            mChunkManager->setTessellationEnabled(enabled);
-        }
-    }
-
-    bool QuadTreeWorld::getTessellationEnabled() const
-    {
-        if (mChunkManager)
-        {
-            return mChunkManager->getTessellationEnabled();
-        }
-        return false;
     }
 
 }

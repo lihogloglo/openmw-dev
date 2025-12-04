@@ -17,6 +17,7 @@ uniform sampler2D snowDeformationMap;
 uniform vec3 snowRTTWorldOrigin;
 uniform float snowRTTScale;
 uniform int deformationDebugMode; // 0=off, 1=UV coords, 2=deform value, 3=world offset
+uniform vec3 chunkWorldOffset;    // Chunk's world position (for debug mode 11)
 
 uniform sampler2D diffuseMap;
 

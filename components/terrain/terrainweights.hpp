@@ -64,24 +64,7 @@ namespace Terrain
             float cellWorldSize,
             WeightLOD lod);
 
-        /// Compute weight for a single vertex (LEGACY - uses blendmaps)
-        /// @deprecated Use the version that takes Storage* for chunk-boundary-consistent results
-        /// @param vertexPos Vertex position in chunk-local coordinates
-        /// @param chunkCenter Chunk center in cell units
-        /// @param chunkSize Chunk size in cell units
-        /// @param layerList Texture layers for this chunk
-        /// @param blendmaps Blendmap images for this chunk
-        /// @param cellWorldSize Size of one cell in world units
-        /// @return Weight vector (x=snow, y=ash, z=mud, w=rock)
-        static osg::Vec4f computeVertexWeight(
-            const osg::Vec3f& vertexPos,
-            const osg::Vec2f& chunkCenter,
-            float chunkSize,
-            const std::vector<LayerInfo>& layerList,
-            const std::vector<osg::ref_ptr<osg::Image>>& blendmaps,
-            float cellWorldSize);
-
-        /// Compute weight for a single vertex (NEW - samples directly from land data)
+        /// Compute weight for a single vertex (samples directly from land data)
         /// Uses world-coordinate-based land texture sampling for chunk-boundary consistency
         /// @param vertexPos Vertex position in chunk-local coordinates
         /// @param chunkCenter Chunk center in cell units

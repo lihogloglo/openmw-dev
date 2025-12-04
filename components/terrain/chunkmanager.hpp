@@ -2,13 +2,11 @@
 #define OPENMW_COMPONENTS_TERRAIN_CHUNKMANAGER_H
 
 #include <tuple>
-#include <memory>
 
 #include <components/resource/resourcemanager.hpp>
 
 #include "buffercache.hpp"
 #include "quadtreeworld.hpp"
-#include "subdivisiontracker.hpp"
 
 namespace osg
 {
@@ -56,12 +54,11 @@ namespace Terrain
         osg::Vec2f mCenter;
         unsigned char mLod;
         unsigned mLodFlags;
-        unsigned char mSubdivisionLevel;  // Terrain subdivision level for snow deformation
     };
 
     inline auto tie(const ChunkKey& v)
     {
-        return std::tie(v.mCenter, v.mLod, v.mLodFlags, v.mSubdivisionLevel);
+        return std::tie(v.mCenter, v.mLod, v.mLodFlags);
     }
 
     inline bool operator<(const ChunkKey& l, const ChunkKey& r)
@@ -93,17 +90,8 @@ namespace Terrain
         void setNodeMask(unsigned int mask) { mNodeMask = mask; }
         unsigned int getNodeMask() override { return mNodeMask; }
 
-        // Set the player position for snow deformation subdivision calculations
-        // Updates subdivision tracker and invalidates cache if needed
+        // Set the player position for terrain weight calculations
         void setPlayerPosition(const osg::Vec3f& pos);
-
-        // Update subdivision tracker (call each frame)
-        void updateSubdivisionTracker(float dt);
-
-        // Enable/disable GPU tessellation for terrain (requires GL 4.0+)
-        // When enabled, uses tessellation shaders instead of CPU subdivision
-        void setTessellationEnabled(bool enabled) { mTessellationEnabled = enabled; }
-        bool getTessellationEnabled() const { return mTessellationEnabled; }
 
         void reportStats(unsigned int frameNumber, osg::Stats* stats) const override;
 
@@ -113,8 +101,7 @@ namespace Terrain
 
     private:
         osg::ref_ptr<osg::Node> createChunk(float size, const osg::Vec2f& center, unsigned char lod,
-            unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry, const osg::Vec3f& viewPoint,
-            int subdivisionLevel);
+            unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry, const osg::Vec3f& viewPoint);
 
         osg::ref_ptr<osg::Texture2D> createCompositeMapRTT();
 
@@ -138,14 +125,8 @@ namespace Terrain
         float mCompositeMapLevel;
         float mMaxCompGeometrySize;
 
-        // Player position for snow deformation subdivision (defaults to origin)
+        // Player position for terrain weight calculations
         osg::Vec3f mPlayerPosition;
-
-        // Tracks which chunks should stay subdivided for snow trail effect
-        std::unique_ptr<SubdivisionTracker> mSubdivisionTracker;
-
-        // GPU tessellation flag (disabled by default, requires GL 4.0+)
-        bool mTessellationEnabled = false;
     };
 
 }

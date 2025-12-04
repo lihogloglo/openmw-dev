@@ -914,11 +914,8 @@ namespace MWRender
             mSharedUniformStateUpdater->setWindSpeed(windSpeed);
             mSharedUniformStateUpdater->setPlayerPos(playerPos);
 
-            // Update terrain with player position for snow deformation subdivision
+            // Update terrain with player position for weight calculations and snow deformation
             mTerrain->setPlayerPosition(playerPos);
-            mTerrain->updateSubdivisionTracker(dt);
-
-            // Update snow deformation system
             mTerrain->updateSnowDeformation(dt, playerPos);
         }
 
@@ -1497,9 +1494,6 @@ namespace MWRender
         float distanceMult = std::cos(osg::DegreesToRadians(std::min(mFieldOfView, 140.f)) / 2.f);
         newChunkMgr.mTerrain->setViewDistance(mViewDistance * (distanceMult ? 1.f / distanceMult : 1.f));
         newChunkMgr.mTerrain->enableHeightCullCallback(Settings::terrain().mWaterCulling);
-
-        // Enable GPU tessellation if setting is enabled (requires OpenGL 4.0+)
-        newChunkMgr.mTerrain->setTessellationEnabled(Settings::terrain().mTessellation);
 
         return mWorldspaceChunks.emplace(worldspace, std::move(newChunkMgr)).first->second;
     }

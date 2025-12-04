@@ -16,7 +16,6 @@
 #include "material.hpp"
 #include "storage.hpp"
 #include "terraindrawable.hpp"
-#include "terrainsubdivider.hpp"
 #include "terrainweights.hpp"
 #include "texturemanager.hpp"
 
@@ -53,7 +52,6 @@ namespace Terrain
         , mCompositeMapLevel(1.f)
         , mMaxCompGeometrySize(1.f)
         , mPlayerPosition(0.f, 0.f, 0.f)
-        , mSubdivisionTracker(std::make_unique<SubdivisionTracker>())
     {
         mMultiPassRoot = new osg::StateSet;
         mMultiPassRoot->setRenderingHint(osg::StateSet::OPAQUE_BIN);
@@ -66,41 +64,12 @@ namespace Terrain
         unsigned int lodFlags, bool activeGrid, const osg::Vec3f& viewPoint, bool compile)
     {
         // Override lod with the vertexLodMod adjusted value.
-        // TODO: maybe we can refactor this code by moving all vertexLodMod code into this class.
         lod = static_cast<unsigned char>(lodFlags >> (4 * 4));
 
-        // Calculate subdivision level BEFORE cache lookup
-        // This ensures cache key includes current subdivision level based on player position
-        int subdivisionLevel = 0;
-
-        // IMPORTANT: Skip CPU subdivision when GPU tessellation is enabled
-        // GPU tessellation provides dynamic subdivision on the GPU, making CPU subdivision redundant
-        // and incompatible (CPU subdivision creates GL_TRIANGLES, tessellation needs GL_PATCHES)
-        if (!mTessellationEnabled)
-        {
-            // Per CHUNK_SUBDIVISION_SYSTEM.md, subdivision should only apply to leaf-level terrain chunks
-            // The document specifies chunks of 256 world units, but in OpenMW's terrain system,
-            // the actual minimum chunk size depends on the LOD configuration
-            // For now, we apply subdivision to small chunks (size <= 0.125 cells)
-            // This ensures we only subdivide the finest detail level, not large parent chunks
-            float cellSize = mStorage->getCellWorldSize(mWorldspace);
-            const float MAX_SUBDIVISION_CHUNK_SIZE = 0.125f;  // Maximum chunk size to subdivide (in cell units)
-
-            if (size <= MAX_SUBDIVISION_CHUNK_SIZE && mSubdivisionTracker)
-            {
-                // Use GRID-BASED subdivision (not distance-based circles)
-                // This creates predictable 3x3 and 5x5 rectangular patterns as per requirements
-                osg::Vec2f playerPos2D(mPlayerPosition.x(), mPlayerPosition.y());
-
-                subdivisionLevel = mSubdivisionTracker->getSubdivisionLevelFromPlayerGrid(center, playerPos2D, cellSize);
-            }
-        }
-
-        const ChunkKey key{ .mCenter = center, .mLod = lod, .mLodFlags = lodFlags,
-                           .mSubdivisionLevel = static_cast<unsigned char>(subdivisionLevel) };
+        const ChunkKey key{ .mCenter = center, .mLod = lod, .mLodFlags = lodFlags };
         if (osg::ref_ptr<osg::Object> obj = mCache->getRefFromObjectCache(key))
         {
-            // CRITICAL FIX: Cached chunks may not have terrain weights computed
+            // Cached chunks may not have terrain weights computed
             // This happens when chunks are created far from player, cached, then reused when player approaches
             // We must ensure weights are computed for all cached chunks within deformation range
 
@@ -124,10 +93,6 @@ namespace Terrain
                     std::vector<osg::ref_ptr<osg::Image>> blendmaps;
                     mStorage->getBlendmaps(size, center, blendmaps, layerList, mWorldspace);
 
-                    // CRITICAL FIX: Force LOD_FULL for cached chunks to ensure consistent weights
-                    // across chunk boundaries. Using determineLOD() here was causing seams because
-                    // cached chunks would get simplified weights (one per chunk) while new chunks
-                    // got full weights (per vertex).
                     TerrainWeights::WeightLOD weightLOD = TerrainWeights::LOD_FULL;
 
                     // Compute weights for existing vertices
@@ -155,7 +120,7 @@ namespace Terrain
         if (pair.has_value() && templateKey == TemplateKey{ .mCenter = pair->first.mCenter, .mLod = pair->first.mLod })
             templateGeometry = static_cast<const TerrainDrawable*>(pair->second.get());
 
-        osg::ref_ptr<osg::Node> node = createChunk(size, center, lod, lodFlags, compile, templateGeometry, viewPoint, subdivisionLevel);
+        osg::ref_ptr<osg::Node> node = createChunk(size, center, lod, lodFlags, compile, templateGeometry, viewPoint);
         mCache->addEntryToObjectCache(key, node.get());
         return node;
     }
@@ -168,21 +133,7 @@ namespace Terrain
 
     void ChunkManager::setPlayerPosition(const osg::Vec3f& pos)
     {
-        // Update player position for subdivision level calculations
-        // NOTE: We no longer clear the cache on player movement because chunks are now
-        // cached per subdivision level (in ChunkKey). As the player moves, getChunk()
-        // will automatically request chunks with the appropriate subdivision level based
-        // on current player position, and the cache will return the correct version.
         mPlayerPosition = pos;
-    }
-
-    void ChunkManager::updateSubdivisionTracker(float dt)
-    {
-        if (mSubdivisionTracker)
-        {
-            osg::Vec2f playerPos2D(mPlayerPosition.x(), mPlayerPosition.y());
-            mSubdivisionTracker->update(dt, playerPos2D);
-        }
     }
 
     void ChunkManager::reportStats(unsigned int frameNumber, osg::Stats* stats) const
@@ -307,8 +258,8 @@ namespace Terrain
 
         float tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
-        // Use tessellation passes if enabled
-        if (mTessellationEnabled && !forCompositeMap)
+        // Use tessellation passes for non-composite chunks
+        if (!forCompositeMap)
         {
             auto passes = ::Terrain::createTessellationPasses(
                 mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
@@ -323,8 +274,7 @@ namespace Terrain
     }
 
     osg::ref_ptr<osg::Node> ChunkManager::createChunk(float chunkSize, const osg::Vec2f& chunkCenter, unsigned char lod,
-        unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry, const osg::Vec3f& viewPoint,
-        int subdivisionLevel)
+        unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry, const osg::Vec3f& viewPoint)
     {
         osg::ref_ptr<TerrainDrawable> geometry(new TerrainDrawable);
 
@@ -375,13 +325,11 @@ namespace Terrain
         unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
 
         // Determine if this chunk uses composite map (large/distant chunks)
-        // This must be checked BEFORE choosing index buffer type
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
 
         // Use patch index buffer for tessellation, but ONLY for non-composite-map chunks
-        // Composite map chunks use regular shaders (not tessellation shaders), so they need GL_TRIANGULAR
-        // Rendering GL_PATCHES with non-tessellation shaders causes rendering artifacts
-        if (mTessellationEnabled && !useCompositeMap)
+        // Composite map chunks use regular shaders (not tessellation shaders), so they need GL_TRIANGLES
+        if (!useCompositeMap)
             geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
         else
             geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
@@ -396,18 +344,12 @@ namespace Terrain
         osg::ref_ptr<osg::StateSet> chunkStateSet = new osg::StateSet(*mMultiPassRoot, osg::CopyOp::SHALLOW_COPY);
 
         // Set chunk world offset uniform for snow deformation coordinate conversion
-        // Vertices in the chunk are relative to chunkCenter, so this converts local->world
-        // OpenMW terrain uses X=East, Y=North, Z=Up
-        // chunkCenter is in cell coordinates (e.g., 0.5, 1.5), must convert to world units
-        // Multiply by cellSize (typically 8192) to get world coordinates
         float cellSize = mStorage->getCellWorldSize(mWorldspace);
         osg::Vec3f chunkWorldOffset(chunkCenter.x() * cellSize, chunkCenter.y() * cellSize, 0.0f);
         chunkStateSet->addUniform(new osg::Uniform("chunkWorldOffset", chunkWorldOffset));
 
         // Add camera position uniform for tessellation LOD calculation
-        // Only needed for non-composite chunks that actually use tessellation shaders
-        // Note: This is set at chunk creation time but updated dynamically in TerrainDrawable::cull()
-        if (mTessellationEnabled && !useCompositeMap)
+        if (!useCompositeMap)
         {
             chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
         }
@@ -459,137 +401,31 @@ namespace Terrain
         }
         geometry->setNodeMask(mNodeMask);
 
-        // NOTE: subdivisionLevel is now passed as a parameter from getChunk()
-        // It's calculated using TRUE GRID-BASED logic (not distance circles) to create
-        // the predictable 3x3 and 5x5 rectangular patterns specified in requirements.
-        // The subdivision level is part of the cache key, ensuring chunks are cached
-        // per subdivision level. This allows subdivision to update smoothly as player moves
-        // without needing to clear the entire cache.
-
-        // Convert chunk center from cell units to world units for distance calculations
+        // Compute terrain weights for deformation
         osg::Vec2f worldChunkCenter2D(chunkCenter.x() * cellSize, chunkCenter.y() * cellSize);
         osg::Vec2f playerPos2D(mPlayerPosition.x(), mPlayerPosition.y());
         float distanceToCenter = (playerPos2D - worldChunkCenter2D).length();
 
-        // Determine if this chunk needs weight computation based on distance
-        // We need to compute weights for all chunks that might be visible and approached.
-        // The typical view distance is around 6000-8000m (cells), so we use a threshold
-        // slightly larger than that to ensure all potentially visible chunks get weights.
-        // This prevents the caching bug where distant chunks are cached without weights,
-        // then reused when player approaches (causing delayed/missing deformation).
-        const float MAX_DEFORMATION_DISTANCE = 256.0f;
-        const float WEIGHT_COMPUTATION_DISTANCE = 10000.0f; // 10km - covers all visible terrain
-        bool needsWeightComputation = (distanceToCenter < WEIGHT_COMPUTATION_DISTANCE);
-
-        // Fetch terrain layer info only for chunks that might be approached
-        std::vector<LayerInfo> layerList;
-        std::vector<osg::ref_ptr<osg::Image>> blendmaps;
-        if (needsWeightComputation)
+        const float WEIGHT_COMPUTATION_DISTANCE = 10000.0f;
+        if (distanceToCenter < WEIGHT_COMPUTATION_DISTANCE)
         {
+            std::vector<LayerInfo> layerList;
+            std::vector<osg::ref_ptr<osg::Image>> blendmaps;
             mStorage->getBlendmaps(chunkSize, chunkCenter, blendmaps, layerList, mWorldspace);
-        }
 
-        if (subdivisionLevel > 0)
-        {
-            // Subdivide geometry
-            osg::ref_ptr<osg::Geometry> subdivided;
-
-            if (needsWeightComputation)
+            const osg::Vec3Array* vertices = dynamic_cast<const osg::Vec3Array*>(geometry->getVertexArray());
+            if (vertices)
             {
-                // CRITICAL FIX: Force LOD_FULL for subdivided chunks to ensure consistent weights
-                // across subdivision levels. This prevents "jumping" when chunks change subdivision level.
-                // Per-vertex weight computation ensures smooth interpolation during subdivision.
-                // We override the distance-based LOD to use FULL detail for all subdivided chunks,
-                // because if weights change when subdivision level changes, the terrain will "pop".
-                subdivided = TerrainSubdivider::subdivideWithWeights(
-                    geometry.get(), subdivisionLevel,
-                    chunkCenter, chunkSize,
-                    layerList, blendmaps,
-                    mStorage, mWorldspace,
-                    mPlayerPosition, cellSize,
-                    TerrainWeights::LOD_FULL);  // Force full LOD for consistency
-            }
-            else
-            {
-                // Distant chunks: subdivide WITHOUT weight computation (faster)
-                subdivided = TerrainSubdivider::subdivide(geometry.get(), subdivisionLevel);
-            }
+                auto weights = TerrainWeights::computeWeights(
+                    vertices, chunkCenter, chunkSize, layerList, blendmaps,
+                    mStorage, mWorldspace, mPlayerPosition, cellSize, TerrainWeights::LOD_FULL);
 
-            if (subdivided)
-            {
-                // Copy TerrainDrawable-specific data to the subdivided geometry
-                osg::ref_ptr<TerrainDrawable> subdividedDrawable = new TerrainDrawable;
-
-                // Copy vertex data from subdivided geometry
-                subdividedDrawable->setVertexArray(subdivided->getVertexArray());
-                subdividedDrawable->setNormalArray(subdivided->getNormalArray(), osg::Array::BIND_PER_VERTEX);
-                subdividedDrawable->setColorArray(subdivided->getColorArray(), osg::Array::BIND_PER_VERTEX);
-                subdividedDrawable->setTexCoordArrayList(subdivided->getTexCoordArrayList());
-
-                // Copy terrain weight vertex attribute (attribute 6)
-                if (subdivided->getVertexAttribArray(6))
-                    subdividedDrawable->setVertexAttribArray(6, subdivided->getVertexAttribArray(6), osg::Array::BIND_PER_VERTEX);
-
-                // Copy primitive sets
-                for (unsigned int i = 0; i < subdivided->getNumPrimitiveSets(); ++i)
-                    subdividedDrawable->addPrimitiveSet(subdivided->getPrimitiveSet(i));
-
-                // Copy TerrainDrawable-specific properties
-                subdividedDrawable->setPasses(geometry->getPasses());
-                subdividedDrawable->setCompositeMap(geometry->getCompositeMap());
-                subdividedDrawable->setCompositeMapRenderer(mCompositeMapRenderer);
-                subdividedDrawable->setStateSet(geometry->getStateSet());
-                subdividedDrawable->setNodeMask(geometry->getNodeMask());
-                subdividedDrawable->setUseDisplayList(false);
-                subdividedDrawable->setUseVertexBufferObjects(true);
-
-                // Set light list callback if this is a small chunk
-                if (chunkSize <= 1.f)
-                    subdividedDrawable->setLightListCallback(new SceneUtil::LightListCallback);
-
-                subdividedDrawable->setupWaterBoundingBox(-1, chunkSize * mStorage->getCellWorldSize(mWorldspace) / numVerts);
-                subdividedDrawable->createClusterCullingCallback();
-
-                // Mark this chunk as subdivided in the tracker (for trail persistence)
-                if (mSubdivisionTracker)
+                if (weights)
                 {
-                    mSubdivisionTracker->markChunkSubdivided(chunkCenter, subdivisionLevel, worldChunkCenter2D);
+                    geometry->setVertexAttribArray(6, weights, osg::Array::BIND_PER_VERTEX);
                 }
-
-                // Removed excessive subdivision logging
-
-                return subdividedDrawable;
-            }
-            else
-            {
-                Log(Debug::Warning) << "[TERRAIN] Failed to subdivide chunk at (" << chunkCenter.x() << ", " << chunkCenter.y() << ")";
             }
         }
-        else if (needsWeightComputation)
-        {
-            // Non-subdivided chunk close enough to need terrain weights
-            // This prevents chunks from being cached without weights, then reused
-            // when player gets closer (which was causing the delayed detection bug).
-            // Use LOD_FULL for consistency with subdivided chunks
-            osg::ref_ptr<osg::Geometry> weightedGeometry = TerrainSubdivider::subdivideWithWeights(
-                geometry.get(), 0,  // subdivisionLevel = 0 (no subdivision, just add weights)
-                chunkCenter, chunkSize,
-                layerList, blendmaps,
-                mStorage, mWorldspace,
-                mPlayerPosition, cellSize,
-                TerrainWeights::LOD_FULL);  // Force full LOD for consistency
-
-            if (weightedGeometry && weightedGeometry->getVertexAttribArray(6))
-            {
-                // Attach the computed weights to the original geometry
-                geometry->setVertexAttribArray(6, weightedGeometry->getVertexAttribArray(6), osg::Array::BIND_PER_VERTEX);
-
-                Log(Debug::Verbose) << "[TERRAIN WEIGHTS] Added weights to non-subdivided chunk at ("
-                                   << chunkCenter.x() << ", " << chunkCenter.y() << "), distance: "
-                                   << distanceToCenter << "m";
-            }
-        }
-        // else: Very distant chunk (>768m) - no weights needed, shader will handle gracefully
 
         return geometry;
     }
