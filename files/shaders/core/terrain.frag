@@ -5,8 +5,17 @@
 // ============================================================================
 // Handles lighting, texturing, and visual effects for tessellated terrain.
 // Receives interpolated data from the tessellation evaluation shader.
-// Uses compatibility profile to access gl_NormalMatrix, etc.
+// Uses compatibility profile to access gl_NormalMatrix, gl_FrontMaterial, etc.
+// Integrates with OpenMW's lighting system for correct sun/light interaction.
 // ============================================================================
+
+#if @useUBO
+    #extension GL_ARB_uniform_buffer_object : require
+#endif
+
+#if @useGPUShader4
+    #extension GL_EXT_gpu_shader4: require
+#endif
 
 // Inputs from tessellation evaluation shader
 in TES_OUT {
@@ -40,58 +49,61 @@ uniform sampler2D snowDeformationMap;
 // Deformation uniforms
 uniform vec3 snowRTTWorldOrigin;
 uniform float snowRTTScale;
-
-// Material uniforms
-uniform vec4 diffuseColor;
-uniform vec4 ambientColor;
-uniform vec4 emissionColor;
-uniform vec4 specularColor;
-uniform float shininess;
+uniform float deformationMapResolution; // Resolution of deformation map (1024, 2048, or 4096)
 
 // Environment uniforms
 uniform float far;
+uniform vec2 screenRes;
 
 // Texture matrices (for tiling)
 uniform mat4 textureMatrix0;
 uniform mat4 textureMatrix1;
 
-// ============================================================================
-// LIGHTING (Simplified for initial implementation)
-// ============================================================================
+// Define PER_PIXEL_LIGHTING for lighting.glsl
+#define PER_PIXEL_LIGHTING (@normalMap || @specularMap || @forcePPL)
 
-// Light uniforms (simplified - you'll want to integrate with OpenMW's lighting system)
-uniform vec3 sunDirection;  // Sun direction in view space
-uniform vec3 sunColor;
-uniform vec3 ambientLight;
+// Color mode uniform (for terrain, always use material colors)
+uniform int colorMode;
+const int ColorMode_None = 0;
+const int ColorMode_Emission = 1;
+const int ColorMode_AmbientAndDiffuse = 2;
+const int ColorMode_Ambient = 3;
+const int ColorMode_Diffuse = 4;
+const int ColorMode_Specular = 5;
 
-vec3 calculateLighting(vec3 normal, vec3 viewDir, vec3 baseColor)
+// Color functions - use fs_in.color or gl_FrontMaterial based on colorMode
+vec4 getEmissionColor()
 {
-    // Simple diffuse + ambient lighting
-    float NdotL = max(dot(normal, -sunDirection), 0.0);
-    vec3 diffuse = baseColor * sunColor * NdotL;
-    vec3 ambient = baseColor * ambientLight;
-
-    // Simple specular (Blinn-Phong)
-    vec3 halfDir = normalize(-sunDirection + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), shininess);
-    vec3 specular = specularColor.rgb * sunColor * spec;
-
-    return diffuse + ambient + specular + emissionColor.rgb;
+    if (colorMode == ColorMode_Emission)
+        return fs_in.color;
+    return gl_FrontMaterial.emission;
 }
 
-// ============================================================================
-// FOG (Simplified)
-// ============================================================================
-
-uniform vec4 fogColor;
-uniform float fogStart;
-uniform float fogEnd;
-
-vec4 applyFog(vec4 color, float dist)
+vec4 getAmbientColor()
 {
-    float fogFactor = clamp((fogEnd - dist) / (fogEnd - fogStart), 0.0, 1.0);
-    return vec4(mix(fogColor.rgb, color.rgb, fogFactor), color.a);
+    if (colorMode == ColorMode_AmbientAndDiffuse || colorMode == ColorMode_Ambient)
+        return fs_in.color;
+    return gl_FrontMaterial.ambient;
 }
+
+vec4 getDiffuseColor()
+{
+    if (colorMode == ColorMode_AmbientAndDiffuse || colorMode == ColorMode_Diffuse)
+        return fs_in.color;
+    return gl_FrontMaterial.diffuse;
+}
+
+vec4 getSpecularColor()
+{
+    if (colorMode == ColorMode_Specular)
+        return fs_in.color;
+    return gl_FrontMaterial.specular;
+}
+
+// Include OpenMW's lighting and shadow systems
+#include "compatibility/shadows_fragment.glsl"
+#include "lib/light/lighting.glsl"
+#include "compatibility/fog.glsl"
 
 // ============================================================================
 // MAIN
@@ -105,9 +117,6 @@ void main()
     // Sample diffuse texture
     vec4 diffuseTex = texture(diffuseMap, adjustedUV);
     fragColor = vec4(diffuseTex.rgb, 1.0);
-
-    // Get base diffuse color
-    vec4 matDiffuse = diffuseColor * fs_in.color;
 
     // ========================================================================
     // SNOW POM & DARKENING (Parallax Occlusion Mapping for footprints)
@@ -155,8 +164,8 @@ void main()
         }
     }
 
-    // Apply visual effects for deformed areas
-    float darkeningFactor;
+    // Calculate visual effects for deformed areas (used later in lighting)
+    float darkeningFactor = 0.0;
     if (deformationFactor > 0.0)
     {
         darkeningFactor = smoothstep(0.0, 1.0, deformationFactor) * 0.5;
@@ -166,8 +175,7 @@ void main()
         darkeningFactor = deformationFactor * 0.15;
     }
 
-    matDiffuse.rgb *= (1.0 - darkeningFactor);
-    fragColor.a *= matDiffuse.a;
+    fragColor.a *= getDiffuseColor().a;
 
     // ========================================================================
     // BLEND MAP
@@ -203,7 +211,8 @@ void main()
         vec2 deformUV = (fs_in.worldPos.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
         if (deformUV.x >= 0.0 && deformUV.x <= 1.0 && deformUV.y >= 0.0 && deformUV.y <= 1.0)
         {
-            float texelSize = 2.0 / 2048.0;
+            float resolution = deformationMapResolution > 0.0 ? deformationMapResolution : 2048.0;
+            float texelSize = 2.0 / resolution;
 
             // Central difference for normals
             float h_l = texture(snowDeformationMap, deformUV + vec2(-texelSize, 0.0)).r;
@@ -229,19 +238,45 @@ void main()
     }
 
     // ========================================================================
-    // LIGHTING
+    // LIGHTING - Using OpenMW's lighting system
     // ========================================================================
 
-    vec3 viewDir = normalize(-fs_in.viewPos);
-    vec3 lighting = calculateLighting(viewNormal, viewDir, matDiffuse.rgb);
+    float shadowing = unshadowedLightRatio(fs_in.linearDepth);
+    vec3 lighting, specular;
 
-    fragColor.rgb = fragColor.rgb * lighting;
+#if PER_PIXEL_LIGHTING
+    #if @specularMap
+        float materialShininess = 128.0; // TODO: make configurable
+        vec3 specularColor = vec3(diffuseTex.a);
+    #else
+        float materialShininess = gl_FrontMaterial.shininess;
+        vec3 specularColor = getSpecularColor().xyz;
+    #endif
+    vec3 diffuseLight, ambientLight, specularLight;
+    doLighting(fs_in.viewPos, viewNormal, materialShininess, shadowing, diffuseLight, ambientLight, specularLight);
+    lighting = getDiffuseColor().xyz * diffuseLight + getAmbientColor().xyz * ambientLight + getEmissionColor().xyz;
+    specular = specularColor * specularLight;
+#else
+    // Vertex lighting fallback (simplified for tessellation)
+    vec3 diffuseLight, ambientLight, specularLight;
+    vec3 shadowDiffuse, shadowSpecular;
+    doLighting(fs_in.viewPos, viewNormal, gl_FrontMaterial.shininess, diffuseLight, ambientLight, specularLight, shadowDiffuse, shadowSpecular);
+    lighting = getDiffuseColor().xyz * diffuseLight + getAmbientColor().xyz * ambientLight + getEmissionColor().xyz;
+    lighting += shadowDiffuse * shadowing;
+    specular = getSpecularColor().xyz * specularLight + shadowSpecular * shadowing;
+#endif
+
+    // Apply darkening from deformation to diffuse
+    lighting *= (1.0 - darkeningFactor);
+
+    clampLightingResult(lighting);
+    fragColor.rgb = fragColor.rgb * lighting + specular;
 
     // ========================================================================
-    // FOG
+    // FOG - Using OpenMW's fog system
     // ========================================================================
 
-    fragColor = applyFog(fragColor, fs_in.euclideanDepth);
+    fragColor = applyFogAtDist(fragColor, fs_in.euclideanDepth, fs_in.linearDepth, far);
 
     // ========================================================================
     // NORMAL OUTPUT (for deferred rendering)
@@ -251,4 +286,6 @@ void main()
     fragNormal.xyz = viewNormal * 0.5 + 0.5;
     fragNormal.w = 1.0;
 #endif
+
+    applyShadowDebugOverlay();
 }

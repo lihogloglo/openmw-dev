@@ -87,6 +87,7 @@ namespace Terrain
         osg::Uniform* getRTTWorldOriginUniform() const { return mRTTWorldOriginUniform.get(); }
         osg::Uniform* getRTTScaleUniform() const { return mRTTScaleUniform.get(); }
         osg::Uniform* getDebugModeUniform() const { return mDebugModeUniform.get(); }
+        osg::Uniform* getResolutionUniform() const { return mResolutionUniform.get(); }
 
         // DEBUG: Expose internal textures for testing
         void debugDumpTexture(const std::string& filename, osg::Texture2D* texture) const;
@@ -164,6 +165,7 @@ namespace Terrain
         osg::ref_ptr<osg::Uniform> mRTTWorldOriginUniform; // World position of RTT texture center
         osg::ref_ptr<osg::Uniform> mRTTScaleUniform;       // Scale of RTT area (meters)
         osg::ref_ptr<osg::Uniform> mDebugModeUniform;      // Debug visualization mode (0-11)
+        osg::ref_ptr<osg::Uniform> mResolutionUniform;     // Deformation map resolution
         
         float mRTTSize; // Size of the RTT area in world units (e.g. 50m)
         osg::Vec3f mRTTCenter; // Current center of RTT area

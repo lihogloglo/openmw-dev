@@ -9,11 +9,22 @@
 // Uses custom projectionMatrix uniform for reverse-Z depth buffer support.
 // ============================================================================
 
+#if @useUBO
+    #extension GL_ARB_uniform_buffer_object : require
+#endif
+
+#if @useGPUShader4
+    #extension GL_EXT_gpu_shader4: require
+#endif
+
 layout(quads, equal_spacing, ccw) in;
 
 // OpenMW uses a custom projection matrix for reverse-Z depth buffer
 // Do NOT use gl_ProjectionMatrix - it doesn't contain the correct values
 uniform mat4 projectionMatrix;
+
+// Include shadow coordinate setup
+#include "compatibility/shadows_vertex.glsl"
 
 // Inputs from tessellation control shader
 in TCS_OUT {
@@ -142,4 +153,9 @@ void main()
     tes_out.color = color;
     tes_out.deformationFactor = deformationFactor;
     tes_out.maxDepth = maxDepth;
+
+    // Setup shadow coordinates
+    // viewNormal needs to be in view space for shadow offset calculation
+    vec3 viewNormal = normalize(gl_NormalMatrix * normal);
+    setupShadowCoords(viewPos, viewNormal);
 }

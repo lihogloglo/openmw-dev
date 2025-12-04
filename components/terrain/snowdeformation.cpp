@@ -42,7 +42,7 @@ namespace Terrain
             {
                 int childrenTraversed = 0;
                 int childrenSkipped = 0;
-                
+
                 // Log(Debug::Verbose) << "DepthCameraCullCallback: Visiting root " << mRoot << " (" << mRoot->getName() << ")";
 
                 for (unsigned int i = 0; i < mRoot->getNumChildren(); ++i)
@@ -88,7 +88,7 @@ namespace Terrain
                     childrenTraversed++;
                     child->accept(*nv);
                 }
-                
+
             }
         }
 
@@ -446,6 +446,9 @@ namespace Terrain
 
         // Debug mode uniform - reads from settings and updates every frame
         mDebugModeUniform = new osg::Uniform("deformationDebugMode", Settings::terrain().mDeformationDebugMode.get());
+
+        // Resolution uniform - pass actual texture resolution to shaders
+        mResolutionUniform = new osg::Uniform("deformationMapResolution", static_cast<float>(resolution));
 
         // 4. Create Debug Overlay
         mDebugOverlay = new DebugOverlay(1920, 1080); // Assuming 1080p for now

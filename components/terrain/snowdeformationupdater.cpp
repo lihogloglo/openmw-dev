@@ -28,6 +28,7 @@ namespace Terrain
         stateset->setTextureAttributeAndModes(7, manager->getDeformationMap(), osg::StateAttribute::ON);
         stateset->addUniform(manager->getRTTWorldOriginUniform());
         stateset->addUniform(manager->getRTTScaleUniform());
+        stateset->addUniform(manager->getResolutionUniform());
 
         Log(Debug::Info) << "SnowDeformationUpdater::setDefaults - Added RTT uniforms to terrain stateset";
 

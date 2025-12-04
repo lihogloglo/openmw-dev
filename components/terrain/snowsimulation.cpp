@@ -336,6 +336,9 @@ namespace Terrain
         mBlurSpreadUniformH = new osg::Uniform("blurSpread", 2.0f);
         hSS->addUniform(mBlurSpreadUniformH);
 
+        // Resolution uniform - pass actual texture resolution
+        hSS->addUniform(new osg::Uniform("deformationMapResolution", static_cast<float>(mResolution)));
+
         addChild(mBlurHCamera);
 
         // --- Blur Pass 2 (Vertical) ---
@@ -384,6 +387,9 @@ namespace Terrain
         // Blur spread uniform (default 2.0 for snow)
         mBlurSpreadUniformV = new osg::Uniform("blurSpread", 2.0f);
         vSS->addUniform(mBlurSpreadUniformV);
+
+        // Resolution uniform - pass actual texture resolution
+        vSS->addUniform(new osg::Uniform("deformationMapResolution", static_cast<float>(mResolution)));
 
         addChild(mBlurVCamera);
     }

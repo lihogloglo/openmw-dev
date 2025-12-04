@@ -10,6 +10,9 @@ uniform sampler2D inputTex;
 // Ash:  1.5-2.0 (medium)
 uniform float blurSpread;
 
+// Deformation map resolution - set from C++ to match actual texture size
+uniform float deformationMapResolution;
+
 // 9-tap Gaussian weights (wider kernel for softer, more natural-looking edges)
 // Generated with sigma = 2.5 for a smooth falloff
 // Sum = 1.0
@@ -54,7 +57,8 @@ float rimFunction(float x)
 void main()
 {
     vec2 uv = gl_TexCoord[0].xy;
-    vec2 texelSize = 1.0 / vec2(2048.0, 2048.0);
+    float resolution = deformationMapResolution > 0.0 ? deformationMapResolution : 2048.0;
+    vec2 texelSize = 1.0 / vec2(resolution, resolution);
 
     // Use uniform blur spread (fallback to 2.0 if not set)
     float spread = blurSpread > 0.0 ? blurSpread : 2.0;

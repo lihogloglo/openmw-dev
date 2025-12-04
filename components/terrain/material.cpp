@@ -480,24 +480,9 @@ namespace Terrain
             // This should match what OpenMW uses for linear depth
             stateset->addUniform(new osg::Uniform("linearFac", 1.0f));
 
-            // Lighting uniforms (placeholders - should be overridden by lighting system)
-            // These are required by the fragment shader
-            stateset->addUniform(new osg::Uniform("sunDirection", osg::Vec3f(0.0f, 0.0f, -1.0f)));
-            stateset->addUniform(new osg::Uniform("sunColor", osg::Vec3f(1.0f, 1.0f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("ambientLight", osg::Vec3f(0.3f, 0.3f, 0.3f)));
-
-            // Material uniforms (defaults)
-            stateset->addUniform(new osg::Uniform("diffuseColor", osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("ambientColor", osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("emissionColor", osg::Vec4f(0.0f, 0.0f, 0.0f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("specularColor", osg::Vec4f(0.0f, 0.0f, 0.0f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("shininess", 0.0f));
-
-            // Fog uniforms (defaults)
-            stateset->addUniform(new osg::Uniform("fogColor", osg::Vec4f(0.7f, 0.7f, 0.8f, 1.0f)));
-            stateset->addUniform(new osg::Uniform("fogStart", 0.0f));
-            stateset->addUniform(new osg::Uniform("fogEnd", 100000.0f));
-            stateset->addUniform(new osg::Uniform("far", 100000.0f));
+            // Lighting and material uniforms are now provided by OpenMW's standard
+            // lighting system via gl_FrontMaterial, gl_LightModel, etc.
+            // The tessellation fragment shader includes the proper lighting.glsl
 
             // Texture matrix uniforms for compatibility profile shaders
             // Get the actual texture matrices if set, otherwise use identity

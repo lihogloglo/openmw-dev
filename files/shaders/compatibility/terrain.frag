@@ -16,6 +16,7 @@ varying float vMaxDepth;            // From vertex shader
 uniform sampler2D snowDeformationMap;
 uniform vec3 snowRTTWorldOrigin;
 uniform float snowRTTScale;
+uniform float deformationMapResolution; // Resolution of deformation map (1024, 2048, or 4096)
 uniform int deformationDebugMode; // 0=off, 1=UV coords, 2=deform value, 3=world offset
 uniform vec3 chunkWorldOffset;    // Chunk's world position (for debug mode 11)
 
@@ -166,7 +167,8 @@ void main()
         vec2 deformUV = (passWorldPos.xy - snowRTTWorldOrigin.xy) / snowRTTScale + 0.5;
         if (deformUV.x >= 0.0 && deformUV.x <= 1.0 && deformUV.y >= 0.0 && deformUV.y <= 1.0)
         {
-            float texelSize = 1.0 / 2048.0;
+            float resolution = deformationMapResolution > 0.0 ? deformationMapResolution : 2048.0;
+            float texelSize = 1.0 / resolution;
             float h = texture2D(snowDeformationMap, deformUV).r;
             float h_r = texture2D(snowDeformationMap, deformUV + vec2(texelSize, 0.0)).r;
             float h_u = texture2D(snowDeformationMap, deformUV + vec2(0.0, texelSize)).r;
@@ -202,7 +204,8 @@ void main()
         if (deformUV.x >= 0.0 && deformUV.x <= 1.0 && deformUV.y >= 0.0 && deformUV.y <= 1.0)
         {
             // Use larger sample offset for smoother normals (matches blur spread)
-            float texelSize = 2.0 / 2048.0; // 2x texel for smoother gradients
+            float resolution = deformationMapResolution > 0.0 ? deformationMapResolution : 2048.0;
+            float texelSize = 2.0 / resolution; // 2x texel for smoother gradients
 
             // Central difference for more accurate normals
             float h_l = texture2D(snowDeformationMap, deformUV + vec2(-texelSize, 0.0)).r;
