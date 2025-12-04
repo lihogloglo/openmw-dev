@@ -1,41 +1,32 @@
 # Ocean Shader Debug Log
 
-## Current Test: Finding where black screen starts
+## Debug Results
 
-### Test 1: Red output after refraction sampling
-**Location:** Line 474 (after `sampleRefractionMap`)
-**Result:** RED - shader runs to this point
+| Test | Location | Result |
+|------|----------|--------|
+| Red output | Line 474 | WORKS |
+| Refraction before absorption | Line 477 | WORKS |
+| Refraction after absorption | Line 501 | WORKS |
+| refrReflColor (fresnel blend) | Line 533 | WORKS |
+| Full shader without fog | - | WORKS |
+| Full shader with fog | - | BLACK |
 
-### Test 2: Output refraction before absorption
-**Location:** Line 477
-**Code:** `gl_FragData[0] = vec4(refraction, 1.0); return;`
-**Result:** ???
+## Current Issues
 
-### Test 3: Output refraction AFTER absorption
-**Location:** Line 501
-**Code:** `gl_FragData[0] = vec4(refraction, 1.0); return;`
-**Result:** ???
+1. **FOG causes black screen** - needs investigation
+2. **Specular is noisy** - looks like white noise on waves
+3. **Shallow water too transparent** - needs wobbly shores
 
-### Test 4: Check cameraPos.z value
-**Location:** Line 480
-**Code:** `gl_FragData[0] = vec4(cameraPos.z > 0.0 ? 1.0 : 0.0, 0.0, 0.0, 1.0); return;`
-**Result:** ???
+## ogwatershader Analysis
 
-### Test 5: Check waterDepthDistorted
-**Location:** Line 483
-**Code:** `gl_FragData[0] = vec4(vec3(waterDepthDistorted / 1000.0), 1.0); return;`
-**Result:** ???
+The ogwatershader/water.frag is identical to compatibility/water.frag.
 
----
+Key features we're missing:
+- **Wobbly shores** (lines 227-238): Blends to raw refraction at shallow depth
+  - Uses `rawRefraction` stored before absorption
+  - `shoreOffset` based on depth and normal wobble
+  - Prevents shallow water from looking too processed
 
-## Debug Strategy
-1. Move debug output progressively later in the shader
-2. When it goes black, we found the problem area
-3. Then examine that specific code
-
-## Quick Reference - Debug Lines in ocean.frag
-- Line 474: Red test (WORKS)
-- Line 477: Refraction before absorption
-- Line 480: cameraPos.z check
-- Line 483: waterDepthDistorted check
-- Line 501: Refraction after absorption
+Specular formula is identical - so the noise might be from:
+- Our FFT normals being too high frequency
+- Distance-based normal falloff not working correctly

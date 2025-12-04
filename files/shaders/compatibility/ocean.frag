@@ -537,18 +537,17 @@ void main(void)
     // Add sun specular highlights (like original water shader line 225)
     gl_FragData[0].rgb += specular * sunSpec.rgb;
 
-    // DEBUG: Skip fog for now
-    // gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth, far);
+    // Apply fog
+    // Note: Use worldPos instead of position.xyz - our vertex shader sets position to gl_Vertex (local)
+    // but worldPos contains the actual displaced world position
+#if @radialFog
+    float radialDepth = distance(worldPos, cameraPos);
+#else
+    float radialDepth = 0.0;
+#endif
 
-    // Apply fog (same as original water shader)
-    // Note: Use position.xyz for fog calculation to match original water shader
-// #if @radialFog
-//     float radialDepth = distance(position.xyz, cameraPos);
-// #else
-//     float radialDepth = 0.0;
-// #endif
-//
-//     gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth, far);
+    // DEBUG: skip fog entirely to test
+    // gl_FragData[0] = applyFogAtDist(gl_FragData[0], radialDepth, linearDepth, far);
 
 #if !@disableNormals
     gl_FragData[1].rgb = normalize(gl_NormalMatrix * normal) * 0.5 + 0.5;

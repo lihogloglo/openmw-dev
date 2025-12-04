@@ -1065,7 +1065,9 @@ namespace MWRender
         defines["sunlightScattering"] = Settings::water().mSunlightScattering ? "1" : "0";
         defines["radialFog"] = Settings::fog().mRadialFog ? "1" : "0";
         defines["exponentialFog"] = Settings::fog().mExponentialFog ? "1" : "0";
-        defines["skyBlending"] = Settings::fog().mSkyBlending ? "1" : "0";
+        // TODO: Sky blending requires the sky texture to be bound, which isn't set up for ocean yet
+        // Disabling for now to prevent black screen
+        defines["skyBlending"] = "0"; // Settings::fog().mSkyBlending ? "1" : "0";
 
         Stereo::shaderStereoDefines(defines);
 
