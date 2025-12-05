@@ -1,20 +1,12 @@
 # Rain Ripple Occlusion
+Made with Claude AI (Opus 4.5).
 
-## Overview
-
-This document describes the implementation of rain ripple occlusion for water surfaces in OpenMW. The feature prevents rain ripples from appearing on water that is sheltered by roofs, bridges, or other overhead structures.
-
-## Problem
-
-Prior to this implementation, rain ripples would appear on all water surfaces during rainy weather, regardless of whether the water was actually exposed to rain. This was visually incorrect when standing under a bridge or inside a structure with water - ripples would still appear on the sheltered water.
-
-## Solution
+From this issue : https://gitlab.com/OpenMW/openmw/-/issues/7157  
+Prior to this implementation, rain ripples would appear on all water surfaces during rainy weather, regardless of whether the water was actually exposed to rain.
 
 The rain ripple occlusion system reuses the existing precipitation particle occlusion infrastructure. This system renders a depth map from an overhead orthographic camera, which is then sampled in the water shader to determine whether each water fragment is sheltered from rain.
 
 ## Implementation Details
-
-### Precipitation Occlusion System
 
 The precipitation occlusion system (`PrecipitationOccluder` class in `precipitationocclusion.cpp`) provides:
 
@@ -23,8 +15,6 @@ The precipitation occlusion system (`PrecipitationOccluder` class in `precipitat
 3. **View-Projection Matrix**: Transforms world positions to the occlusion camera's clip space
 
 The occlusion camera renders scene geometry (static objects, terrain) to capture what structures exist above the player's area.
-
-### Water Shader Integration
 
 #### Vertex Shader (`water.vert`)
 
@@ -81,11 +71,6 @@ The `occlusionFactor` (0.0 = occluded, 1.0 = exposed) is multiplied with the rai
 
 The occlusion system only covers a limited area around the player (approximately matching the rain particle spawn area, ~1000x1000 units). Water surfaces outside this area will not have occlusion applied and will show ripples regardless of overhead structures.
 
-This is a deliberate trade-off:
-- Larger coverage would require more GPU resources
-- Distant water under distant roofs is less noticeable to players
-- The primary goal is preventing the jarring effect of ripples at the player's feet when sheltered
-
 ### Performance Considerations
 
 The occlusion depth pass renders scene geometry from an additional camera. The cost is mitigated by:
@@ -101,12 +86,3 @@ The feature is controlled by the `weather particle occlusion` setting in the `[S
 [Shaders]
 weather particle occlusion = true
 ```
-
-When disabled, rain ripples appear on all water surfaces regardless of shelter.
-
-## Files Modified
-
-- `apps/openmw/mwrender/water.cpp` - Passes occlusion data to shader
-- `apps/openmw/mwrender/water.hpp` - Adds occlusion setter method
-- `files/shaders/compatibility/water.vert` - Transforms positions to occlusion space
-- `files/shaders/compatibility/water.frag` - Samples occlusion and modulates ripples
