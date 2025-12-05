@@ -10,7 +10,9 @@
       "Bash(git ls-tree:*)",
       "Bash(python:*)",
       "Bash(grep:*)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(Select-Object -First 50)",
+      "Bash(cmd /c \"dir d:\\Gamedev\\OpenMW\\openmw-dev-water\\build\")"
     ],
     "deny": [],
     "ask": []

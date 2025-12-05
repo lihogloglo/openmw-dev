@@ -47,6 +47,9 @@ namespace MWRender
         void setReflection(SceneUtil::RTTNode* reflection) { mReflection = reflection; }
         void setRefraction(SceneUtil::RTTNode* refraction) { mRefraction = refraction; }
 
+        // Set shore distance map for vertex-level wave attenuation
+        void setShoreDistanceMap(osg::Texture2D* texture, float minX, float minY, float maxX, float maxY);
+
         // Called by StateSetUpdater to bind textures dynamically
         void updateStateSet(osg::StateSet* stateset, osgUtil::CullVisitor* cv);
         ~Ocean() override;
@@ -65,6 +68,7 @@ namespace MWRender
         // Debug visualization
         void setDebugVisualizeCascades(bool enabled);
         void setDebugVisualizeLOD(bool enabled);
+        void setDebugVisualizeShore(bool enabled);
 
         // Runtime configurable parameters
         void setWaterColor(const osg::Vec3f& color);
@@ -77,6 +81,12 @@ namespace MWRender
         void setSpread(float spread);
         void setFoamAmount(float amount);
 
+        // Shore smoothing parameters
+        void setShoreWaveAttenuation(float attenuation);
+        void setShoreDepthScale(float scale);
+        void setShoreFoamBoost(float boost);
+        void setVertexShoreSmoothing(float smoothing);  // Controls vertex displacement reduction
+
         osg::Vec3f getWaterColor() const { return mWaterColor; }
         osg::Vec3f getFoamColor() const { return mFoamColor; }
         float getWindSpeed() const { return mWindSpeed; }
@@ -86,6 +96,10 @@ namespace MWRender
         float getDetail() const { return mDetail; }
         float getSpread() const { return mSpread; }
         float getFoamAmount() const { return mFoamAmount; }
+        float getShoreWaveAttenuation() const { return mShoreWaveAttenuation; }
+        float getShoreDepthScale() const { return mShoreDepthScale; }
+        float getShoreFoamBoost() const { return mShoreFoamBoost; }
+        float getVertexShoreSmoothing() const { return mVertexShoreSmoothing; }
 
     private:
         void initShaders();
@@ -105,8 +119,13 @@ namespace MWRender
         osg::ref_ptr<osg::Uniform> mCameraPositionUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeCascadesUniform;
         osg::ref_ptr<osg::Uniform> mDebugVisualizeLODUniform;
+        osg::ref_ptr<osg::Uniform> mDebugVisualizeShoreUniform;
         osg::ref_ptr<osg::Uniform> mWaterColorUniform;
         osg::ref_ptr<osg::Uniform> mFoamColorUniform;
+        osg::ref_ptr<osg::Uniform> mShoreWaveAttenuationUniform;
+        osg::ref_ptr<osg::Uniform> mShoreDepthScaleUniform;
+        osg::ref_ptr<osg::Uniform> mShoreFoamBoostUniform;
+        osg::ref_ptr<osg::Uniform> mVertexShoreSmoothingUniform;
 
         // FFT Textures
         osg::ref_ptr<osg::Texture2DArray> mSpectrum;
@@ -141,11 +160,20 @@ namespace MWRender
         float mDetail;          // 0-1
         float mSpread;          // 0-1
         float mFoamAmount;      // 0-10
+        float mShoreWaveAttenuation; // 0-1, how much waves are reduced at shore
+        float mShoreDepthScale;      // MW units, depth at which waves reach full amplitude
+        float mShoreFoamBoost;       // 0-5, extra foam intensity at shore
+        float mVertexShoreSmoothing; // 0-1, manual vertex displacement reduction
         bool mNeedsSpectrumRegeneration;
 
         // Reflection/Refraction (provided by WaterManager)
         SceneUtil::RTTNode* mReflection;
         SceneUtil::RTTNode* mRefraction;
+
+        // Shore distance map for vertex-level wave attenuation
+        osg::ref_ptr<osg::Texture2D> mShoreDistanceMap;
+        osg::ref_ptr<osg::Uniform> mShoreMapBoundsUniform;  // vec4(minX, minY, maxX, maxY)
+        bool mHasShoreDistanceMap;
     };
 }
 

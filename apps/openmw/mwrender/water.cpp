@@ -452,7 +452,13 @@ namespace MWRender
         , mShowWorld(true)
         , mCullCallback(nullptr)
         , mShaderWaterStateSetUpdater(nullptr)
+        , mTerrainStorage(nullptr)
         , mUseOcean(false)
+        , mShoreMapMinX(-400000.0f)
+        , mShoreMapMinY(-400000.0f)
+        , mShoreMapMaxX(400000.0f)
+        , mShoreMapMaxY(400000.0f)
+        , mShoreMapGenerated(false)
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
@@ -1068,6 +1074,120 @@ namespace MWRender
     float WaterManager::getOceanFoamAmount() const
     {
         return mOcean ? mOcean->getFoamAmount() : 5.0f;
+    }
+
+    void WaterManager::setOceanShoreWaveAttenuation(float attenuation)
+    {
+        if (mOcean)
+            mOcean->setShoreWaveAttenuation(attenuation);
+    }
+
+    void WaterManager::setOceanShoreDepthScale(float scale)
+    {
+        if (mOcean)
+            mOcean->setShoreDepthScale(scale);
+    }
+
+    void WaterManager::setOceanShoreFoamBoost(float boost)
+    {
+        if (mOcean)
+            mOcean->setShoreFoamBoost(boost);
+    }
+
+    float WaterManager::getOceanShoreWaveAttenuation() const
+    {
+        return mOcean ? mOcean->getShoreWaveAttenuation() : 0.8f;
+    }
+
+    float WaterManager::getOceanShoreDepthScale() const
+    {
+        return mOcean ? mOcean->getShoreDepthScale() : 500.0f;
+    }
+
+    float WaterManager::getOceanShoreFoamBoost() const
+    {
+        return mOcean ? mOcean->getShoreFoamBoost() : 1.5f;
+    }
+
+    void WaterManager::setOceanVertexShoreSmoothing(float smoothing)
+    {
+        if (mOcean)
+            mOcean->setVertexShoreSmoothing(smoothing);
+    }
+
+    float WaterManager::getOceanVertexShoreSmoothing() const
+    {
+        return mOcean ? mOcean->getVertexShoreSmoothing() : 0.0f;
+    }
+
+    void WaterManager::setOceanDebugShore(bool enabled)
+    {
+        if (mOcean)
+            mOcean->setDebugVisualizeShore(enabled);
+    }
+
+    void WaterManager::setTerrainStorage(ESMTerrain::Storage* storage)
+    {
+        mTerrainStorage = storage;
+
+        // Auto-generate shore map when terrain is available and ocean is enabled
+        if (mTerrainStorage && mUseOcean && !mShoreMapGenerated)
+        {
+            std::cout << "WaterManager: Auto-generating shore distance map..." << std::endl;
+            generateShoreDistanceMap(mShoreMapMinX, mShoreMapMinY, mShoreMapMaxX, mShoreMapMaxY);
+        }
+    }
+
+    void WaterManager::setShoreMapMaxDistance(float distance)
+    {
+        if (!mShoreDistanceMap)
+        {
+            // Create it now so the setting is applied when generate is called
+            if (mTerrainStorage)
+                mShoreDistanceMap = std::make_unique<ShoreDistanceMap>(mTerrainStorage);
+        }
+        if (mShoreDistanceMap)
+        {
+            mShoreDistanceMap->setMaxShoreDistance(distance);
+
+            // Regenerate if already generated
+            if (mShoreMapGenerated)
+            {
+                std::cout << "WaterManager: Regenerating shore map with new max distance: " << distance << std::endl;
+                generateShoreDistanceMap(mShoreMapMinX, mShoreMapMinY, mShoreMapMaxX, mShoreMapMaxY);
+            }
+        }
+    }
+
+    void WaterManager::generateShoreDistanceMap(float minX, float minY, float maxX, float maxY)
+    {
+        if (!mTerrainStorage)
+        {
+            std::cerr << "WaterManager::generateShoreDistanceMap: No terrain storage set!" << std::endl;
+            return;
+        }
+
+        // Store bounds for regeneration
+        mShoreMapMinX = minX;
+        mShoreMapMinY = minY;
+        mShoreMapMaxX = maxX;
+        mShoreMapMaxY = maxY;
+
+        // Create shore distance map if not exists
+        if (!mShoreDistanceMap)
+        {
+            mShoreDistanceMap = std::make_unique<ShoreDistanceMap>(mTerrainStorage);
+        }
+
+        // Generate the map
+        mShoreDistanceMap->generate(minX, minY, maxX, maxY, mTop);
+
+        // Pass to ocean
+        if (mOcean && mShoreDistanceMap->isGenerated())
+        {
+            mOcean->setShoreDistanceMap(mShoreDistanceMap->getTexture(), minX, minY, maxX, maxY);
+            mShoreMapGenerated = true;
+        }
     }
 
 }

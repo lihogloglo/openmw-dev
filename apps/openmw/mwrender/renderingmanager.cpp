@@ -518,6 +518,7 @@ namespace MWRender
         // water goes after terrain for correct waterculling order
         mWater = std::make_unique<WaterManager>(
             mRootNode, sceneRoot, mResourceSystem, mViewer->getIncrementalCompileOperation());
+        mWater->setTerrainStorage(mTerrainStorage.get());
 
         mCamera = std::make_unique<Camera>(mViewer->getCamera());
 

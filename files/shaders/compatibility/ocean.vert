@@ -29,6 +29,17 @@ uniform int numCascades;
 uniform vec3 cameraPosition; // Added for distance calculation
 uniform vec4 mapScales[4]; // xy = scale for each cascade
 
+// Shore smoothing - manual control for vertex displacement
+// This is a global multiplier (0-1) that reduces large wave displacement
+// Set via Lua: ocean.setVertexShoreSmoothing(0.5) to reduce big waves by 50%
+uniform float vertexShoreSmoothing; // 0 = full waves, 1 = no displacement (calm)
+
+// Shore distance map - automatic shore detection based on terrain
+// Format: R16F texture where 0 = on shore, 1 = far from shore (open ocean)
+uniform sampler2D shoreDistanceMap;
+uniform vec4 shoreMapBounds;     // vec4(minX, minY, maxX, maxY) in world coords
+uniform int hasShoreDistanceMap; // 0 = disabled, 1 = enabled
+
 void main(void)
 {
     position = gl_Vertex;
@@ -55,12 +66,50 @@ void main(void)
     vec3 totalDisplacement = vec3(0.0);
     float dist = length(vertPos.xy);
 
-    // Displacement sampling with per-cascade amplitude scaling
+    // ========================================================================
+    // SHORE DISTANCE SAMPLING
+    // ========================================================================
+    // Calculate shore smoothing factor from either:
+    // 1. Shore distance map (automatic, if available)
+    // 2. Manual vertexShoreSmoothing uniform (fallback)
+    float shoreSmoothing = vertexShoreSmoothing;
+
+    if (hasShoreDistanceMap == 1)
+    {
+        // Convert world position to UV in shore map
+        vec2 shoreUV = (worldPosXY - shoreMapBounds.xy) / (shoreMapBounds.zw - shoreMapBounds.xy);
+
+        // Clamp to valid range (outside map = assume open ocean)
+        if (shoreUV.x >= 0.0 && shoreUV.x <= 1.0 && shoreUV.y >= 0.0 && shoreUV.y <= 1.0)
+        {
+            // Sample shore distance (0 = shore, 1 = open ocean)
+            float shoreDistance = texture(shoreDistanceMap, shoreUV).r;
+
+            // Invert: we want 0 = open ocean (full waves), 1 = shore (calm)
+            shoreSmoothing = 1.0 - shoreDistance;
+        }
+        else
+        {
+            // Outside map bounds - assume open ocean (no smoothing)
+            shoreSmoothing = 0.0;
+        }
+    }
+
+    // Per-cascade shore weights for displacement
+    // Large waves (cascade 0-1) are suppressed more, small ripples (2-3) less
+    // shoreSmoothing = 0: full waves, shoreSmoothing = 1: calm water
+    float cascadeDispWeights[4];
+    cascadeDispWeights[0] = 1.0 - shoreSmoothing;                    // Large swells: full suppression
+    cascadeDispWeights[1] = 1.0 - shoreSmoothing * 0.7;              // Medium waves: 70% suppression
+    cascadeDispWeights[2] = 1.0 - shoreSmoothing * 0.3;              // Small ripples: 30% suppression
+    cascadeDispWeights[3] = 1.0 - shoreSmoothing * 0.1;              // Fine detail: 10% suppression
+
+    // Displacement sampling with per-cascade amplitude scaling and shore attenuation
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPosXY * mapScales[i].x;
         vec3 disp = texture(displacementMap, vec3(uv, float(i))).xyz;
 
-        totalDisplacement += disp * mapScales[i].z;
+        totalDisplacement += disp * mapScales[i].z * cascadeDispWeights[i];
     }
 
     // Distance-based displacement falloff (matching Godot water.gdshader line 29)

@@ -27,6 +27,18 @@ const float DEPTH_FADE = 0.15;
 uniform vec3 waterColor;
 uniform vec3 foamColor;
 
+// Shore smoothing parameters (runtime configurable via Lua)
+// Controls how waves calm down near shores based on water depth
+uniform float shoreWaveAttenuation;  // 0.0 = no attenuation, 1.0 = full attenuation at shore (default: 0.8)
+uniform float shoreDepthScale;       // Depth at which waves reach full amplitude in MW units (default: 500.0)
+uniform float shoreFoamBoost;        // Extra foam near shores (default: 1.5)
+
+// Shore distance map - automatic shore detection based on terrain (shared with vertex shader)
+// Format: R16F texture where 0 = on shore, 1 = far from shore (open ocean)
+uniform sampler2D shoreDistanceMap;
+uniform vec4 shoreMapBounds;     // vec4(minX, minY, maxX, maxY) in world coords
+uniform int hasShoreDistanceMap; // 0 = disabled, 1 = enabled
+
 // Sunlight scattering constants (from original water shader)
 #if @sunlightScattering
 const float SCATTER_AMOUNT = 0.3;                  // amount of sunlight scattering
@@ -60,6 +72,7 @@ uniform vec2 screenRes;
 // Debug visualization toggle
 uniform int debugVisualizeCascades; // 0 = off, 1 = on
 uniform int debugVisualizeLOD;      // 0 = off, 1 = on
+uniform int debugVisualizeShore;    // 0 = off, 1 = show shore depth factor
 
 // Camera position in world space (for cascade selection)
 uniform vec3 cameraPosition;
@@ -162,6 +175,55 @@ void main(void)
     vec2 screenCoords = gl_FragCoord.xy / screenRes;
     float shadow = unshadowedLightRatio(linearDepth);
 
+    // ========================================================================
+    // SHORE SMOOTHING - Unified system using both depth buffer and distance map
+    // ========================================================================
+    // Both vertex displacement (big waves) and fragment normals (small details)
+    // use the same shore distance map for consistent wave attenuation near shores
+    float shoreDepthFactor = 1.0; // 1.0 = full waves, 0.0 = calm water
+    float shoreMapFactor = 1.0;   // From shore distance map: 0 = shore, 1 = open ocean
+    float depthBufferFactor = 1.0; // From depth buffer: 0 = shore, 1 = deep water
+
+    // Sample shore distance map (same as vertex shader)
+    vec2 worldPosXY_early = worldPos.xy;
+    if (hasShoreDistanceMap == 1)
+    {
+        vec2 shoreUV = (worldPosXY_early - shoreMapBounds.xy) / (shoreMapBounds.zw - shoreMapBounds.xy);
+        if (shoreUV.x >= 0.0 && shoreUV.x <= 1.0 && shoreUV.y >= 0.0 && shoreUV.y <= 1.0)
+        {
+            // shoreMapFactor: 0 = on shore, 1 = far from shore (open ocean)
+            shoreMapFactor = texture(shoreDistanceMap, shoreUV).r;
+        }
+    }
+
+#if @waterRefraction
+    // Sample depth at screen center (no distortion yet) for shore detection
+    float earlyDepthSample = linearizeDepth(sampleRefractionDepthMap(screenCoords), near, far);
+    float earlySurfaceDepth = linearizeDepth(gl_FragCoord.z, near, far);
+    float earlyWaterDepth = max(earlyDepthSample - earlySurfaceDepth, 0.0);
+
+    // Calculate depth buffer factor: 0 at shore, 1 in deep water
+    depthBufferFactor = smoothstep(0.0, shoreDepthScale, earlyWaterDepth);
+#endif
+
+    // Combine both factors - use the minimum (most conservative) to ensure
+    // waves are calmed when EITHER system detects shore proximity
+    shoreDepthFactor = min(shoreMapFactor, depthBufferFactor);
+
+    // Apply attenuation control: blend between full waves and calmed waves
+    // shoreWaveAttenuation controls how much waves are reduced at shore (0 = no effect, 1 = full calm)
+    shoreDepthFactor = mix(1.0, shoreDepthFactor, shoreWaveAttenuation);
+
+    // Debug: Visualize shore factors
+    if (debugVisualizeShore == 1) {
+        // Red channel: shore map factor (0 = shore from distance map)
+        // Green channel: combined factor (0 = calmed, 1 = full waves)
+        // Blue channel: depth buffer factor (0 = shallow from depth)
+        vec3 debugColor = vec3(1.0 - shoreMapFactor, shoreDepthFactor, depthBufferFactor);
+        gl_FragData[0] = vec4(debugColor, 1.0);
+        return;
+    }
+
     // Sample gradients from FFT cascade using snapped world position
     // mapScales format: vec4(uvScale, uvScale, displacementScale, normalScale)
     // normalMap stores: vec4(gradient.x, gradient.y, dhx_dx, foam)
@@ -177,6 +239,21 @@ void main(void)
 
     // Get normal map size for bicubic filtering calculation
     int map_size = textureSize(normalMap, 0).x;
+
+    // ========================================================================
+    // CASCADE-BASED SHORE SMOOTHING
+    // ========================================================================
+    // Near shores (shallow water), we suppress large wave cascades but keep small ripples
+    // This creates realistic wave behavior where big swells break/calm at coast
+    // Cascade weights based on shore depth:
+    //   - Cascade 0 (large swells): fully suppressed near shore
+    //   - Cascade 1 (medium waves): partially suppressed
+    //   - Cascade 2-3 (small ripples): kept for surface detail
+    float cascadeShoreWeights[4];
+    cascadeShoreWeights[0] = shoreDepthFactor;                              // Large waves: full suppression
+    cascadeShoreWeights[1] = mix(0.3, 1.0, shoreDepthFactor);               // Medium: partial suppression
+    cascadeShoreWeights[2] = mix(0.6, 1.0, shoreDepthFactor);               // Small ripples: mostly kept
+    cascadeShoreWeights[3] = mix(0.8, 1.0, shoreDepthFactor);               // Fine detail: almost full
 
     for (int i = 0; i < numCascades && i < 4; ++i) {
         vec2 uv = worldPosXY * mapScales[i].x;
@@ -196,12 +273,21 @@ void main(void)
             min(1.0, ppm * 0.1)
         );
 
-        // Apply per-cascade normal scale to gradient
+        // Apply per-cascade shore weight to reduce waves near shore
+        float shoreWeight = cascadeShoreWeights[i];
+
+        // Apply per-cascade normal scale to gradient (with shore attenuation)
         // Godot line 83: gradient += ... * vec3(scales.ww, 1.0);
         // scales.w is the normal scale, which is mapScales[i].w for us
-        gradient.xy += normalSample.xy * mapScales[i].w;
-        foam += normalSample.w;
+        gradient.xy += normalSample.xy * mapScales[i].w * shoreWeight;
+        foam += normalSample.w * shoreWeight;
     }
+
+    // Boost foam near shores (breaking waves effect)
+#if @waterRefraction
+    float shoreProximity = 1.0 - shoreDepthFactor;
+    foam += shoreProximity * shoreFoamBoost * 0.5; // Extra foam at shore
+#endif
 
     // Distance-based normal strength falloff
     // Godot line 89: gradient *= mix(0.015, normal_strength, exp(-dist*0.0175));
@@ -402,7 +488,11 @@ void main(void)
     // This gives sharper, more visually pleasing sun reflections
     // Note: Our normal is (X, Y-up, Z) but specular formula expects (X, Y, Z-up)
     // So we use normal.xz for horizontal perturbation and normal.y for vertical
-    vec3 specNormal = normalize(vec3(normal.x * SPEC_BUMPINESS, normal.z * SPEC_BUMPINESS, normal.y));
+    //
+    // FFT normals already have lots of detail, so we use lower bumpiness than original water
+    // Also apply distance falloff to reduce specular noise at distance
+    float specBumpiness = SPEC_BUMPINESS * 0.3 * normalFalloff; // Reduced from 5.0 to ~1.5, with distance fade
+    vec3 specNormal = normalize(vec3(normal.x * specBumpiness, normal.z * specBumpiness, normal.y));
     vec3 viewReflectDir = reflect(viewDir, specNormal);
     float phongTerm = max(dot(viewReflectDir, sunWorldDir), 0.0);
     float specular = pow(atan(phongTerm * SPEC_MAGIC), SPEC_HARDNESS) * SPEC_BRIGHTNESS;

@@ -13,6 +13,7 @@
 
 #include "ocean.hpp"
 #include "lake.hpp"
+#include "shoredistancemap.hpp"
 
 namespace osg
 {
@@ -31,6 +32,11 @@ namespace osgUtil
 namespace Resource
 {
     class ResourceSystem;
+}
+
+namespace ESMTerrain
+{
+    class Storage;
 }
 
 namespace MWWorld
@@ -82,7 +88,13 @@ namespace MWRender
 
         std::unique_ptr<Ocean> mOcean;
         std::unique_ptr<Lake> mLake;
+        std::unique_ptr<ShoreDistanceMap> mShoreDistanceMap;
+        ESMTerrain::Storage* mTerrainStorage;
         bool mUseOcean;
+
+        // Shore map bounds (stored for regeneration)
+        float mShoreMapMinX, mShoreMapMinY, mShoreMapMaxX, mShoreMapMaxY;
+        bool mShoreMapGenerated;
 
         osg::Vec3f getSceneNodeCoordinates(int gridX, int gridY);
         void updateVisible();
@@ -141,6 +153,16 @@ namespace MWRender
         void setOceanDetail(float detail);
         void setOceanSpread(float spread);
         void setOceanFoamAmount(float amount);
+        void setOceanShoreWaveAttenuation(float attenuation);
+        void setOceanShoreDepthScale(float scale);
+        void setOceanShoreFoamBoost(float boost);
+        void setOceanVertexShoreSmoothing(float smoothing);
+        void setOceanDebugShore(bool enabled);
+
+        // Shore distance map
+        void setTerrainStorage(ESMTerrain::Storage* storage);
+        void setShoreMapMaxDistance(float distance);  // Max distance from shore for calming effect
+        void generateShoreDistanceMap(float minX, float minY, float maxX, float maxY);
 
         osg::Vec3f getOceanWaterColor() const;
         osg::Vec3f getOceanFoamColor() const;
@@ -151,6 +173,10 @@ namespace MWRender
         float getOceanDetail() const;
         float getOceanSpread() const;
         float getOceanFoamAmount() const;
+        float getOceanShoreWaveAttenuation() const;
+        float getOceanShoreDepthScale() const;
+        float getOceanShoreFoamBoost() const;
+        float getOceanVertexShoreSmoothing() const;
     };
 
 }

@@ -159,9 +159,14 @@ namespace MWRender
         , mDetail(1.0f)
         , mSpread(0.2f)
         , mFoamAmount(5.0f)
+        , mShoreWaveAttenuation(0.8f)  // 80% wave reduction at shore
+        , mShoreDepthScale(500.0f)     // Waves reach full amplitude at 500 MW units depth (~7m)
+        , mShoreFoamBoost(1.5f)        // 1.5x foam boost at shore
+        , mVertexShoreSmoothing(0.0f) // 0 = full waves (no manual smoothing)
         , mNeedsSpectrumRegeneration(false)
         , mReflection(nullptr)
         , mRefraction(nullptr)
+        , mHasShoreDistanceMap(false)
     {
         std::cout << "Ocean::Ocean constructor called" << std::endl;
         mRootNode = new osg::PositionAttitudeTransform;
@@ -1109,6 +1114,10 @@ namespace MWRender
         mDebugVisualizeLODUniform = new osg::Uniform("debugVisualizeLOD", 0);
         stateset->addUniform(mDebugVisualizeLODUniform);
 
+        // Debug visualization for shore depth (0 = off, 1 = on)
+        mDebugVisualizeShoreUniform = new osg::Uniform("debugVisualizeShore", 0);
+        stateset->addUniform(mDebugVisualizeShoreUniform);
+
         stateset->addUniform(new osg::Uniform("numCascades", NUM_CASCADES));
 
         // Set cascade scales (each cascade covers a different area)
@@ -1178,6 +1187,41 @@ namespace MWRender
         mFoamColorUniform = new osg::Uniform("foamColor", mFoamColor);
         stateset->addUniform(mFoamColorUniform);
 
+        // Shore smoothing parameters (fragment shader - depth-based)
+        mShoreWaveAttenuationUniform = new osg::Uniform("shoreWaveAttenuation", mShoreWaveAttenuation);
+        stateset->addUniform(mShoreWaveAttenuationUniform);
+        mShoreDepthScaleUniform = new osg::Uniform("shoreDepthScale", mShoreDepthScale);
+        stateset->addUniform(mShoreDepthScaleUniform);
+        mShoreFoamBoostUniform = new osg::Uniform("shoreFoamBoost", mShoreFoamBoost);
+        stateset->addUniform(mShoreFoamBoostUniform);
+
+        // Vertex shore smoothing (vertex shader - manual control)
+        mVertexShoreSmoothingUniform = new osg::Uniform("vertexShoreSmoothing", mVertexShoreSmoothing);
+        stateset->addUniform(mVertexShoreSmoothingUniform);
+
+        // Shore distance map bounds (will be updated when map is set)
+        // Format: vec4(minX, minY, maxX, maxY)
+        mShoreMapBoundsUniform = new osg::Uniform("shoreMapBounds", osg::Vec4f(0, 0, 1, 1));
+        stateset->addUniform(mShoreMapBoundsUniform);
+
+        // Shore distance map enabled flag
+        stateset->addUniform(new osg::Uniform("hasShoreDistanceMap", 0));
+
+        // Create a dummy 1x1 texture for shore distance map (required even when disabled)
+        // This prevents OpenGL errors from having an unbound sampler
+        osg::ref_ptr<osg::Image> dummyImage = new osg::Image;
+        dummyImage->allocateImage(1, 1, 1, GL_RED, GL_FLOAT);
+        float* dummyPixel = reinterpret_cast<float*>(dummyImage->data());
+        dummyPixel[0] = 1.0f;  // 1.0 = open ocean (no shore smoothing)
+        osg::ref_ptr<osg::Texture2D> dummyTexture = new osg::Texture2D;
+        dummyTexture->setImage(dummyImage);
+        dummyTexture->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        dummyTexture->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+        dummyTexture->setFilter(osg::Texture::MIN_FILTER, osg::Texture::NEAREST);
+        dummyTexture->setFilter(osg::Texture::MAG_FILTER, osg::Texture::NEAREST);
+        stateset->setTextureAttributeAndModes(6, dummyTexture, osg::StateAttribute::ON);
+        stateset->addUniform(new osg::Uniform("shoreDistanceMap", 6));
+
         // Add to scene
         osg::ref_ptr<osg::Geode> geode = new osg::Geode;
         geode->addDrawable(mWaterGeom);
@@ -1198,6 +1242,12 @@ namespace MWRender
     {
         if (mDebugVisualizeLODUniform)
             mDebugVisualizeLODUniform->set(enabled ? 1 : 0);
+    }
+
+    void Ocean::setDebugVisualizeShore(bool enabled)
+    {
+        if (mDebugVisualizeShoreUniform)
+            mDebugVisualizeShoreUniform->set(enabled ? 1 : 0);
     }
 
     void Ocean::updateStateSet(osg::StateSet* stateset, osgUtil::CullVisitor* cv)
@@ -1311,6 +1361,70 @@ namespace MWRender
     {
         mFoamAmount = amount;
         mNeedsSpectrumRegeneration = true;
+    }
+
+    void Ocean::setShoreWaveAttenuation(float attenuation)
+    {
+        mShoreWaveAttenuation = std::max(0.0f, std::min(1.0f, attenuation));
+        if (mShoreWaveAttenuationUniform)
+            mShoreWaveAttenuationUniform->set(mShoreWaveAttenuation);
+    }
+
+    void Ocean::setShoreDepthScale(float scale)
+    {
+        mShoreDepthScale = std::max(10.0f, scale); // Minimum 10 units
+        if (mShoreDepthScaleUniform)
+            mShoreDepthScaleUniform->set(mShoreDepthScale);
+    }
+
+    void Ocean::setShoreFoamBoost(float boost)
+    {
+        mShoreFoamBoost = std::max(0.0f, std::min(5.0f, boost));
+        if (mShoreFoamBoostUniform)
+            mShoreFoamBoostUniform->set(mShoreFoamBoost);
+    }
+
+    void Ocean::setVertexShoreSmoothing(float smoothing)
+    {
+        mVertexShoreSmoothing = std::max(0.0f, std::min(1.0f, smoothing));
+        if (mVertexShoreSmoothingUniform)
+            mVertexShoreSmoothingUniform->set(mVertexShoreSmoothing);
+    }
+
+    void Ocean::setShoreDistanceMap(osg::Texture2D* texture, float minX, float minY, float maxX, float maxY)
+    {
+        mShoreDistanceMap = texture;
+
+        if (texture && mWaterGeom)
+        {
+            osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+
+            // Bind shore distance map to texture unit 6
+            stateset->setTextureAttributeAndModes(6, texture, osg::StateAttribute::ON);
+            stateset->addUniform(new osg::Uniform("shoreDistanceMap", 6));
+
+            // Update bounds uniform
+            if (mShoreMapBoundsUniform)
+                mShoreMapBoundsUniform->set(osg::Vec4f(minX, minY, maxX, maxY));
+
+            // Enable shore distance map in shader
+            stateset->getOrCreateUniform("hasShoreDistanceMap", osg::Uniform::INT)->set(1);
+
+            mHasShoreDistanceMap = true;
+
+            std::cout << "Ocean: Shore distance map bound (bounds: ["
+                      << minX << "," << minY << "] to [" << maxX << "," << maxY << "])" << std::endl;
+        }
+        else
+        {
+            mHasShoreDistanceMap = false;
+
+            if (mWaterGeom)
+            {
+                osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+                stateset->getOrCreateUniform("hasShoreDistanceMap", osg::Uniform::INT)->set(0);
+            }
+        }
     }
 
 }
