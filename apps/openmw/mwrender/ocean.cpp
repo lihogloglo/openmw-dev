@@ -167,6 +167,7 @@ namespace MWRender
         , mReflection(nullptr)
         , mRefraction(nullptr)
         , mHasShoreDistanceMap(false)
+        , mUseSSR(false)  // Will be set in initGeometry() based on settings
     {
         std::cout << "Ocean::Ocean constructor called" << std::endl;
         mRootNode = new osg::PositionAttitudeTransform;
@@ -1066,6 +1067,7 @@ namespace MWRender
 
         // Check if refraction is enabled (same setting as original water shader)
         bool useRefraction = Settings::water().mRefraction;
+        bool useSSR = Settings::water().mOceanSSR;
         defines["waterRefraction"] = useRefraction ? "1" : "0";
         defines["sunlightScattering"] = Settings::water().mSunlightScattering ? "1" : "0";
         defines["radialFog"] = Settings::fog().mRadialFog ? "1" : "0";
@@ -1073,8 +1075,13 @@ namespace MWRender
         // TODO: Sky blending requires the sky texture to be bound, which isn't set up for ocean yet
         // Disabling for now to prevent black screen
         defines["skyBlending"] = "0"; // Settings::fog().mSkyBlending ? "1" : "0";
+        // SSR mode: uses screen-space reflections + cubemap fallback instead of RTT
+        defines["useSSR"] = useSSR ? "1" : "0";
 
         Stereo::shaderStereoDefines(defines);
+
+        // Store SSR mode for later use
+        mUseSSR = useSSR;
 
         // Get the ocean program (vert + frag)
         osg::ref_ptr<osg::Program> program = shaderManager.getProgram("ocean", defines);
@@ -1098,6 +1105,16 @@ namespace MWRender
         {
             stateset->addUniform(new osg::Uniform("refractionMap", 4));
             stateset->addUniform(new osg::Uniform("refractionDepthMap", 5));
+        }
+
+        // SSR-specific uniforms (texture units 7, 8)
+        // Only add if SSR mode is enabled
+        if (useSSR)
+        {
+            stateset->addUniform(new osg::Uniform("sceneColorBuffer", 7));
+            stateset->addUniform(new osg::Uniform("environmentMap", 8));
+            mSSRMixStrengthUniform = new osg::Uniform("ssrMixStrength", 0.8f);
+            stateset->addUniform(mSSRMixStrengthUniform);
         }
 
         // Set uniforms
@@ -1424,6 +1441,30 @@ namespace MWRender
                 osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
                 stateset->getOrCreateUniform("hasShoreDistanceMap", osg::Uniform::INT)->set(0);
             }
+        }
+    }
+
+    void Ocean::setSceneColorBuffer(osg::Texture2D* texture)
+    {
+        mSceneColorBuffer = texture;
+
+        if (mUseSSR && mWaterGeom && texture)
+        {
+            osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+            stateset->setTextureAttributeAndModes(7, texture, osg::StateAttribute::ON);
+            std::cout << "Ocean: Scene color buffer bound to unit 7 for SSR" << std::endl;
+        }
+    }
+
+    void Ocean::setEnvironmentMap(osg::TextureCubeMap* cubemap)
+    {
+        mEnvironmentMap = cubemap;
+
+        if (mUseSSR && mWaterGeom && cubemap)
+        {
+            osg::StateSet* stateset = mWaterGeom->getOrCreateStateSet();
+            stateset->setTextureAttributeAndModes(8, cubemap, osg::StateAttribute::ON);
+            std::cout << "Ocean: Environment cubemap bound to unit 8 for SSR fallback" << std::endl;
         }
     }
 

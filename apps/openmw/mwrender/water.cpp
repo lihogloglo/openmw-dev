@@ -462,7 +462,7 @@ namespace MWRender
     {
         mOcean = std::make_unique<Ocean>(mParent, mResourceSystem);
         mLake = std::make_unique<Lake>(mParent, mResourceSystem);
-        mUseOcean = true; // Uncomment to enable ocean by default when ready
+        mUseOcean = Settings::water().mFFTOcean;
 
         mSimulation = std::make_unique<RippleSimulation>(mSceneRoot, resourceSystem);
 
@@ -742,6 +742,25 @@ namespace MWRender
     void WaterManager::processChangedSettings(const Settings::CategorySettingVector& settings)
     {
         updateWaterMaterial();
+
+        // Handle FFT ocean setting change
+        for (const auto& setting : settings)
+        {
+            if (setting.first == "Water" && setting.second == "fft ocean")
+            {
+                mUseOcean = Settings::water().mFFTOcean;
+
+                // Properly enable/disable ocean and lake based on current state
+                bool isOcean = !mInterior && (std::abs(mTop) <= 10.0f);
+                if (mOcean)
+                    mOcean->setEnabled(mEnabled && mUseOcean && isOcean);
+                if (mLake)
+                    mLake->setEnabled(mEnabled && !isOcean);
+
+                updateVisible();
+                break;
+            }
+        }
     }
 
     WaterManager::~WaterManager()

@@ -495,6 +495,23 @@
                                 </Widget>
                             </Widget>
 
+                            <Widget type="HBox" align="Stretch">
+                                <UserString key="HStretch" value="true"/>
+                                <UserString key="VStretch" value="false"/>
+
+                                <Widget type="AutoSizedButton" skin="MW_Button" name="FFTOceanButton">
+                                    <UserString key="SettingCategory" value="Water"/>
+                                    <UserString key="SettingName" value="fft ocean"/>
+                                    <UserString key="SettingType" value="CheckButton"/>
+                                </Widget>
+                                <Widget type="AutoSizedTextBox" skin="SandText">
+                                    <Property key="Caption" value="#{OMWEngine:FFTOcean}"/>
+                                    <UserString key="ToolTipType" value="Layout"/>
+                                    <UserString key="ToolTipLayout" value="TextToolTip"/>
+                                    <UserString key="Caption_Text" value="#{OMWEngine:FFTOceanTooltip}"/>
+                                </Widget>
+                            </Widget>
+
                             <Widget type="Widget" position="0 0 0 18" align="Top Left HStretch">
                                 <UserString key="HStretch" value="true"/>
                                 <Widget type="AutoSizedTextBox" skin="NormalText">

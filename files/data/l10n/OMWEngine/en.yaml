@@ -212,6 +212,8 @@ WindowModeHint: "Hint: Windowed Fullscreen mode\nalways uses the native display 
 WindowModeWindowed: "Windowed"
 WindowModeWindowedFullscreen: "Windowed Fullscreen"
 WobblyShores: "Wobbly Shores"
+FFTOcean: "FFT Ocean"
+FFTOceanTooltip: "Enable FFT-based ocean simulation for realistic animated waves. Requires water shader to be enabled. May have a performance impact."
 
 
 # Controller button names

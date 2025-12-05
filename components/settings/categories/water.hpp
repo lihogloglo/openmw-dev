@@ -28,6 +28,10 @@ namespace Settings
         SettingValue<float> mRefractionScale{ mIndex, "Water", "refraction scale", makeClampSanitizerFloat(0, 1) };
         SettingValue<bool> mSunlightScattering{ mIndex, "Water", "sunlight scattering" };
         SettingValue<bool> mWobblyShores{ mIndex, "Water", "wobbly shores" };
+        SettingValue<bool> mFFTOcean{ mIndex, "Water", "fft ocean" };
+        // SSR (Screen-Space Reflections) mode for ocean - uses raymarching + cubemap fallback
+        // instead of RTT planar reflections. Less accurate but potentially faster.
+        SettingValue<bool> mOceanSSR{ mIndex, "Water", "ocean ssr" };
     };
 }
 

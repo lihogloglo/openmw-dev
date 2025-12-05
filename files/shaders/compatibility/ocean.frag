@@ -51,6 +51,15 @@ const float REFL_BUMP = 0.20;  // reflection distortion amount (increased to hid
 const float REFR_BUMP = 0.12;  // refraction distortion amount (increased from 0.07)
 const float BUMP_SUPPRESS_DEPTH = 300.0; // suppress distortion at shores
 
+// SSR (Screen-Space Reflections) mode - alternative to RTT reflections
+// When enabled, uses raymarching in screen space with cubemap fallback
+#if @useSSR
+uniform sampler2D sceneColorBuffer;  // Full scene color for SSR sampling
+uniform samplerCube environmentMap;  // Cubemap fallback for SSR misses
+uniform float ssrMixStrength;        // Blend factor between SSR and cubemap (0-1)
+#include "lib/water/ssr.glsl"
+#endif
+
 varying vec4 position;
 varying float linearDepth;
 varying vec3 worldPos;
@@ -553,8 +562,42 @@ void main(void)
     screenCoordsOffset *= clamp(realWaterDepth / BUMP_SUPPRESS_DEPTH, 0.0, 1.0);
 #endif
 
-    // Sample reflection with normal distortion
+    // Sample reflection - either via SSR+cubemap or traditional RTT
+#if @useSSR
+    // ========================================================================
+    // SSR + CUBEMAP REFLECTION PATH (Performance mode)
+    // ========================================================================
+    // Calculate view-space position and normal for SSR raymarching
+    vec3 viewPos = (gl_ModelViewMatrix * vec4(worldPos, 1.0)).xyz;
+    vec3 viewNormal = normalize(gl_NormalMatrix * normal);
+
+    // Trace SSR - use opaqueDepthTex which is always available from fragment.glsl
+    bool ssrReverseZ = false;
+#if @reverseZ
+    ssrReverseZ = true;
+#endif
+    vec4 ssrResult = traceSSRSimple(viewPos, viewNormal, sceneColorBuffer,
+                                    opaqueDepthTex, near, far, ssrReverseZ);
+
+    // Sample cubemap fallback using world-space reflection direction
+    vec3 worldReflectDir = reflect(viewDir, normal);
+    // Swap Y and Z for cubemap (cubemaps use Y-up convention)
+    vec3 cubemapDir = vec3(worldReflectDir.x, worldReflectDir.z, -worldReflectDir.y);
+    vec3 cubemapReflection = texture(environmentMap, cubemapDir).rgb;
+
+    // Blend SSR with cubemap based on SSR confidence and mix strength
+    float ssrConfidence = ssrResult.a * ssrMixStrength;
+    vec3 reflection = mix(cubemapReflection, ssrResult.rgb, ssrConfidence);
+
+    // Apply normal-based distortion to reflection (subtle, since SSR already has it)
+    // This helps blend the SSR with cubemap at edges
+    reflection = mix(reflection, cubemapReflection, (1.0 - ssrScreenEdgeFade(screenCoords)) * 0.5);
+#else
+    // ========================================================================
+    // RTT REFLECTION PATH (Quality mode - traditional planar reflections)
+    // ========================================================================
     vec3 reflection = sampleReflectionMap(screenCoords + screenCoordsOffset).rgb;
+#endif
 
 #if @waterRefraction
     // Sample refraction with normal distortion (opposite direction from reflection)

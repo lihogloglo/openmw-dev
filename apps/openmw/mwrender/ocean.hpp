@@ -7,6 +7,7 @@
 #include <osg/ref_ptr>
 #include <osg/Texture2DArray>
 #include <osg/Texture2D>
+#include <osg/TextureCubeMap>
 #include <osg/Program>
 #include <osg/Uniform>
 #include <osg/BufferObject>
@@ -49,6 +50,14 @@ namespace MWRender
 
         // Set shore distance map for vertex-level wave attenuation
         void setShoreDistanceMap(osg::Texture2D* texture, float minX, float minY, float maxX, float maxY);
+
+        // SSR (Screen-Space Reflections) mode support
+        // Set scene color buffer for SSR raymarching (provided by PostProcessor or similar)
+        void setSceneColorBuffer(osg::Texture2D* texture);
+        // Set environment cubemap for SSR fallback
+        void setEnvironmentMap(osg::TextureCubeMap* cubemap);
+        // Check if SSR mode is enabled
+        bool isSSREnabled() const { return mUseSSR; }
 
         // Called by StateSetUpdater to bind textures dynamically
         void updateStateSet(osg::StateSet* stateset, osgUtil::CullVisitor* cv);
@@ -174,6 +183,12 @@ namespace MWRender
         osg::ref_ptr<osg::Texture2D> mShoreDistanceMap;
         osg::ref_ptr<osg::Uniform> mShoreMapBoundsUniform;  // vec4(minX, minY, maxX, maxY)
         bool mHasShoreDistanceMap;
+
+        // SSR (Screen-Space Reflections) mode
+        bool mUseSSR;
+        osg::ref_ptr<osg::Texture2D> mSceneColorBuffer;    // Scene color for SSR sampling
+        osg::ref_ptr<osg::TextureCubeMap> mEnvironmentMap; // Cubemap fallback
+        osg::ref_ptr<osg::Uniform> mSSRMixStrengthUniform;
     };
 }
 
