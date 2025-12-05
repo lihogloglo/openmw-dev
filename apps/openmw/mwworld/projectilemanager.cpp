@@ -123,14 +123,14 @@ namespace
             texture = magicEffect->mParticle;
         }
 
-        // insert a VFX_Multiple projectile if there are multiple projectile effects
-        if (projectileEffects.mList.size() > 1)
+        if (projectileEffects.mList.size()
+            > 1) // insert a VFX_Multiple projectile if there are multiple projectile effects
         {
-            const ESM::RefId projectileId
-                = ESM::RefId::stringRefId("VFX_Multiple" + std::to_string(effects->mList.size()));
-            projectileIDs.insert(projectileIDs.begin(), projectileId);
+            const ESM::RefId ID = ESM::RefId::stringRefId("VFX_Multiple" + std::to_string(effects->mList.size()));
+            std::vector<ESM::RefId>::iterator it;
+            it = projectileIDs.begin();
+            it = projectileIDs.insert(it, ID);
         }
-
         return projectileEffects;
     }
 
@@ -144,8 +144,8 @@ namespace
                 = MWBase::Environment::get().getESMStore()->get<ESM::MagicEffect>().find(enam.mData.mEffectID);
             lightDiffuseColor += magicEffect->getColor();
         }
-        size_t numberOfEffects = effects.mList.size();
-        lightDiffuseColor /= static_cast<float>(numberOfEffects);
+        int numberOfEffects = effects.mList.size();
+        lightDiffuseColor /= numberOfEffects;
 
         return lightDiffuseColor;
     }
@@ -274,8 +274,8 @@ namespace MWWorld
             pos.z() += mPhysics->getRenderingHalfExtents(caster).z() * 2 * Constants::TorsoHeight;
         }
 
-        // Actors can't cast target spells underwater
-        if (caster.getClass().isActor() && MWBase::Environment::get().getWorld()->isUnderwater(caster.getCell(), pos))
+        if (MWBase::Environment::get().getWorld()->isUnderwater(
+                caster.getCell(), pos)) // Underwater casting not possible
             return;
 
         osg::Quat orient;
@@ -335,7 +335,7 @@ namespace MWWorld
         }
         state.mProjectileId = mPhysics->addProjectile(caster, pos, model, true);
         state.mToDelete = false;
-        mMagicBolts.push_back(std::move(state));
+        mMagicBolts.push_back(state);
     }
 
     void ProjectileManager::launchProjectile(const Ptr& actor, const ConstPtr& projectile, const osg::Vec3f& pos,
@@ -361,7 +361,7 @@ namespace MWWorld
 
         state.mProjectileId = mPhysics->addProjectile(actor, pos, model, false);
         state.mToDelete = false;
-        mProjectiles.push_back(std::move(state));
+        mProjectiles.push_back(state);
     }
 
     void ProjectileManager::updateCasters()
@@ -461,11 +461,6 @@ namespace MWWorld
 
             update(magicBoltState, duration);
 
-            for (const auto& sound : magicBoltState.mSounds)
-            {
-                sound->setVelocity(direction * speed);
-            }
-
             // For AI actors, get combat targets to use in the ray cast. Only those targets will return a positive hit
             // result.
             std::vector<MWWorld::Ptr> targetActors;
@@ -547,7 +542,7 @@ namespace MWWorld
                     bow = *invIt;
             }
 
-            const auto hitPosition = Misc::Convert::toOsg(projectile->getHitPosition());
+            const auto hitPosition = projectile->getHitPosition();
 
             if (projectile->getHitWater())
                 mRendering->emitWaterRipple(hitPosition);
@@ -569,19 +564,15 @@ namespace MWWorld
             for (const auto& sound : magicBoltState.mSounds)
                 sound->setPosition(pos);
 
-            const Ptr caster = magicBoltState.getCaster();
-
-            const MWBase::World& world = *MWBase::Environment::get().getWorld();
-            const bool active = projectile->isActive();
-            if (active && !world.isUnderwater(caster.getCell(), pos))
+            if (projectile->isActive())
                 continue;
 
-            const Ptr target = !active ? projectile->getTarget() : Ptr();
-
+            const auto target = projectile->getTarget();
+            const auto caster = magicBoltState.getCaster();
             assert(target != caster);
 
             MWMechanics::CastSpell cast(caster, target);
-            cast.mHitPosition = !active ? Misc::Convert::makeOsgVec3f(projectile->getHitPosition()) : pos;
+            cast.mHitPosition = projectile->getHitPosition();
             cast.mId = magicBoltState.mSpellId;
             cast.mSourceName = magicBoltState.mSourceName;
             cast.mItem = magicBoltState.mItem;
@@ -725,7 +716,7 @@ namespace MWWorld
             createModel(state, model, osg::Vec3f(esm.mPosition), osg::Quat(esm.mOrientation), false, false,
                 osg::Vec4(0, 0, 0, 0));
 
-            mProjectiles.push_back(std::move(state));
+            mProjectiles.push_back(state);
             return true;
         }
         if (type == ESM::REC_MPRJ)
@@ -786,14 +777,14 @@ namespace MWWorld
                     state.mSounds.push_back(sound);
             }
 
-            mMagicBolts.push_back(std::move(state));
+            mMagicBolts.push_back(state);
             return true;
         }
 
         return false;
     }
 
-    size_t ProjectileManager::countSavedGameRecords() const
+    int ProjectileManager::countSavedGameRecords() const
     {
         return mMagicBolts.size() + mProjectiles.size();
     }

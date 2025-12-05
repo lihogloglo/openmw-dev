@@ -12,53 +12,48 @@ macro(FetchContent_MakeAvailableExcludeFromAll)
             if(EXISTS ${${contentNameLower}_SOURCE_DIR}/CMakeLists.txt)
                 add_subdirectory(${${contentNameLower}_SOURCE_DIR}
                     ${${contentNameLower}_BINARY_DIR} EXCLUDE_FROM_ALL)
+            elseif(EXISTS ${${contentNameLower}_SOURCE_DIR}/Build/CMakeLists.txt)
+                add_subdirectory(${${contentNameLower}_SOURCE_DIR}/Build
+                    ${${contentNameLower}_BINARY_DIR} EXCLUDE_FROM_ALL)
             endif()
         endif()
     endforeach()
 endmacro()
 
-if(NOT OPENMW_USE_SYSTEM_BULLET)
+if(NOT OPENMW_USE_SYSTEM_JOLT)
+    set(JPH_DEBUG_RENDERER ON CACHE BOOL "")
+    set(JPH_PROFILE_ENABLED OFF CACHE BOOL "")
+    add_definitions(-DJPH_DEBUG_RENDERER=1)
 
-    set(BUILD_BULLET3 OFF CACHE BOOL "")
-    set(BUILD_EXTRAS OFF CACHE BOOL "")
-    set(BUILD_OPENGL3_DEMOS OFF CACHE BOOL "")
-    set(BUILD_UNIT_TESTS OFF CACHE BOOL "")
-    set(BUILD_BULLET2_DEMOS OFF CACHE BOOL "")
-    set(BUILD_CLSOCKET OFF CACHE BOOL "")
-    set(BUILD_ENET OFF CACHE BOOL "")
-    set(BUILD_CPU_DEMOS OFF CACHE BOOL "")
-    set(BUILD_EGL OFF CACHE BOOL "")
+    # Turn RTTI on for Jolt
+    set(CPP_RTTI_ENABLED ON)
 
-    set(USE_DOUBLE_PRECISION ON CACHE BOOL "")
-    set(BULLET2_MULTITHREADING ON CACHE BOOL "")
+    # When turning this option on, the library will be compiled using doubles for positions. This allows for much bigger worlds.
+    set(DOUBLE_PRECISION ON)
 
-    if(BULLET_STATIC)
-        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
-    else()
-        set(BUILD_SHARED_LIBS ON CACHE BOOL "" FORCE)
-    endif()
+    # When turning this option on, the library will be compiled in such a way to attempt to keep the simulation deterministic across platforms
+    set(CROSS_PLATFORM_DETERMINISTIC OFF)
 
-    if(MSVC)
-        # this setting is badly named - having it off forces the static runtime library,
-        # but having it on does nothing, letting the defaults get used.
-        # OpenMW uses the defaults, and you can't mix and match.
-        set(USE_MSVC_RUNTIME_LIBRARY_DLL ON CACHE BOOL "" FORCE)
-    endif()
+    # When turning this option on, the library will be compiled with interprocedural optimizations enabled, also known as link-time optimizations or link-time code generation.
+    # Note that if you turn this on you need to use SET_INTERPROCEDURAL_OPTIMIZATION() or set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON) to enable LTO specificly for your own project as well.
+    # If you don't do this you may get an error: /usr/bin/ld: libJolt.a: error adding symbols: file format not recognized
+    set(INTERPROCEDURAL_OPTIMIZATION OFF)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION OFF)
 
-    # May 7, 2021
+    # When turning this on, in Debug and Release mode, the library will emit extra code to ensure that the 4th component of a 3-vector is kept the same as the 3rd component 
+    # and will enable floating point exceptions during simulation to detect divisions by zero. 
+    set(FLOATING_POINT_EXCEPTIONS_ENABLED OFF)
+
     include(FetchContent)
-    FetchContent_Declare(bullet
-        URL https://github.com/bulletphysics/bullet3/archive/refs/tags/3.17.tar.gz
-        URL_HASH SHA512=a5105bf5f1dd365a64a350755c7d2c97942f74897a18dcdb3651e6732fd55cc1030a096f5808cf50575281f05e3ac09aa50a48d271a47b94cd61f5167a72b7cc
-        SOURCE_DIR fetched/bullet
+    FetchContent_Declare(joltphysics
+        URL https://github.com/jrouwe/JoltPhysics/archive/refs/tags/v5.3.0.zip
+        URL_HASH SHA512=fd13fb560c503bc4717d0f5b7ae1f523d3fd45d5220354a062f9a1a0324cc1349e7ebf0f5a85db872e10b81a8211c514ce4e1ff17ee6e71a0f83154b8510353d
+        SOURCE_DIR fetched/joltphysics
     )
-    FetchContent_MakeAvailableExcludeFromAll(bullet)
+    FetchContent_MakeAvailableExcludeFromAll(joltphysics)
 
-    set(BULLET_INCLUDE_DIRS ${bullet_SOURCE_DIR}/src PARENT_SCOPE)
-
-    # The order here is important to work around a bug in Bullet:
-    # https://github.com/bulletphysics/bullet3/issues/3233
-    set(BULLET_LIBRARIES BulletCollision LinearMath PARENT_SCOPE)
+    set(JOLT_INCLUDE_DIRS ${joltphysics_SOURCE_DIR} PARENT_SCOPE)
+    set(JOLT_LIBRARIES Jolt PARENT_SCOPE)
 endif()
 
 if(NOT OPENMW_USE_SYSTEM_MYGUI)

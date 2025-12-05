@@ -42,7 +42,7 @@ option(BUILD_WITH_CODE_COVERAGE "Enable code coverage with gconv" OFF)
 option(BUILD_COMPONENTS_TESTS   "Build components library tests" OFF)
 option(BUILD_BENCHMARKS         "Build benchmarks with Google Benchmark" OFF)
 option(BUILD_NAVMESHTOOL        "Build navmesh tool" ON)
-option(BUILD_BULLETOBJECTTOOL   "Build Bullet object tool" ON)
+option(BUILD_PHYSICSOBJECTTOOL   "Build Physics object tool" ON)
 option(BUILD_OPENCS_TESTS       "Build OpenMW Construction Set tests" OFF)
 option(BUILD_OPENMW_TESTS       "Build OpenMW tests" OFF)
 option(PRECOMPILE_HEADERS_WITH_MSVC "Precompile most common used headers with MSVC (alternative to ccache)" ON)
@@ -80,10 +80,10 @@ endif()
 message(STATUS "Configuring OpenMW...")
 
 set(OPENMW_VERSION_MAJOR 0)
-set(OPENMW_VERSION_MINOR 51)
+set(OPENMW_VERSION_MINOR 49)
 set(OPENMW_VERSION_RELEASE 0)
-set(OPENMW_LUA_API_REVISION 106)
-set(OPENMW_POSTPROCESSING_API_REVISION 4)
+set(OPENMW_LUA_API_REVISION 73)
+set(OPENMW_POSTPROCESSING_API_REVISION 2)
 
 set(OPENMW_VERSION_COMMITHASH "")
 set(OPENMW_VERSION_TAGHASH "")
@@ -126,13 +126,9 @@ configure_file ("${OpenMW_SOURCE_DIR}/docs/mainpage.hpp.cmake" "${OpenMW_BINARY_
 
 option(QT_STATIC "Link static build of Qt into the binaries" FALSE)
 
-option(OPENMW_USE_SYSTEM_BULLET "Use system provided bullet physics library" ON)
-if(OPENMW_USE_SYSTEM_BULLET)
-    set(_bullet_static_default OFF)
-else()
-    set(_bullet_static_default ON)
-endif()
-option(BULLET_STATIC "Link static build of Bullet into the binaries" ${_bullet_static_default})
+set(_jolt_static_default ON)
+option(JOLT_STATIC "Build Jolt Physics static libraries" ${_jolt_static_default})
+add_definitions(-DJPH_DEBUG_RENDERER=1)
 
 option(OPENMW_USE_SYSTEM_OSG "Use system provided OpenSceneGraph libraries" ON)
 if(OPENMW_USE_SYSTEM_OSG)
@@ -249,8 +245,12 @@ endif()
 find_package(LZ4 REQUIRED)
 
 if (USE_QT)
-    find_package(QT REQUIRED COMPONENTS Core NAMES Qt6)
-    find_package(Qt6 COMPONENTS Core Widgets Network OpenGL OpenGLWidgets LinguistTools Svg REQUIRED)
+    find_package(QT REQUIRED COMPONENTS Core NAMES Qt6 Qt5)
+    if (QT_VERSION_MAJOR VERSION_EQUAL 5)
+        find_package(Qt5 5.15 COMPONENTS Core Widgets Network OpenGL LinguistTools Svg REQUIRED)
+    else()
+        find_package(Qt6 COMPONENTS Core Widgets Network OpenGL OpenGLWidgets LinguistTools Svg REQUIRED)
+    endif()
     message(STATUS "Using Qt${QT_VERSION}")
 endif()
 
@@ -360,6 +360,9 @@ endif()
 # Required for building the FFmpeg headers
 add_definitions(-D__STDC_CONSTANT_MACROS)
 
+# Required for unity build
+add_definitions(-DMYGUI_DONT_REPLACE_NULLPTR)
+
 # TinyXML
 option(USE_SYSTEM_TINYXML "Use system TinyXML library instead of internal." OFF)
 if (USE_SYSTEM_TINYXML)
@@ -380,39 +383,6 @@ if (WIN32)
         -DNOMB # name conflict with MWGui::MessageBox
         -DNOGDI # name conflict with osgAnimation::MorphGeometry::RELATIVE
     )
-endif()
-
-if(OPENMW_USE_SYSTEM_BULLET)
-    set(REQUIRED_BULLET_VERSION 286) # Bullet 286 required due to runtime bugfixes for btCapsuleShape
-    if (DEFINED ENV{TRAVIS_BRANCH} OR DEFINED ENV{APPVEYOR})
-        set(REQUIRED_BULLET_VERSION 283) # but for build testing, 283 is fine
-    endif()
-
-    # First, try BulletConfig-float64.cmake which comes with Debian derivatives.
-    # This file does not define the Bullet version in a CMake-friendly way.
-    find_package(Bullet CONFIGS BulletConfig-float64.cmake QUIET COMPONENTS BulletCollision LinearMath)
-    if (BULLET_FOUND)
-        string(REPLACE "." "" _bullet_version_num ${BULLET_VERSION_STRING})
-        if (_bullet_version_num VERSION_LESS REQUIRED_BULLET_VERSION)
-            message(FATAL_ERROR "System bullet version too old, OpenMW requires at least ${REQUIRED_BULLET_VERSION}, got ${_bullet_version_num}")
-        endif()
-        # Fix the relative include:
-        set(BULLET_INCLUDE_DIRS "${BULLET_ROOT_DIR}/${BULLET_INCLUDE_DIRS}")
-        include(FindPackageMessage)
-        find_package_message(Bullet "Found Bullet: ${BULLET_LIBRARIES} ${BULLET_VERSION_STRING}" "${BULLET_VERSION_STRING}-float64")
-    else()
-        find_package(Bullet ${REQUIRED_BULLET_VERSION} REQUIRED COMPONENTS BulletCollision LinearMath)
-    endif()
-
-    # Only link the Bullet libraries that we need:
-    string(REGEX MATCHALL "((optimized|debug);)?[^;]*(BulletCollision|LinearMath)[^;]*" BULLET_LIBRARIES "${BULLET_LIBRARIES}")
-
-    include(cmake/CheckBulletPrecision.cmake)
-    if (HAS_DOUBLE_PRECISION_BULLET)
-        message(STATUS "Bullet uses double precision")
-    else()
-        message(FATAL_ERROR "Bullet does not uses double precision")
-    endif()
 endif()
 
 if (NOT WIN32 AND BUILD_WIZARD) # windows users can just run the morrowind installer
@@ -452,14 +422,14 @@ if(HAVE_MULTIVIEW)
     add_definitions(-DOSG_HAS_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
-set(BOOST_COMPONENTS iostreams program_options)
+set(BOOST_COMPONENTS iostreams program_options system)
 
 find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
 if(OPENMW_USE_SYSTEM_MYGUI)
     find_package(MyGUI 3.4.3 REQUIRED)
 endif()
-find_package(SDL2 2.0.20 REQUIRED)
+find_package(SDL2 2.0.10 REQUIRED)
 find_package(OpenAL REQUIRED)
 find_package(ZLIB REQUIRED)
 
@@ -482,16 +452,15 @@ set(SOL_CONFIG_DIR ${OpenMW_SOURCE_DIR}/extern/sol_config)
 
 include_directories(
     BEFORE SYSTEM
+    "."
     ${MyGUI_INCLUDE_DIRS}
     ${OPENAL_INCLUDE_DIR}
     ${OPENGL_INCLUDE_DIR}
-    ${BULLET_INCLUDE_DIRS}
     ${LUA_INCLUDE_DIR}
     ${SOL_INCLUDE_DIR}
     ${SOL_CONFIG_DIR}
     ${ICU_INCLUDE_DIRS}
 )
-include_directories(".")
 
 link_directories(${COLLADA_DOM_LIBRARY_DIRS})
 
@@ -583,10 +552,30 @@ if(OPENMW_LTO_BUILD)
     endif()
 endif()
 
-if (APPLE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
-endif()
+
+if (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
+    set(OPENMW_CXX_FLAGS "-Wall -Wextra -Wundef -Wextra-semi -Wno-unused-parameter -pedantic -Wno-long-long -Wnon-virtual-dtor -Wunused ${OPENMW_CXX_FLAGS}")
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+        # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105438
+        set(OPENMW_CXX_FLAGS "-Wno-array-bounds ${OPENMW_CXX_FLAGS}")
+    endif()
+
+    if (APPLE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -stdlib=libc++")
+    endif()
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL Clang AND NOT APPLE)
+        if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 3.6 OR CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 3.6)
+            set(OPENMW_CXX_FLAGS "${OPENMW_CXX_FLAGS} -Wno-potentially-evaluated-expression")
+        endif ()
+    endif()
+
+    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
+        set(OPENMW_CXX_FLAGS "${OPENMW_CXX_FLAGS} -Wno-unused-but-set-parameter -Wduplicated-branches -Wduplicated-cond -Wlogical-op")
+    endif()
+endif (CMAKE_CXX_COMPILER_ID STREQUAL GNU OR CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 
 # Extern
 
@@ -597,42 +586,8 @@ if (BUILD_OPENCS OR BUILD_OPENCS_TESTS)
     add_subdirectory (extern/osgQt)
 endif()
 
-if (CMAKE_CXX_COMPILER_ID STREQUAL "MSVC" OR CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
-    add_compile_options("/W4")
-
-    set(WARNINGS_DISABLE
-        4100 # Unreferenced formal parameter (-Wunused-parameter)
-        4127 # Conditional expression is constant
-        4996 # Function was declared deprecated
-        5054 # Deprecated operations between enumerations of different types caused by Qt headers
-        )
-
-    foreach(d ${WARNINGS_DISABLE})
-        add_compile_options("/wd${d}")
-    endforeach(d)
-
-    if(OPENMW_MSVC_WERROR)
-        add_compile_options("/WX")
-    endif()
-else ()
-    add_compile_options("-Wall" "-Wextra" "-Wundef" "-Wextra-semi" "-Wno-unused-parameter" "-pedantic" "-Wno-long-long" "-Wnon-virtual-dtor" "-Wunused" "-Wshadow")
-
-    if (CMAKE_CXX_COMPILER_ID STREQUAL Clang AND NOT APPLE)
-        if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 3.6 OR CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL 3.6)
-            add_compile_options("-Wno-potentially-evaluated-expression")
-        endif ()
-    endif()
-
-    if (CMAKE_CXX_COMPILER_ID STREQUAL GNU)
-        add_compile_options("-Wno-unused-but-set-parameter" "-Wduplicated-branches" "-Wduplicated-cond" "-Wlogical-op")
-        # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105438
-        add_compile_options("-Wno-array-bounds")
-    endif()
-endif ()
-
 if (OPENMW_CXX_FLAGS)
-    separate_arguments(OPENMW_CXX_FLAGS NATIVE_COMMAND "${OPENMW_CXX_FLAGS}")
-    add_compile_options(${OPENMW_CXX_FLAGS})
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${OPENMW_CXX_FLAGS}")
 endif()
 
 # Components
@@ -687,8 +642,8 @@ if (BUILD_NAVMESHTOOL)
     add_subdirectory(apps/navmeshtool)
 endif()
 
-if (BUILD_BULLETOBJECTTOOL)
-    add_subdirectory(apps/bulletobjecttool)
+if (BUILD_PHYSICSOBJECTTOOL)
+    add_subdirectory(apps/physicsobjecttool)
 endif()
 
 if (BUILD_OPENCS_TESTS)
@@ -722,8 +677,86 @@ if (WIN32)
             set_target_properties(openmw PROPERTIES LINK_FLAGS_MINSIZEREL "/SUBSYSTEM:WINDOWS")
         endif()
 
+        # Play a bit with the warning levels
+
+        set(WARNINGS "/W4")
+
+        set(WARNINGS_DISABLE
+            4100 # Unreferenced formal parameter (-Wunused-parameter)
+            4127 # Conditional expression is constant
+            4996 # Function was declared deprecated
+            5054 # Deprecated operations between enumerations of different types caused by Qt headers
+            )
+
+        foreach(d ${WARNINGS_DISABLE})
+            list(APPEND WARNINGS "/wd${d}")
+        endforeach(d)
+
+        if(OPENMW_MSVC_WERROR)
+            list(APPEND WARNINGS "/WX")
+        endif()
+
+        target_compile_options(components PRIVATE ${WARNINGS})
+        target_compile_options(osg-ffmpeg-videoplayer PRIVATE ${WARNINGS})
+
         if (MSVC_VERSION GREATER_EQUAL 1915 AND MSVC_VERSION LESS 1920)
             target_compile_definitions(components INTERFACE _ENABLE_EXTENDED_ALIGNED_STORAGE)
+        endif()
+
+        if (BUILD_BSATOOL)
+            target_compile_options(bsatool PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_ESMTOOL)
+            target_compile_options(esmtool PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_ESSIMPORTER)
+            target_compile_options(openmw-essimporter PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_LAUNCHER)
+            target_compile_options(openmw-launcher PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_MWINIIMPORTER)
+            target_compile_options(openmw-iniimporter PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_OPENCS)
+            target_compile_options(openmw-cs PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_OPENMW)
+            target_compile_options(openmw PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_WIZARD)
+            target_compile_options(openmw-wizard PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_COMPONENTS_TESTS)
+            target_compile_options(components-tests PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_BENCHMARKS)
+            target_compile_options(openmw_detournavigator_navmeshtilescache_benchmark PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_NAVMESHTOOL)
+            target_compile_options(openmw-navmeshtool PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_PHYSICSOBJECTTOOL)
+            target_compile_options(openmw-physicsobjecttool PRIVATE ${WARNINGS} ${MT_BUILD})
+        endif()
+
+        if (BUILD_OPENCS_TESTS)
+            target_compile_options(openmw-cs-tests PRIVATE ${WARNINGS})
+        endif()
+
+        if (BUILD_OPENMW_TESTS)
+            target_compile_options(openmw-tests PRIVATE ${WARNINGS})
         endif()
     endif(MSVC)
 
@@ -1008,9 +1041,9 @@ elseif(NOT APPLE)
         if(BUILD_NAVMESHTOOL)
             install(PROGRAMS "${INSTALL_SOURCE}/openmw-navmeshtool" DESTINATION "${BINDIR}" )
         endif()
-        IF(BUILD_BULLETOBJECTTOOL)
-            INSTALL(PROGRAMS "${INSTALL_SOURCE}/openmw-bulletobjecttool" DESTINATION "${BINDIR}" )
-        ENDIF(BUILD_BULLETOBJECTTOOL)
+        IF(BUILD_PHYSICSOBJECTTOOL)
+            INSTALL(PROGRAMS "${INSTALL_SOURCE}/openmw-physicsobjecttool" DESTINATION "${BINDIR}" )
+        ENDIF(BUILD_PHYSICSOBJECTTOOL)
 
         # Install icon and desktop file
         INSTALL(FILES "${OpenMW_BINARY_DIR}/org.openmw.launcher.desktop" DESTINATION "${DATAROOTDIR}/applications" COMPONENT "openmw")

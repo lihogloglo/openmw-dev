@@ -6,11 +6,25 @@
 
 #include <gtest/gtest.h>
 
+// clang-format off
+#include <Jolt/Jolt.h>
+#include <Jolt/Core/Factory.h>
+#include <Jolt/RegisterTypes.h>
+// clang-format on
+
+#include "components/misc/strings/conversion.hpp"
+#include "components/settings/parser.hpp"
+#include "components/settings/values.hpp"
+
 #include <filesystem>
 
 int main(int argc, char** argv)
 {
     Log::sMinDebugLevel = Debug::getDebugLevel();
+
+    JPH::RegisterDefaultAllocator();
+    JPH::Factory::sInstance = new JPH::Factory();
+    JPH::RegisterTypes();
 
     const std::filesystem::path settingsDefaultPath = std::filesystem::path{ OPENMW_PROJECT_SOURCE_DIR } / "files"
         / Misc::StringUtils::stringToU8String("settings-default.cfg");
