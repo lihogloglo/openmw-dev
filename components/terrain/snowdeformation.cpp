@@ -156,6 +156,11 @@ namespace Terrain
         mCurrentTimeUniform = new osg::Uniform("snowCurrentTime", 0.0f);
         mDecayTimeUniform = new osg::Uniform("snowDecayTime", mDecayTime);
 
+        // Heightmap displacement uniforms (for tessellation)
+        // These are updated dynamically in update() to respond to settings changes
+        mHeightmapDisplacementEnabledUniform = new osg::Uniform("heightmapDisplacementEnabled", Settings::terrain().mHeightmapDisplacement.get());
+        mHeightmapDisplacementStrengthUniform = new osg::Uniform("heightmapDisplacementStrength", Settings::terrain().mHeightmapDisplacementStrength.get());
+
         // Initialize particle emitter
         mParticleEmitter = std::make_unique<SnowParticleEmitter>(rootNode, sceneManager);
     }
@@ -184,6 +189,16 @@ namespace Terrain
                 Log(Debug::Info) << "[RTT Debug] Debug mode changed to: " << debugMode;
                 lastLoggedMode = debugMode;
             }
+        }
+
+        // ALWAYS update heightmap displacement settings (allows runtime changes via UI)
+        if (mHeightmapDisplacementEnabledUniform)
+        {
+            mHeightmapDisplacementEnabledUniform->set(Settings::terrain().mHeightmapDisplacement.get());
+        }
+        if (mHeightmapDisplacementStrengthUniform)
+        {
+            mHeightmapDisplacementStrengthUniform->set(Settings::terrain().mHeightmapDisplacementStrength.get());
         }
 
         // Check if we should be active

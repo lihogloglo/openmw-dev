@@ -44,6 +44,11 @@ namespace Terrain
 
         // Debug mode uniform - use the manager's uniform so it updates dynamically
         stateset->addUniform(manager->getDebugModeUniform());
+
+        // Heightmap displacement uniforms - use manager's uniforms so they update dynamically
+        // These enable terrain tessellation to read the normal map alpha channel for displacement
+        stateset->addUniform(manager->getHeightmapDisplacementEnabledUniform());
+        stateset->addUniform(manager->getHeightmapDisplacementStrengthUniform());
     }
 
     void SnowDeformationUpdater::apply(osg::StateSet* stateset, osg::NodeVisitor* nv)

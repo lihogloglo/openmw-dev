@@ -160,8 +160,9 @@ void main()
 
         // Calculate distance-based falloff using tessellation distance settings
         // This ensures displacement fades out in sync with tessellation level reduction
+        // Use localPosition (model space) since gl_ModelViewMatrixInverse gives camera in model space
         vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        float distToCamera = length(worldPosition - cameraPos);
+        float distToCamera = length(localPosition - cameraPos);
 
         // Smoothly fade out displacement between tessellation min and max distance
         float falloff = 1.0 - smoothstep(tessMinDistance, tessMaxDistance, distToCamera);

@@ -12,6 +12,8 @@
 
 #include <components/sceneutil/lightmanager.hpp>
 
+#include <components/settings/values.hpp>
+
 #include "compositemaprenderer.hpp"
 #include "material.hpp"
 #include "storage.hpp"
@@ -258,14 +260,14 @@ namespace Terrain
 
         float tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
-        // Use tessellation passes for non-composite chunks
-        if (!forCompositeMap)
+        // Use tessellation passes for non-composite chunks when tessellation is enabled in settings
+        if (!forCompositeMap && Settings::terrain().mTessellation.get())
         {
             auto passes = ::Terrain::createTessellationPasses(
                 mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
             if (!passes.empty())
                 return passes;
-            // Fall back to regular passes if tessellation fails
+            // Fall back to regular passes if tessellation shader compilation fails
             Log(Debug::Warning) << "Tessellation passes failed, falling back to regular shaders";
         }
 
@@ -327,9 +329,12 @@ namespace Terrain
         // Determine if this chunk uses composite map (large/distant chunks)
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
 
-        // Use patch index buffer for tessellation, but ONLY for non-composite-map chunks
-        // Composite map chunks use regular shaders (not tessellation shaders), so they need GL_TRIANGLES
-        if (!useCompositeMap)
+        // Use patch index buffer for tessellation, but ONLY when:
+        // 1. Not using composite map (tessellation only for nearby detailed chunks)
+        // 2. Tessellation is enabled in settings
+        // Composite map chunks and non-tessellation mode use regular GL_TRIANGLES
+        bool useTessellation = !useCompositeMap && Settings::terrain().mTessellation.get();
+        if (useTessellation)
             geometry->addPrimitiveSet(mBufferCache.getPatchIndexBuffer(numVerts, lodFlags));
         else
             geometry->addPrimitiveSet(mBufferCache.getIndexBuffer(numVerts, lodFlags));
@@ -349,7 +354,7 @@ namespace Terrain
         chunkStateSet->addUniform(new osg::Uniform("chunkWorldOffset", chunkWorldOffset));
 
         // Add camera position uniform for tessellation LOD calculation
-        if (!useCompositeMap)
+        if (useTessellation)
         {
             chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
         }

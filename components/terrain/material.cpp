@@ -478,10 +478,9 @@ namespace Terrain
             // DO NOT override snowDeformationEnabled here - it would block the inherited true value!
             stateset->addUniform(new osg::Uniform("snowDeformationMap", 7));
 
-            // Heightmap displacement uniforms (uses normal map alpha channel for height data)
-            // Distance falloff uses the tessellation distance uniforms (tessMinDistance/tessMaxDistance)
-            stateset->addUniform(new osg::Uniform("heightmapDisplacementEnabled", Settings::terrain().mHeightmapDisplacement.get()));
-            stateset->addUniform(new osg::Uniform("heightmapDisplacementStrength", Settings::terrain().mHeightmapDisplacementStrength.get()));
+            // Heightmap displacement uniforms are inherited from parent stateset
+            // (set by SnowDeformationUpdater::setDefaults on the terrain root)
+            // DO NOT override these here - we want the dynamically updated values from SnowDeformationManager
 
             // Linear depth factor (used for fog calculations in TES)
             // This should match what OpenMW uses for linear depth

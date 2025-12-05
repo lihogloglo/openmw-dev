@@ -678,11 +678,17 @@ namespace MWGui
 
     void SettingsWindow::onTessellationButtonClicked(MyGUI::Widget* /*sender*/)
     {
-        const bool tessellationEnabled = Settings::terrain().mTessellation;
+        // The setting is toggled by the CheckButton handler AFTER this click handler runs.
+        // So we need to read the OPPOSITE of the current setting to get the NEW value.
+        const bool tessellationEnabled = !Settings::terrain().mTessellation;
 
         mHeightmapDisplacementButton->setEnabled(tessellationEnabled);
         mHeightmapDisplacementStrengthSlider->setEnabled(tessellationEnabled);
         mHeightmapDisplacementStrengthLabel->setEnabled(tessellationEnabled);
+
+        // Tessellation setting affects terrain chunk compilation which is cached
+        MWBase::Environment::get().getWindowManager()->interactiveMessageBox(
+            "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
     }
 
     void SettingsWindow::onLightsResetButtonClicked(MyGUI::Widget* /*sender*/)

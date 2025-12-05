@@ -89,6 +89,10 @@ namespace Terrain
         osg::Uniform* getDebugModeUniform() const { return mDebugModeUniform.get(); }
         osg::Uniform* getResolutionUniform() const { return mResolutionUniform.get(); }
 
+        // Heightmap displacement uniforms (tessellation)
+        osg::Uniform* getHeightmapDisplacementEnabledUniform() const { return mHeightmapDisplacementEnabledUniform.get(); }
+        osg::Uniform* getHeightmapDisplacementStrengthUniform() const { return mHeightmapDisplacementStrengthUniform.get(); }
+
         // DEBUG: Expose internal textures for testing
         void debugDumpTexture(const std::string& filename, osg::Texture2D* texture) const;
         osg::Uniform* getObjectMaskUniform() const { return mObjectMaskUniform.get(); }
@@ -166,7 +170,11 @@ namespace Terrain
         osg::ref_ptr<osg::Uniform> mRTTScaleUniform;       // Scale of RTT area (meters)
         osg::ref_ptr<osg::Uniform> mDebugModeUniform;      // Debug visualization mode (0-11)
         osg::ref_ptr<osg::Uniform> mResolutionUniform;     // Deformation map resolution
-        
+
+        // Heightmap displacement uniforms (tessellation)
+        osg::ref_ptr<osg::Uniform> mHeightmapDisplacementEnabledUniform;   // bool
+        osg::ref_ptr<osg::Uniform> mHeightmapDisplacementStrengthUniform;  // float
+
         float mRTTSize; // Size of the RTT area in world units (e.g. 50m)
         osg::Vec3f mRTTCenter; // Current center of RTT area
         
