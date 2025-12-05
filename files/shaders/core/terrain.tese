@@ -67,6 +67,10 @@ uniform sampler2D normalMap;
 uniform bool heightmapDisplacementEnabled;
 uniform float heightmapDisplacementStrength;
 
+// Tessellation distance uniforms (shared with TCS, used for displacement falloff)
+uniform float tessMinDistance;
+uniform float tessMaxDistance;
+
 // Texture matrix for tiling the normal/height map
 uniform mat4 textureMatrix0;
 
@@ -140,7 +144,8 @@ void main()
     }
 
     // Apply heightmap displacement from normal map alpha channel
-#if @normalMap
+    // Only apply on first layer (@firstLayer) to prevent z-fighting with blended layers
+#if @normalMap && @firstLayer
     if (heightmapDisplacementEnabled)
     {
         // Apply texture matrix to get tiled UV coordinates (same as fragment shader)
@@ -152,6 +157,15 @@ void main()
         // Displace along the normal direction
         // Height of 0.5 is neutral (no displacement), 0 is down, 1 is up
         float displacement = (height - 0.5) * heightmapDisplacementStrength;
+
+        // Calculate distance-based falloff using tessellation distance settings
+        // This ensures displacement fades out in sync with tessellation level reduction
+        vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        float distToCamera = length(worldPosition - cameraPos);
+
+        // Smoothly fade out displacement between tessellation min and max distance
+        float falloff = 1.0 - smoothstep(tessMinDistance, tessMaxDistance, distToCamera);
+        displacement *= falloff;
 
         // Apply displacement along the vertex normal
         localPosition += normal * displacement;

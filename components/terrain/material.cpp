@@ -444,6 +444,8 @@ namespace Terrain
             defineMap["writeNormals"] = (it == layers.end() - 1) ? "1" : "0";
             defineMap["reconstructNormalZ"] = reconstructNormalZ ? "1" : "0";
             defineMap["snowDeformation"] = "1";
+            // Only apply displacement on first layer to prevent z-fighting with blended layers
+            defineMap["firstLayer"] = firstLayer ? "1" : "0";
             Stereo::shaderStereoDefines(defineMap);
 
             // Use tessellation program instead of regular program
@@ -477,6 +479,7 @@ namespace Terrain
             stateset->addUniform(new osg::Uniform("snowDeformationMap", 7));
 
             // Heightmap displacement uniforms (uses normal map alpha channel for height data)
+            // Distance falloff uses the tessellation distance uniforms (tessMinDistance/tessMaxDistance)
             stateset->addUniform(new osg::Uniform("heightmapDisplacementEnabled", Settings::terrain().mHeightmapDisplacement.get()));
             stateset->addUniform(new osg::Uniform("heightmapDisplacementStrength", Settings::terrain().mHeightmapDisplacementStrength.get()));
 

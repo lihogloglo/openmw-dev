@@ -96,6 +96,7 @@ namespace Settings
             makeClampSanitizerFloat(1.0f, 64.0f) };
 
         // Heightmap displacement settings (uses normal map alpha channel)
+        // Displacement fades out using the tessellation distance settings (min/max distance)
         SettingValue<bool> mHeightmapDisplacement{ mIndex, "Terrain", "heightmap displacement" };
         SettingValue<float> mHeightmapDisplacementStrength{ mIndex, "Terrain", "heightmap displacement strength",
             makeClampSanitizerFloat(0.0f, 200.0f) };
