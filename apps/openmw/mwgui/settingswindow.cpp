@@ -285,6 +285,11 @@ namespace MWGui
         getWidget(mScriptAdapter, "ScriptAdapter");
         getWidget(mScriptDisabled, "ScriptDisabled");
         getWidget(mDeformationMapResolution, "DeformationMapResolution");
+        getWidget(mTessellationButton, "TessellationButton");
+        getWidget(mHeightmapDisplacementBox, "HeightmapDisplacementBox");
+        getWidget(mHeightmapDisplacementButton, "HeightmapDisplacementButton");
+        getWidget(mHeightmapDisplacementStrengthLabel, "HeightmapDisplacementStrengthLabel");
+        getWidget(mHeightmapDisplacementStrengthSlider, "HeightmapDisplacementStrengthSlider");
 
 #ifndef WIN32
         // hide gamma controls since it currently does not work under Linux
@@ -326,6 +331,9 @@ namespace MWGui
 
         mDeformationMapResolution->eventComboChangePosition
             += MyGUI::newDelegate(this, &SettingsWindow::onDeformationMapResolutionChanged);
+
+        mTessellationButton->eventMouseButtonClick
+            += MyGUI::newDelegate(this, &SettingsWindow::onTessellationButtonClicked);
 
         mWindowModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onWindowModeChanged);
         mVSyncModeList->eventComboChangePosition += MyGUI::newDelegate(this, &SettingsWindow::onVSyncModeChanged);
@@ -396,6 +404,11 @@ namespace MWGui
         const bool waterRefraction = Settings::water().mRefraction;
         mSunlightScatteringButton->setEnabled(waterRefraction);
         mWobblyShoresButton->setEnabled(waterRefraction);
+
+        const bool tessellationEnabled = Settings::terrain().mTessellation;
+        mHeightmapDisplacementButton->setEnabled(tessellationEnabled);
+        mHeightmapDisplacementStrengthSlider->setEnabled(tessellationEnabled);
+        mHeightmapDisplacementStrengthLabel->setEnabled(tessellationEnabled);
 
         updateMaxLightsComboBox(mMaxLights);
 
@@ -661,6 +674,15 @@ namespace MWGui
             "#{OMWEngine:ChangeRequiresRestart}", { "#{Interface:OK}" }, true);
 
         apply();
+    }
+
+    void SettingsWindow::onTessellationButtonClicked(MyGUI::Widget* /*sender*/)
+    {
+        const bool tessellationEnabled = Settings::terrain().mTessellation;
+
+        mHeightmapDisplacementButton->setEnabled(tessellationEnabled);
+        mHeightmapDisplacementStrengthSlider->setEnabled(tessellationEnabled);
+        mHeightmapDisplacementStrengthLabel->setEnabled(tessellationEnabled);
     }
 
     void SettingsWindow::onLightsResetButtonClicked(MyGUI::Widget* /*sender*/)

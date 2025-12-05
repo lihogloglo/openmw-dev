@@ -737,7 +737,7 @@
 
                         <!-- Terrain Tessellation Enable -->
                         <Widget type="HBox" position="0 78 600 24">
-                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top">
+                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top" name="TessellationButton">
                                 <UserString key="SettingCategory" value="Terrain"/>
                                 <UserString key="SettingName" value="tessellation"/>
                                 <UserString key="SettingType" value="CheckButton"/>
@@ -782,8 +782,8 @@
                         <Widget type="ImageBox" skin="MW_HLine" position="0 188 360 18" align="Top HStretch"/>
 
                         <!-- Heightmap Displacement Enable -->
-                        <Widget type="HBox" position="0 208 600 24">
-                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top">
+                        <Widget type="HBox" position="0 208 600 24" name="HeightmapDisplacementBox">
+                            <Widget type="AutoSizedButton" skin="MW_Button" align="Left Top" name="HeightmapDisplacementButton">
                                 <UserString key="SettingCategory" value="Terrain"/>
                                 <UserString key="SettingName" value="heightmap displacement"/>
                                 <UserString key="SettingType" value="CheckButton"/>
@@ -797,12 +797,12 @@
                         </Widget>
 
                         <!-- Heightmap Displacement Strength -->
-                        <Widget type="TextBox" skin="NormalText" position="0 238 500 18" align="Left Top" name="HeightmapDisplacementStrengthText">
+                        <Widget type="TextBox" skin="NormalText" position="0 238 500 18" align="Left Top" name="HeightmapDisplacementStrengthLabel">
                             <UserString key="ToolTipType" value="Layout"/>
                             <UserString key="ToolTipLayout" value="TextToolTip"/>
                             <UserString key="Caption_Text" value="#{OMWEngine:HeightmapDisplacementStrengthTooltip}"/>
                         </Widget>
-                        <Widget type="ScrollBar" skin="MW_HScroll" position="0 262 352 18" align="HStretch Top">
+                        <Widget type="ScrollBar" skin="MW_HScroll" position="0 262 352 18" align="HStretch Top" name="HeightmapDisplacementStrengthSlider">
                             <Property key="Range" value="201"/>
                             <Property key="Page" value="10"/>
                             <UserString key="SettingType" value="Slider"/>
@@ -811,7 +811,7 @@
                             <UserString key="SettingCategory" value="Terrain"/>
                             <UserString key="SettingName" value="heightmap displacement strength"/>
                             <UserString key="SettingValueType" value="Float"/>
-                            <UserString key="SettingLabelWidget" value="HeightmapDisplacementStrengthText"/>
+                            <UserString key="SettingLabelWidget" value="HeightmapDisplacementStrengthLabel"/>
                             <UserString key="SettingLabelCaption" value="#{OMWEngine:HeightmapDisplacementStrength} (%s)"/>
                         </Widget>
                         <Widget type="TextBox" skin="SandText" position="0 284 352 18" align="Left Top">
