@@ -900,6 +900,13 @@ namespace MWRender
         float rainIntensity = mSky->getPrecipitationAlpha();
         mWater->setRainIntensity(rainIntensity);
         mWater->setRainRipplesEnabled(mSky->getRainRipplesEnabled());
+        if (mSky->isPrecipitationOcclusionEnabled())
+        {
+            // Update the precipitation occluder camera matrices before retrieving them
+            mSky->updatePrecipitationOccluder();
+            mWater->setRainRippleOcclusion(
+                mSky->getPrecipitationOcclusionTexture(), mSky->getPrecipitationOcclusionMatrix());
+        }
 
         mWater->update(dt, paused);
         if (!paused)

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake --build:*)",
+      "Bash(dir:*)",
+      "Bash(rename:*)",
+      "Bash(cmd.exe /c \"rename openmw-dev openmw-dev-issue-fixing\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
