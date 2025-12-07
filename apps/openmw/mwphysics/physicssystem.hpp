@@ -295,6 +295,29 @@ namespace MWPhysics
 
         float mPhysicsDt;
 
+        // Grab/hold functionality for dynamic objects (Oblivion/Skyrim style)
+        // Returns true if successfully started grabbing an object
+        bool grabObject(const osg::Vec3f& rayStart, const osg::Vec3f& rayDir, float maxDistance);
+        // Release the currently held object (with optional throw velocity)
+        void releaseGrabbedObject(const osg::Vec3f& throwVelocity = osg::Vec3f());
+        // Update the held object's target position (call every frame while holding)
+        void updateGrabbedObject(const osg::Vec3f& targetPosition);
+        // Check if we're currently holding an object
+        bool isGrabbingObject() const { return mGrabbedObject != nullptr; }
+        // Get the currently grabbed object
+        MWWorld::Ptr getGrabbedObject() const;
+        // Get grab distance from camera
+        float getGrabDistance() const { return mGrabDistance; }
+
+        // Apply melee hit impulse to dynamic objects in a cone
+        // Used when weapons swing to push nearby objects
+        void applyMeleeHitToDynamicObjects(const osg::Vec3f& origin, const osg::Vec3f& direction,
+            float reach, float attackStrength);
+
+        // Push dynamic objects that actors are colliding with
+        // Called each frame to make actors push items when walking into them
+        void pushDynamicObjectsFromActors();
+
     private:
         void updateWater();
         void updatePtrHolders();
@@ -353,6 +376,11 @@ namespace MWPhysics
 
         PhysicsSystem(const PhysicsSystem&);
         PhysicsSystem& operator=(const PhysicsSystem&);
+
+        // Grab/hold state
+        DynamicObject* mGrabbedObject = nullptr;
+        float mGrabDistance = 150.0f;  // Distance from camera to hold object
+        osg::Vec3f mGrabTargetPosition;
     };
 }
 
