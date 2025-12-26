@@ -40,8 +40,8 @@ namespace Terrain
 
     inline float distance(const osg::Vec3& coord, const osg::Matrix& matrix)
     {
-        return -((float)coord[0] * (float)matrix(0, 2) + (float)coord[1] * (float)matrix(1, 2)
-            + (float)coord[2] * (float)matrix(2, 2) + matrix(3, 2));
+        return static_cast<float>(-((double)coord[0] * matrix(0, 2) + (double)coord[1] * matrix(1, 2)
+            + (double)coord[2] * matrix(2, 2) + matrix(3, 2)));
     }
 
     // canot use ClusterCullingCallback::cull: viewpoint != eyepoint
@@ -111,15 +111,10 @@ namespace Terrain
 
         // Dynamically update tessellation and displacement uniforms
         // This ensures settings changes take effect immediately without requiring chunk reload
+        // Note: cameraPos uniform is no longer needed - the shader now computes camera position
+        // in local chunk space from gl_ModelViewMatrixInverse for correct distance calculations
         if (stateset)
         {
-            // Update camera position for tessellation LOD calculation
-            osg::Uniform* cameraPosUniform = stateset->getUniform("cameraPos");
-            if (cameraPosUniform)
-            {
-                osg::Vec3f eyePoint = cv->getEyePoint();
-                cameraPosUniform->set(eyePoint);
-            }
             cv->pushStateSet(stateset);
         }
 

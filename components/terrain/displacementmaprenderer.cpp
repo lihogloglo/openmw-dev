@@ -72,7 +72,7 @@ namespace Terrain
         // if there are no more external references we can assume the texture is no longer required
         if (displacementMap.mTexture->referenceCount() <= 1)
         {
-            displacementMap.mCompiled = displacementMap.mDrawables.size();
+            displacementMap.mCompiled = static_cast<unsigned int>(displacementMap.mDrawables.size());
             return;
         }
 
@@ -171,7 +171,7 @@ namespace Terrain
     unsigned int DisplacementMapRenderer::getCompileSetSize() const
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        return mCompileSet.size();
+        return static_cast<unsigned int>(mCompileSet.size());
     }
 
     DisplacementMap::DisplacementMap()

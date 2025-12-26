@@ -23,6 +23,7 @@ namespace
     template <typename IndexArrayType>
     osg::ref_ptr<IndexArrayType> createPatchIndexBuffer(unsigned int flags, unsigned int verts)
     {
+        using IndexType = typename IndexArrayType::value_type;
         // For quad tessellation, use GL_PATCHES with 4 vertices per patch
         // Create quad patches directly from the terrain grid
         osg::ref_ptr<IndexArrayType> indices(new IndexArrayType(GL_PATCHES, 0, 4));
@@ -62,10 +63,10 @@ namespace
                 // 1: bottom-right (col+1, row)
                 // 2: top-right    (col+1, row+1)
                 // 3: top-left     (col, row+1)
-                indices->push_back(verts * col + row);                           // 0: bottom-left
-                indices->push_back(verts * (col + increment) + row);             // 1: bottom-right
-                indices->push_back(verts * (col + increment) + row + increment); // 2: top-right
-                indices->push_back(verts * col + row + increment);               // 3: top-left
+                indices->push_back(static_cast<IndexType>(verts * col + row));                           // 0: bottom-left
+                indices->push_back(static_cast<IndexType>(verts * (col + increment) + row));             // 1: bottom-right
+                indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + increment)); // 2: top-right
+                indices->push_back(static_cast<IndexType>(verts * col + row + increment));               // 3: top-left
             }
         }
 
@@ -86,10 +87,10 @@ namespace
                     if (col + i == 0 || col + i + increment > verts - 1)
                         continue;
                     // Create a quad that bridges the LOD boundary
-                    indices->push_back(verts * (col + i) + row);                 // bottom-left (on edge)
-                    indices->push_back(verts * (col + i + increment) + row);     // bottom-right (on edge)
-                    indices->push_back(verts * (col + i + increment) + row + increment); // top-right (inner)
-                    indices->push_back(verts * (col + i) + row + increment);     // top-left (inner)
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row));                 // bottom-left (on edge)
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + increment) + row));     // bottom-right (on edge)
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + increment) + row + increment)); // top-right (inner)
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row + increment));     // top-left (inner)
                 }
             }
 
@@ -102,10 +103,10 @@ namespace
                 {
                     if (col + i == 0 || col + i + increment > verts - 1)
                         continue;
-                    indices->push_back(verts * (col + i) + row);
-                    indices->push_back(verts * (col + i + increment) + row);
-                    indices->push_back(verts * (col + i + increment) + row + increment);
-                    indices->push_back(verts * (col + i) + row + increment);
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + increment) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + increment) + row + increment));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row + increment));
                 }
             }
 
@@ -118,10 +119,10 @@ namespace
                 {
                     if (row + i == 0 || row + i + increment > verts - 1)
                         continue;
-                    indices->push_back(verts * col + row + i);
-                    indices->push_back(verts * (col + increment) + row + i);
-                    indices->push_back(verts * (col + increment) + row + i + increment);
-                    indices->push_back(verts * col + row + i + increment);
+                    indices->push_back(static_cast<IndexType>(verts * col + row + i));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + i));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + i + increment));
+                    indices->push_back(static_cast<IndexType>(verts * col + row + i + increment));
                 }
             }
 
@@ -134,10 +135,10 @@ namespace
                 {
                     if (row + i == 0 || row + i + increment > verts - 1)
                         continue;
-                    indices->push_back(verts * col + row + i);
-                    indices->push_back(verts * (col + increment) + row + i);
-                    indices->push_back(verts * (col + increment) + row + i + increment);
-                    indices->push_back(verts * col + row + i + increment);
+                    indices->push_back(static_cast<IndexType>(verts * col + row + i));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + i));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + i + increment));
+                    indices->push_back(static_cast<IndexType>(verts * col + row + i + increment));
                 }
             }
         }
@@ -148,6 +149,7 @@ namespace
     template <typename IndexArrayType>
     osg::ref_ptr<IndexArrayType> createIndexBufferImpl(osg::ref_ptr<IndexArrayType> indices, unsigned int flags, unsigned int verts)
     {
+        using IndexType = typename IndexArrayType::value_type;
         // LOD level n means every 2^n-th vertex is kept, but we currently handle LOD elsewhere.
         size_t lodLevel = 0; //(flags >> (4*4));
 
@@ -179,23 +181,23 @@ namespace
                 // diamond pattern
                 if ((row + col % 2) % 2 == 1)
                 {
-                    indices->push_back(verts * (col + increment) + row);
-                    indices->push_back(verts * (col + increment) + row + increment);
-                    indices->push_back(verts * col + row + increment);
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + increment));
+                    indices->push_back(static_cast<IndexType>(verts * col + row + increment));
 
-                    indices->push_back(verts * col + row);
-                    indices->push_back(verts * (col + increment) + row);
-                    indices->push_back(verts * (col) + row + increment);
+                    indices->push_back(static_cast<IndexType>(verts * col + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col) + row + increment));
                 }
                 else
                 {
-                    indices->push_back(verts * col + row);
-                    indices->push_back(verts * (col + increment) + row + increment);
-                    indices->push_back(verts * col + row + increment);
+                    indices->push_back(static_cast<IndexType>(verts * col + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + increment));
+                    indices->push_back(static_cast<IndexType>(verts * col + row + increment));
 
-                    indices->push_back(verts * col + row);
-                    indices->push_back(verts * (col + increment) + row);
-                    indices->push_back(verts * (col + increment) + row + increment);
+                    indices->push_back(static_cast<IndexType>(verts * col + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + increment) + row + increment));
                 }
             }
         }
@@ -211,22 +213,22 @@ namespace
             size_t outerStep = static_cast<size_t>(1) << (lodDeltas[Terrain::South] + lodLevel);
             for (size_t col = 0; col < verts - 1; col += outerStep)
             {
-                indices->push_back(verts * col + row);
-                indices->push_back(verts * (col + outerStep) + row);
+                indices->push_back(static_cast<IndexType>(verts * col + row));
+                indices->push_back(static_cast<IndexType>(verts * (col + outerStep) + row));
                 // Make sure not to touch the right edge
                 if (col + outerStep == verts - 1)
-                    indices->push_back(verts * (col + outerStep - innerStep) + row + innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col + outerStep - innerStep) + row + innerStep));
                 else
-                    indices->push_back(verts * (col + outerStep) + row + innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col + outerStep) + row + innerStep));
 
                 for (size_t i = 0; i < outerStep; i += innerStep)
                 {
                     // Make sure not to touch the left or right edges
                     if (col + i == 0 || col + i == verts - 1 - innerStep)
                         continue;
-                    indices->push_back(verts * (col) + row);
-                    indices->push_back(verts * (col + i + innerStep) + row + innerStep);
-                    indices->push_back(verts * (col + i) + row + innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col) + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + innerStep) + row + innerStep));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row + innerStep));
                 }
             }
 
@@ -235,22 +237,22 @@ namespace
             outerStep = size_t(1) << (lodDeltas[Terrain::North] + lodLevel);
             for (size_t col = 0; col < verts - 1; col += outerStep)
             {
-                indices->push_back(verts * (col + outerStep) + row);
-                indices->push_back(verts * col + row);
+                indices->push_back(static_cast<IndexType>(verts * (col + outerStep) + row));
+                indices->push_back(static_cast<IndexType>(verts * col + row));
                 // Make sure not to touch the left edge
                 if (col == 0)
-                    indices->push_back(verts * (col + innerStep) + row - innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col + innerStep) + row - innerStep));
                 else
-                    indices->push_back(verts * col + row - innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * col + row - innerStep));
 
                 for (size_t i = 0; i < outerStep; i += innerStep)
                 {
                     // Make sure not to touch the left or right edges
                     if (col + i == 0 || col + i == verts - 1 - innerStep)
                         continue;
-                    indices->push_back(verts * (col + i) + row - innerStep);
-                    indices->push_back(verts * (col + i + innerStep) + row - innerStep);
-                    indices->push_back(verts * (col + outerStep) + row);
+                    indices->push_back(static_cast<IndexType>(verts * (col + i) + row - innerStep));
+                    indices->push_back(static_cast<IndexType>(verts * (col + i + innerStep) + row - innerStep));
+                    indices->push_back(static_cast<IndexType>(verts * (col + outerStep) + row));
                 }
             }
 
@@ -259,22 +261,22 @@ namespace
             outerStep = size_t(1) << (lodDeltas[Terrain::West] + lodLevel);
             for (row = 0; row < verts - 1; row += outerStep)
             {
-                indices->push_back(verts * col + row + outerStep);
-                indices->push_back(verts * col + row);
+                indices->push_back(static_cast<IndexType>(verts * col + row + outerStep));
+                indices->push_back(static_cast<IndexType>(verts * col + row));
                 // Make sure not to touch the top edge
                 if (row + outerStep == verts - 1)
-                    indices->push_back(verts * (col + innerStep) + row + outerStep - innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col + innerStep) + row + outerStep - innerStep));
                 else
-                    indices->push_back(verts * (col + innerStep) + row + outerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col + innerStep) + row + outerStep));
 
                 for (size_t i = 0; i < outerStep; i += innerStep)
                 {
                     // Make sure not to touch the top or bottom edges
                     if (row + i == 0 || row + i == verts - 1 - innerStep)
                         continue;
-                    indices->push_back(verts * col + row);
-                    indices->push_back(verts * (col + innerStep) + row + i);
-                    indices->push_back(verts * (col + innerStep) + row + i + innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * col + row));
+                    indices->push_back(static_cast<IndexType>(verts * (col + innerStep) + row + i));
+                    indices->push_back(static_cast<IndexType>(verts * (col + innerStep) + row + i + innerStep));
                 }
             }
 
@@ -283,22 +285,22 @@ namespace
             outerStep = size_t(1) << (lodDeltas[Terrain::East] + lodLevel);
             for (row = 0; row < verts - 1; row += outerStep)
             {
-                indices->push_back(verts * col + row);
-                indices->push_back(verts * col + row + outerStep);
+                indices->push_back(static_cast<IndexType>(verts * col + row));
+                indices->push_back(static_cast<IndexType>(verts * col + row + outerStep));
                 // Make sure not to touch the bottom edge
                 if (row == 0)
-                    indices->push_back(verts * (col - innerStep) + row + innerStep);
+                    indices->push_back(static_cast<IndexType>(verts * (col - innerStep) + row + innerStep));
                 else
-                    indices->push_back(verts * (col - innerStep) + row);
+                    indices->push_back(static_cast<IndexType>(verts * (col - innerStep) + row));
 
                 for (size_t i = 0; i < outerStep; i += innerStep)
                 {
                     // Make sure not to touch the top or bottom edges
                     if (row + i == 0 || row + i == verts - 1 - innerStep)
                         continue;
-                    indices->push_back(verts * col + row + outerStep);
-                    indices->push_back(verts * (col - innerStep) + row + i + innerStep);
-                    indices->push_back(verts * (col - innerStep) + row + i);
+                    indices->push_back(static_cast<IndexType>(verts * col + row + outerStep));
+                    indices->push_back(static_cast<IndexType>(verts * (col - innerStep) + row + i + innerStep));
+                    indices->push_back(static_cast<IndexType>(verts * (col - innerStep) + row + i));
                 }
             }
         }

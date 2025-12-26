@@ -36,7 +36,7 @@ namespace
         const osg::ref_ptr<osg::TexMat>& get(const int blendmapScale)
         {
             const std::lock_guard<std::mutex> lock(mMutex);
-            auto texMat = mTexMatMap.find(blendmapScale);
+            auto texMat = mTexMatMap.find(static_cast<float>(blendmapScale));
             if (texMat == mTexMatMap.end())
             {
                 osg::Matrixf matrix;

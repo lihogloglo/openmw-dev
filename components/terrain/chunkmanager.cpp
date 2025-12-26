@@ -227,12 +227,12 @@ namespace Terrain
                 blendmapTextures.push_back(texture);
             }
 
-            float tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
+            int tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
             // Create displacement map passes using the material function
             // Pass chunkSize and chunkCenter for world-space consistent UV calculation
             auto passes = ::Terrain::createDisplacementMapPasses(
-                mSceneManager, layerList, blendmapTextures, tileCount, chunkSize, chunkCenter, mTextureManager);
+                mSceneManager, layerList, blendmapTextures, static_cast<float>(tileCount), chunkSize, chunkCenter, mTextureManager);
 
             for (auto& pass : passes)
             {
@@ -295,21 +295,21 @@ namespace Terrain
             blendmapTextures.push_back(texture);
         }
 
-        float tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
+        int tileCount = mStorage->getTextureTileCount(chunkSize, mWorldspace);
 
         // Use tessellation passes for non-composite chunks when tessellation is enabled in settings
         if (!forCompositeMap && Settings::terrain().mTessellation.get())
         {
             auto passes = ::Terrain::createTessellationPasses(
-                mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
+                mSceneManager, layers, blendmapTextures, tileCount, static_cast<float>(tileCount), ESM::isEsm4Ext(mWorldspace));
             if (!passes.empty())
                 return passes;
             // Fall back to regular passes if tessellation shader compilation fails
             Log(Debug::Warning) << "Tessellation passes failed, falling back to regular shaders";
         }
 
-        return ::Terrain::createPasses(
-            useShaders, mSceneManager, layers, blendmapTextures, tileCount, tileCount, ESM::isEsm4Ext(mWorldspace));
+        return ::Terrain::createPasses(useShaders, mSceneManager, layers, blendmapTextures, tileCount,
+            static_cast<float>(tileCount), ESM::isEsm4Ext(mWorldspace));
     }
 
     osg::ref_ptr<osg::Node> ChunkManager::createChunk(float chunkSize, const osg::Vec2f& chunkCenter, unsigned char lod,
@@ -361,7 +361,8 @@ namespace Terrain
         if (chunkSize <= 1.f)
             geometry->setLightListCallback(new SceneUtil::LightListCallback);
 
-        unsigned int numVerts = (mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1;
+        unsigned int numVerts
+            = static_cast<unsigned int>((mStorage->getCellVertices(mWorldspace) - 1) * chunkSize / (1 << lod) + 1);
 
         // Determine if this chunk uses composite map (large/distant chunks)
         bool useCompositeMap = chunkSize >= mCompositeMapLevel;
@@ -382,13 +383,9 @@ namespace Terrain
         geometry->createClusterCullingCallback();
 
         // Create a chunk-specific stateset that inherits from mMultiPassRoot
+        // Note: cameraPos uniform is no longer needed - the tessellation shader now computes
+        // camera position in local chunk space from gl_ModelViewMatrixInverse
         osg::ref_ptr<osg::StateSet> chunkStateSet = new osg::StateSet(*mMultiPassRoot, osg::CopyOp::SHALLOW_COPY);
-
-        // Add camera position uniform for tessellation LOD calculation
-        if (useTessellation)
-        {
-            chunkStateSet->addUniform(new osg::Uniform("cameraPos", viewPoint));
-        }
 
         geometry->setStateSet(chunkStateSet);
 
@@ -426,7 +423,7 @@ namespace Terrain
                 layer.mSpecular = false;
                 geometry->setPasses(::Terrain::createPasses(
                     mSceneManager->getForceShaders() || !mSceneManager->getClampLighting(), mSceneManager,
-                    std::vector<TextureLayer>(1, layer), std::vector<osg::ref_ptr<osg::Texture2D>>(), 1.f, 1.f));
+                    std::vector<TextureLayer>(1, layer), std::vector<osg::ref_ptr<osg::Texture2D>>(), 1, 1.f));
             }
             else
             {

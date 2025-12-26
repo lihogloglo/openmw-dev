@@ -104,9 +104,11 @@ void main()
         // Height of 0.5 is neutral (no displacement), 0 is down, 1 is up
         float displacement = (height - 0.5) * heightmapDisplacementStrength;
 
-        // Calculate distance-based falloff
-        vec3 cameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-        float distToCamera = length(position - cameraPos);
+        // Calculate distance-based falloff using XY distance only
+        // This matches the TCS shader's distance calculation for consistency
+        vec3 localCameraPos = (gl_ModelViewMatrixInverse * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vec2 xyDiff = position.xy - localCameraPos.xy;
+        float distToCamera = length(xyDiff);
 
         // Smoothly fade out displacement between tessellation min and max distance
         float falloff = 1.0 - smoothstep(tessMinDistance, tessMaxDistance, distToCamera);

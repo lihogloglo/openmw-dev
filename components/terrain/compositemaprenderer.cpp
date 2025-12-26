@@ -72,7 +72,7 @@ namespace Terrain
         // if there are no more external references we can assume the texture is no longer required
         if (compositeMap.mTexture->referenceCount() <= 1)
         {
-            compositeMap.mCompiled = compositeMap.mDrawables.size();
+            compositeMap.mCompiled = static_cast<unsigned int>(compositeMap.mDrawables.size());
             return;
         }
 
@@ -168,7 +168,7 @@ namespace Terrain
     unsigned int CompositeMapRenderer::getCompileSetSize() const
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        return mCompileSet.size();
+        return static_cast<unsigned int>(mCompileSet.size());
     }
 
     CompositeMap::CompositeMap()
