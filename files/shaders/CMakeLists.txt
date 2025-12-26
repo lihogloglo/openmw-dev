@@ -53,6 +53,8 @@ set(SHADER_FILES
     compatibility/gui.frag
     compatibility/debug.vert
     compatibility/debug.frag
+    compatibility/displacementmap.vert
+    compatibility/displacementmap.frag
     compatibility/sky.vert
     compatibility/sky.frag
     compatibility/fullscreen_tri.vert
@@ -67,6 +69,10 @@ set(SHADER_FILES
     core/ripples_simulate.comp
     core/gui.frag
     core/gui.vert
+    core/terrain.vert
+    core/terrain.tesc
+    core/terrain.tese
+    core/terrain.frag
 )
 
 copy_all_resource_files(${CMAKE_CURRENT_SOURCE_DIR} ${OPENMW_RESOURCES_ROOT} ${DDIRRELATIVE} "${SHADER_FILES}")

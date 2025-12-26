@@ -24,8 +24,10 @@ namespace Terrain
 
     class TextureManager;
     class CompositeMapRenderer;
+    class DisplacementMapRenderer;
     class Storage;
     class CompositeMap;
+    class DisplacementMap;
     class TerrainDrawable;
 
     struct TemplateKey
@@ -76,7 +78,8 @@ namespace Terrain
     {
     public:
         explicit ChunkManager(Storage* storage, Resource::SceneManager* sceneMgr, TextureManager* textureManager,
-            CompositeMapRenderer* renderer, ESM::RefId worldspace, double expiryDelay);
+            CompositeMapRenderer* renderer, DisplacementMapRenderer* displacementRenderer,
+            ESM::RefId worldspace, double expiryDelay);
 
         osg::ref_ptr<osg::Node> getChunk(float size, const osg::Vec2f& center, unsigned char lod, unsigned int lodFlags,
             bool activeGrid, const osg::Vec3f& viewPoint, bool compile) override;
@@ -98,12 +101,17 @@ namespace Terrain
 
     private:
         osg::ref_ptr<osg::Node> createChunk(float size, const osg::Vec2f& center, unsigned char lod,
-            unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry);
+            unsigned int lodFlags, bool compile, const TerrainDrawable* templateGeometry, const osg::Vec3f& viewPoint);
 
         osg::ref_ptr<osg::Texture2D> createCompositeMapRTT();
 
         void createCompositeMapGeometry(
             float chunkSize, const osg::Vec2f& chunkCenter, const osg::Vec4f& texCoords, CompositeMap& map);
+
+        osg::ref_ptr<osg::Texture2D> createDisplacementMapRTT();
+
+        void createDisplacementMapGeometry(
+            float chunkSize, const osg::Vec2f& chunkCenter, const osg::Vec4f& texCoords, DisplacementMap& map);
 
         std::vector<osg::ref_ptr<osg::StateSet>> createPasses(
             float chunkSize, const osg::Vec2f& chunkCenter, bool forCompositeMap);
@@ -112,6 +120,7 @@ namespace Terrain
         Resource::SceneManager* mSceneManager;
         TextureManager* mTextureManager;
         CompositeMapRenderer* mCompositeMapRenderer;
+        DisplacementMapRenderer* mDisplacementMapRenderer;
         BufferCache mBufferCache;
 
         osg::ref_ptr<osg::StateSet> mMultiPassRoot;

@@ -23,6 +23,8 @@ namespace Terrain
 
     class CompositeMap;
     class CompositeMapRenderer;
+    class DisplacementMap;
+    class DisplacementMapRenderer;
 
     /**
      * Subclass of Geometry that supports built in multi-pass rendering and built in LightListCallback.
@@ -63,6 +65,10 @@ namespace Terrain
         CompositeMap* getCompositeMap() const { return mCompositeMap; }
         void setCompositeMapRenderer(CompositeMapRenderer* renderer) { mCompositeMapRenderer = renderer; }
 
+        void setDisplacementMap(DisplacementMap* map) { mDisplacementMap = map; }
+        DisplacementMap* getDisplacementMap() const { return mDisplacementMap; }
+        void setDisplacementMapRenderer(DisplacementMapRenderer* renderer) { mDisplacementMapRenderer = renderer; }
+
     private:
         osg::BoundingBox mWaterBoundingBox;
         PassVector mPasses;
@@ -72,6 +78,8 @@ namespace Terrain
         osg::ref_ptr<SceneUtil::LightListCallback> mLightListCallback;
         osg::ref_ptr<CompositeMap> mCompositeMap;
         osg::ref_ptr<CompositeMapRenderer> mCompositeMapRenderer;
+        osg::ref_ptr<DisplacementMap> mDisplacementMap;
+        osg::ref_ptr<DisplacementMapRenderer> mDisplacementMapRenderer;
     };
 
 }

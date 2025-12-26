@@ -38,6 +38,23 @@ namespace Settings
         SettingValue<float> mObjectPagingMinSizeCostMultiplier{ mIndex, "Terrain",
             "object paging min size cost multiplier", makeMaxStrictSanitizerFloat(0) };
         SettingValue<bool> mWaterCulling{ mIndex, "Terrain", "water culling" };
+
+        // GPU Tessellation settings
+        SettingValue<bool> mTessellation{ mIndex, "Terrain", "tessellation" };
+        SettingValue<float> mTessellationMinDistance{ mIndex, "Terrain", "tessellation min distance",
+            makeMaxStrictSanitizerFloat(1.0f) };
+        SettingValue<float> mTessellationMaxDistance{ mIndex, "Terrain", "tessellation max distance",
+            makeMaxStrictSanitizerFloat(1.0f) };
+        SettingValue<float> mTessellationMinLevel{ mIndex, "Terrain", "tessellation min level",
+            makeClampSanitizerFloat(1.0f, 64.0f) };
+        SettingValue<float> mTessellationMaxLevel{ mIndex, "Terrain", "tessellation max level",
+            makeClampSanitizerFloat(1.0f, 64.0f) };
+
+        // Heightmap displacement settings (uses normal map alpha channel)
+        // Displacement fades out using the tessellation distance settings (min/max distance)
+        SettingValue<bool> mHeightmapDisplacement{ mIndex, "Terrain", "heightmap displacement" };
+        SettingValue<float> mHeightmapDisplacementStrength{ mIndex, "Terrain", "heightmap displacement strength",
+            makeClampSanitizerFloat(0.0f, 200.0f) };
     };
 }
 

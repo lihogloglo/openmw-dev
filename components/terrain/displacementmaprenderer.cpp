@@ -1,4 +1,4 @@
-#include "compositemaprenderer.hpp"
+#include "displacementmaprenderer.hpp"
 
 #include <osg/FrameBufferObject>
 #include <osg/RenderInfo>
@@ -9,7 +9,7 @@
 namespace Terrain
 {
 
-    CompositeMapRenderer::CompositeMapRenderer()
+    DisplacementMapRenderer::DisplacementMapRenderer()
         : mTargetFrameRate(120)
         , mMinimumTimeAvailable(0.0025)
     {
@@ -21,9 +21,9 @@ namespace Terrain
         getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
     }
 
-    CompositeMapRenderer::~CompositeMapRenderer() {}
+    DisplacementMapRenderer::~DisplacementMapRenderer() {}
 
-    void CompositeMapRenderer::drawImplementation(osg::RenderInfo& renderInfo) const
+    void DisplacementMapRenderer::drawImplementation(osg::RenderInfo& renderInfo) const
     {
         double dt = mTimer.time_s();
         dt = std::min(dt, 0.2);
@@ -39,7 +39,7 @@ namespace Terrain
 
         while (!mImmediateCompileSet.empty())
         {
-            osg::ref_ptr<CompositeMap> node = *mImmediateCompileSet.begin();
+            osg::ref_ptr<DisplacementMap> node = *mImmediateCompileSet.begin();
             mImmediateCompileSet.erase(node);
 
             mMutex.unlock();
@@ -50,7 +50,7 @@ namespace Terrain
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::duration<double>(availableTime);
         while (!mCompileSet.empty() && std::chrono::steady_clock::now() < deadline)
         {
-            osg::ref_ptr<CompositeMap> node = *mCompileSet.begin();
+            osg::ref_ptr<DisplacementMap> node = *mCompileSet.begin();
             mCompileSet.erase(node);
 
             mMutex.unlock();
@@ -67,12 +67,12 @@ namespace Terrain
         mTimer.setStartTick();
     }
 
-    void CompositeMapRenderer::compile(CompositeMap& compositeMap, osg::RenderInfo& renderInfo) const
+    void DisplacementMapRenderer::compile(DisplacementMap& displacementMap, osg::RenderInfo& renderInfo) const
     {
         // if there are no more external references we can assume the texture is no longer required
-        if (compositeMap.mTexture->referenceCount() <= 1)
+        if (displacementMap.mTexture->referenceCount() <= 1)
         {
-            compositeMap.mCompiled = compositeMap.mDrawables.size();
+            displacementMap.mCompiled = displacementMap.mDrawables.size();
             return;
         }
 
@@ -86,7 +86,7 @@ namespace Terrain
         if (!ext->isFrameBufferObjectSupported)
             return;
 
-        osg::FrameBufferAttachment attach(compositeMap.mTexture);
+        osg::FrameBufferAttachment attach(displacementMap.mTexture);
         mFBO->setAttachment(osg::Camera::COLOR_BUFFER, attach);
         mFBO->apply(state, osg::FrameBufferObject::DRAW_FRAMEBUFFER);
 
@@ -96,17 +96,20 @@ namespace Terrain
         {
             GLuint fboId = state.getGraphicsContext() ? state.getGraphicsContext()->getDefaultFboId() : 0;
             ext->glBindFramebuffer(GL_FRAMEBUFFER_EXT, fboId);
-            OSG_ALWAYS << "Error attaching FBO" << std::endl;
+            OSG_ALWAYS << "Error attaching FBO for displacement map" << std::endl;
             return;
         }
 
         // inform State that Texture attribute has changed due to compiling of FBO texture
-        // should OSG be doing this on its own?
         state.haveAppliedTextureAttribute(state.getActiveTextureUnit(), osg::StateAttribute::TEXTURE);
 
-        for (unsigned int i = compositeMap.mCompiled; i < compositeMap.mDrawables.size(); ++i)
+        // Clear to neutral height (0.5 = no displacement)
+        glClearColor(0.5f, 0.5f, 0.5f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+
+        for (unsigned int i = displacementMap.mCompiled; i < displacementMap.mDrawables.size(); ++i)
         {
-            osg::Drawable* drw = compositeMap.mDrawables[i];
+            osg::Drawable* drw = displacementMap.mDrawables[i];
             osg::StateSet* stateset = drw->getStateSet();
 
             if (stateset)
@@ -114,18 +117,18 @@ namespace Terrain
 
             renderInfo.getState()->apply();
 
-            glViewport(0, 0, compositeMap.mTexture->getTextureWidth(), compositeMap.mTexture->getTextureHeight());
+            glViewport(0, 0, displacementMap.mTexture->getTextureWidth(), displacementMap.mTexture->getTextureHeight());
             drw->drawImplementation(renderInfo);
 
             if (stateset)
                 renderInfo.getState()->popStateSet();
 
-            ++compositeMap.mCompiled;
+            ++displacementMap.mCompiled;
 
-            compositeMap.mDrawables[i] = nullptr;
+            displacementMap.mDrawables[i] = nullptr;
         }
-        if (compositeMap.mCompiled == compositeMap.mDrawables.size())
-            compositeMap.mDrawables = std::vector<osg::ref_ptr<osg::Drawable>>();
+        if (displacementMap.mCompiled == displacementMap.mDrawables.size())
+            displacementMap.mDrawables = std::vector<osg::ref_ptr<osg::Drawable>>();
 
         state.haveAppliedAttribute(osg::StateAttribute::VIEWPORT);
 
@@ -133,49 +136,49 @@ namespace Terrain
         ext->glBindFramebuffer(GL_FRAMEBUFFER_EXT, fboId);
     }
 
-    void CompositeMapRenderer::setMinimumTimeAvailableForCompile(double time)
+    void DisplacementMapRenderer::setMinimumTimeAvailableForCompile(double time)
     {
         mMinimumTimeAvailable = time;
     }
 
-    void CompositeMapRenderer::setTargetFrameRate(float framerate)
+    void DisplacementMapRenderer::setTargetFrameRate(float framerate)
     {
         mTargetFrameRate = framerate;
     }
 
-    void CompositeMapRenderer::addCompositeMap(CompositeMap* compositeMap, bool immediate)
+    void DisplacementMapRenderer::addDisplacementMap(DisplacementMap* displacementMap, bool immediate)
     {
         std::lock_guard<std::mutex> lock(mMutex);
         if (immediate)
-            mImmediateCompileSet.insert(compositeMap);
+            mImmediateCompileSet.insert(displacementMap);
         else
-            mCompileSet.insert(compositeMap);
+            mCompileSet.insert(displacementMap);
     }
 
-    void CompositeMapRenderer::setImmediate(CompositeMap* compositeMap)
+    void DisplacementMapRenderer::setImmediate(DisplacementMap* displacementMap)
     {
         std::lock_guard<std::mutex> lock(mMutex);
-        CompileSet::iterator found = mCompileSet.find(compositeMap);
+        CompileSet::iterator found = mCompileSet.find(displacementMap);
         if (found == mCompileSet.end())
             return;
         else
         {
-            mImmediateCompileSet.insert(compositeMap);
+            mImmediateCompileSet.insert(displacementMap);
             mCompileSet.erase(found);
         }
     }
 
-    unsigned int CompositeMapRenderer::getCompileSetSize() const
+    unsigned int DisplacementMapRenderer::getCompileSetSize() const
     {
         std::lock_guard<std::mutex> lock(mMutex);
         return mCompileSet.size();
     }
 
-    CompositeMap::CompositeMap()
+    DisplacementMap::DisplacementMap()
         : mCompiled(0)
     {
     }
 
-    CompositeMap::~CompositeMap() {}
+    DisplacementMap::~DisplacementMap() {}
 
 }

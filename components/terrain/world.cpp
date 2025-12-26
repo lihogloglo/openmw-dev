@@ -9,6 +9,7 @@
 
 #include "chunkmanager.hpp"
 #include "compositemaprenderer.hpp"
+#include "displacementmaprenderer.hpp"
 #include "heightcull.hpp"
 #include "storage.hpp"
 #include "texturemanager.hpp"
@@ -43,11 +44,14 @@ namespace Terrain
         mCompositeMapRenderer = new CompositeMapRenderer;
         compositeCam->addChild(mCompositeMapRenderer);
 
+        mDisplacementMapRenderer = new DisplacementMapRenderer;
+        compositeCam->addChild(mDisplacementMapRenderer);
+
         mParent->addChild(mTerrainRoot);
 
         mTextureManager = std::make_unique<TextureManager>(mResourceSystem->getSceneManager(), expiryDelay);
         mChunkManager = std::make_unique<ChunkManager>(mStorage, mResourceSystem->getSceneManager(),
-            mTextureManager.get(), mCompositeMapRenderer, mWorldspace, expiryDelay);
+            mTextureManager.get(), mCompositeMapRenderer, mDisplacementMapRenderer, mWorldspace, expiryDelay);
         mChunkManager->setNodeMask(nodeMask);
         mCellBorder
             = std::make_unique<CellBorder>(this, mTerrainRoot.get(), borderMask, mResourceSystem->getSceneManager());
@@ -61,6 +65,7 @@ namespace Terrain
         , mParent(parent)
         , mCompositeMapCamera(nullptr)
         , mCompositeMapRenderer(nullptr)
+        , mDisplacementMapRenderer(nullptr)
         , mResourceSystem(nullptr)
         , mTextureManager(nullptr)
         , mChunkManager(nullptr)
@@ -83,9 +88,12 @@ namespace Terrain
 
         mParent->removeChild(mTerrainRoot);
 
-        if (mCompositeMapCamera && mCompositeMapRenderer)
+        if (mCompositeMapCamera)
         {
-            mCompositeMapCamera->removeChild(mCompositeMapRenderer);
+            if (mCompositeMapRenderer)
+                mCompositeMapCamera->removeChild(mCompositeMapRenderer);
+            if (mDisplacementMapRenderer)
+                mCompositeMapCamera->removeChild(mDisplacementMapRenderer);
             mCompositeMapCamera->getParent(0)->removeChild(mCompositeMapCamera);
         }
     }
@@ -121,7 +129,10 @@ namespace Terrain
 
     void World::setTargetFrameRate(float rate)
     {
-        mCompositeMapRenderer->setTargetFrameRate(rate);
+        if (mCompositeMapRenderer)
+            mCompositeMapRenderer->setTargetFrameRate(rate);
+        if (mDisplacementMapRenderer)
+            mDisplacementMapRenderer->setTargetFrameRate(rate);
     }
 
     float World::getHeightAt(const osg::Vec3f& worldPos)

@@ -50,6 +50,14 @@ namespace Shader
         osg::ref_ptr<osg::Program> getProgram(osg::ref_ptr<osg::Shader> vertexShader,
             osg::ref_ptr<osg::Shader> fragmentShader, const osg::Program* programTemplate = nullptr);
 
+        /// Create or retrieve a tessellation shader program with all 4 stages.
+        /// @param templateName The base name of the shader templates (e.g., "terrain" will load terrain.vert, terrain.tesc, terrain.tese, terrain.frag)
+        /// @param defines Define values that can be retrieved by the shader templates.
+        /// @note May return nullptr if any shader fails to load.
+        /// @note Thread safe.
+        osg::ref_ptr<osg::Program> getTessellationProgram(const std::string& templateName, const DefineMap& defines = {},
+            const osg::Program* programTemplate = nullptr);
+
         const osg::Program* getProgramTemplate() const { return mProgramTemplate; }
         void setProgramTemplate(const osg::Program* program) { mProgramTemplate = program; }
 

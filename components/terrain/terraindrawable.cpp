@@ -1,18 +1,21 @@
 #include "terraindrawable.hpp"
 
 #include <osg/ClusterCullingCallback>
+#include <osg/Uniform>
 #include <osgUtil/CullVisitor>
 
 #include <components/sceneutil/lightmanager.hpp>
+#include <components/settings/values.hpp>
 
 #include "compositemaprenderer.hpp"
+#include "displacementmaprenderer.hpp"
 
 namespace Terrain
 {
 
     TerrainDrawable::TerrainDrawable() {}
 
-    TerrainDrawable::~TerrainDrawable() = default;
+    TerrainDrawable::~TerrainDrawable() {}
 
     TerrainDrawable::TerrainDrawable(const TerrainDrawable& copy, const osg::CopyOp& copyop)
         : osg::Geometry(copy, copyop)
@@ -37,8 +40,8 @@ namespace Terrain
 
     inline float distance(const osg::Vec3& coord, const osg::Matrix& matrix)
     {
-        return -(coord[0] * static_cast<float>(matrix(0, 2)) + coord[1] * static_cast<float>(matrix(1, 2))
-            + coord[2] * static_cast<float>(matrix(2, 2)) + static_cast<float>(matrix(3, 2)));
+        return -((float)coord[0] * (float)matrix(0, 2) + (float)coord[1] * (float)matrix(1, 2)
+            + (float)coord[2] * (float)matrix(2, 2) + matrix(3, 2));
     }
 
     // canot use ClusterCullingCallback::cull: viewpoint != eyepoint
@@ -96,11 +99,55 @@ namespace Terrain
             mCompositeMapRenderer = nullptr;
         }
 
+        if (mDisplacementMap && mDisplacementMapRenderer)
+        {
+            mDisplacementMapRenderer->setImmediate(mDisplacementMap);
+            mDisplacementMapRenderer = nullptr;
+        }
+
         bool pushedLight = mLightListCallback && mLightListCallback->pushLightState(this, cv);
 
         osg::StateSet* stateset = getStateSet();
+
+        // Dynamically update tessellation and displacement uniforms
+        // This ensures settings changes take effect immediately without requiring chunk reload
         if (stateset)
+        {
+            // Update camera position for tessellation LOD calculation
+            osg::Uniform* cameraPosUniform = stateset->getUniform("cameraPos");
+            if (cameraPosUniform)
+            {
+                osg::Vec3f eyePoint = cv->getEyePoint();
+                cameraPosUniform->set(eyePoint);
+            }
             cv->pushStateSet(stateset);
+        }
+
+        // Update tessellation and displacement uniforms in each pass
+        // These uniforms need to reflect current settings values for live updates
+        for (PassVector::const_iterator it = mPasses.begin(); it != mPasses.end(); ++it)
+        {
+            osg::StateSet* passStateset = it->get();
+            if (!passStateset)
+                continue;
+
+            // Update tessellation distance/level uniforms
+            if (osg::Uniform* u = passStateset->getUniform("tessMinDistance"))
+                u->set(Settings::terrain().mTessellationMinDistance.get());
+            if (osg::Uniform* u = passStateset->getUniform("tessMaxDistance"))
+                u->set(Settings::terrain().mTessellationMaxDistance.get());
+            if (osg::Uniform* u = passStateset->getUniform("tessMinLevel"))
+                u->set(Settings::terrain().mTessellationMinLevel.get());
+            if (osg::Uniform* u = passStateset->getUniform("tessMaxLevel"))
+                u->set(Settings::terrain().mTessellationMaxLevel.get());
+
+            // Update displacement uniforms
+            // All passes use the same displacement map, so they all displace identically
+            if (osg::Uniform* u = passStateset->getUniform("heightmapDisplacementEnabled"))
+                u->set(Settings::terrain().mHeightmapDisplacement.get());
+            if (osg::Uniform* u = passStateset->getUniform("heightmapDisplacementStrength"))
+                u->set(Settings::terrain().mHeightmapDisplacementStrength.get());
+        }
 
         for (PassVector::const_iterator it = mPasses.begin(); it != mPasses.end(); ++it)
         {

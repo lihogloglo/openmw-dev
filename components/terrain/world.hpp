@@ -35,6 +35,7 @@ namespace Terrain
     class TextureManager;
     class ChunkManager;
     class CompositeMapRenderer;
+    class DisplacementMapRenderer;
     class View;
     class HeightCullCallback;
 
@@ -119,6 +120,7 @@ namespace Terrain
 
         osg::ref_ptr<osg::Group> mCompositeMapCamera;
         osg::ref_ptr<CompositeMapRenderer> mCompositeMapRenderer;
+        osg::ref_ptr<DisplacementMapRenderer> mDisplacementMapRenderer;
 
         Resource::ResourceSystem* mResourceSystem;
 
